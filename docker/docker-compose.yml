@@ -7,8 +7,6 @@ services:
         volumes:
             - ${VOL}:/app
             - ./entrypoints:/app/Entrypoints
-        links:
-            - yse_db
         command: bash ./Entrypoints/docker-compose-up-entrypoint.sh
         ports:
         - "8000:8000"
@@ -28,15 +26,16 @@ services:
         depends_on:
           yse_db:
             condition: service_healthy
+        networks:
+          - tsst_net
     yse_db:
       container_name: ysepz_db_container
       image: "arm64v8/mysql:8.0.35"
-#      platform: linux/amd64
       command: mysqld --default-authentication-plugin=mysql_native_password
       ports:
         - "${LOCAL_DB_PORT}:3306"
       volumes:
-        - ${VOL_DB}:/var/lib/mysql
+        - ${VOL_DB}:/var/run/mysqld
         - ./db_init/db_configuration:/etc/mysql/conf.d
         - ./db_init/init.sql:/docker-entrypoint-initdb.d/1.sql
         - ./db_init/YSE_Initial_Schema.sql:/docker-entrypoint-initdb.d/2.sql
@@ -52,6 +51,8 @@ services:
         test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
         timeout: 20s
         retries: 10
+      networks:
+        - tsst_net
     yse_nginx:
       container_name: ysepz_web_nginx_container
       image: "nginx:1.21-alpine"
@@ -62,4 +63,7 @@ services:
         - ${STATIC_VOL}:/static
       depends_on:
         - web
+networks:
+  tsst_net:
+    name: tsst_net
 
