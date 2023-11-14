@@ -102,16 +102,21 @@ def auth_logout(request):
 def dashboard(request):
 
     transient_categories = []
-    for title,statusname in zip(['New Transients','Followup Requested','Following','Interesting','Watch','Finished Following','Needs Template'],
-                                ['New','FollowupRequested','Following','Interesting','Watch','FollowupFinished','NeedsTemplate']):
+    # for title, statusname in zip(['New Transients','Followup Requested','Following','Interesting','Watch','Finished Following','Needs Template'],
+    #                             ['New','FollowupRequested','Following','Interesting','Watch','FollowupFinished','NeedsTemplate']):
+    for title, statusname in zip(['New Candidates'], ['Candidate']):
         status = TransientStatus.objects.filter(name=statusname).order_by('-modified_date')
         if len(status) == 1:
             transients = Transient.objects.filter(status=status[0]).order_by('-disc_date')
         else:
             transients = Transient.objects.filter(status=None).order_by('-disc_date')
+
         transientfilter = TransientFilter(request.GET, queryset=transients,prefix=statusname.lower())
-        if statusname == 'New': table = NewTransientTable(transientfilter.qs,prefix=statusname.lower())
-        else: table = TransientTable(transientfilter.qs,prefix=statusname.lower())
+        if statusname == 'New':
+            table = NewTransientTable(transientfilter.qs, prefix=statusname.lower())
+        else:
+            table = TransientTable(transientfilter.qs, prefix=statusname.lower())
+
         RequestConfig(request, paginate={'per_page': 10}).configure(table)
         transient_categories += [(table,title,statusname.lower(),transientfilter),]
     

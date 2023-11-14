@@ -7,9 +7,9 @@
 	<meta charset="utf-8">
 	<meta http-equiv="X-UA-Compatible" content="IE=edge">
 	{% if transient %}
-	<title>YSE | PZ: {{transient.name}}</title>
+	<title>TSST | PZ: {{transient.name}}</title>
 	{% else %}
-	<title>YSE | PZ</title>
+	<title>TSST | PZ</title>
 	{% endif %}
 	<!-- Tell the browser to be responsive to screen width -->
 
@@ -46,7 +46,7 @@
 	{% endblock %}
 
 </head>
-<body class="hold-transition skin-red sidebar-mini">
+<body class="hold-transition skin-blue sidebar-mini">
 <!-- Site wrapper -->
 <div class="wrapper">
 
@@ -54,9 +54,9 @@
 		<!-- Logo -->
 		<a href="{% url 'dashboard' %}" class="logo">
 			<!-- mini logo for sidebar mini 50x50 pixels -->
-			<span class="logo-mini"><b>Y</b>PZ</span>
+			<span class="logo-mini"><b>T</b>PZ</span>
 			<!-- logo for regular state and mobile devices -->
-			<span class="logo-lg"><b>YSE</b>PZ</span>
+			<span class="logo-lg"><b>TSST</b>PZ</span>
 		</a>
 		<!-- Header Navbar: style can be found in header.less -->
 		<nav class="navbar navbar-static-top">
@@ -83,23 +83,23 @@
 				<li class="header">MAIN NAVIGATION</li>
 				<li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> <span>Main Dashboard</span></a></li>
 				<li><a href="{% url 'personaldashboard' %}"><i class="fa fa-id-card"></i> <span>{{ user.first_name }}'s Dashboard</span></a></li>
-				<li><a href="{% url 'followup' %}"><i class="fa fa-binoculars"></i> <span>Follow Requests</span></a></li>
-				<li><a href="{% url 'calendar' %}"><i class="fa fa-calendar"></i> <span>On-Call Calendar</span></a></li>
-				<li><a href="{% url 'observing_calendar' %}"><i class="fa fa-calendar"></i> <span>Observing Calendar</span></a></li>
+{#				<li><a href="{% url 'followup' %}"><i class="fa fa-binoculars"></i> <span>Follow Requests</span></a></li>#}
+{#				<li><a href="{% url 'calendar' %}"><i class="fa fa-calendar"></i> <span>On-Call Calendar</span></a></li>#}
+{#				<li><a href="{% url 'observing_calendar' %}"><i class="fa fa-calendar"></i> <span>Observing Calendar</span></a></li>#}
                 <li><a href="{% url 'transient_tags' %}"><i class="fa fa-search"></i> <span>Search By Tag</span></a></li>
 				<li><a href="{% url 'admin:index' %}"><i class="fa fa-th"></i> <span>Admin</span></a></li>
                 <li><a href="{% url 'explorer_index' %}"><i class="fa fa-database"></i> <span>Query Explorer</span></a></li>
-                <li><a href="{% url 'survey' %}"><i class="fa fa-home"></i> <span>Survey Home</span></a></li>
-				<li><a target="_blank" href="https://yse-pz.readthedocs.io/en/latest/howto.html"><i class="fa fa-book"></i> <span>Help/How-to</span></a></li>
-				<li><a target="_blank" href="https://docs.google.com/document/d/1VtMY2v7hssj6DF4Jn--skd1VfAHYCBWvptm3vkqFA8o/edit?usp=sharing"><i class="fa fa-book"></i> <span>Follow-up Guidelines</span></a></li>
+{#                <li><a href="{% url 'survey' %}"><i class="fa fa-home"></i> <span>Survey Home</span></a></li>#}
+{#				<li><a target="_blank" href="https://yse-pz.readthedocs.io/en/latest/howto.html"><i class="fa fa-book"></i> <span>Help/How-to</span></a></li>#}
+{#				<li><a target="_blank" href="https://docs.google.com/document/d/1VtMY2v7hssj6DF4Jn--skd1VfAHYCBWvptm3vkqFA8o/edit?usp=sharing"><i class="fa fa-book"></i> <span>Follow-up Guidelines</span></a></li>#}
 				<li><a href="{% url 'acknowledgements' %}"><i class="fa fa-book"></i> <span>Acknowledgements</span></a></li>
-				{% if user|has_group:'YSE' > 0 %}
-				<ul>YSE</ul>
-				<li><a href="{% url 'yse_home' %}"><i class="fa fa-home"></i> <span>YSE Home</span></a></li>
-				<li><a href="{% url 'yse_observing_calendar' %}"><i class="fa fa-calendar"></i> <span>YSE Schedule</span></a></li>
-				<li><a href="{% url 'yse_oncall_calendar' %}"><i class="fa fa-calendar"></i> <span>YSE On-Call Calendar</span></a></li>
-				<li><a href="https://drive.google.com/open?id=1w-ojG_yGO2b2_9_0WuMC76QOVusf-lYP" target="_blank"><i class="fa fa-calendar"></i> <span>YSE Help and Survey Docs</span></a></li>
-				{% endif %}
+{#				{% if user|has_group:'YSE' > 0 %}#}
+{#				<ul>YSE</ul>#}
+{#				<li><a href="{% url 'yse_home' %}"><i class="fa fa-home"></i> <span>YSE Home</span></a></li>#}
+{#				<li><a href="{% url 'yse_observing_calendar' %}"><i class="fa fa-calendar"></i> <span>YSE Schedule</span></a></li>#}
+{#				<li><a href="{% url 'yse_oncall_calendar' %}"><i class="fa fa-calendar"></i> <span>YSE On-Call Calendar</span></a></li>#}
+{#				<li><a href="https://drive.google.com/open?id=1w-ojG_yGO2b2_9_0WuMC76QOVusf-lYP" target="_blank"><i class="fa fa-calendar"></i> <span>YSE Help and Survey Docs</span></a></li>#}
+{#				{% endif %}#}
 			</ul>
 		</section>
 		<!-- /.sidebar -->
