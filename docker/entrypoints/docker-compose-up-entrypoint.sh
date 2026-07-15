@@ -2,6 +2,7 @@
 
 bash ./Entrypoints/wait-for-it.sh yse_db:3306 --timeout=0 &&
 echo "**** LET'S GO GAMERS! ****" &&
+python3 manage.py migrate --noinput &&
 gunicorn YSE_PZ.wsgi:application --bind 0.0.0.0:8000 --timeout=0
 #&& bash ./Entrypoints/wait-for-it.sh yse_nginx:80 --timeout=0
 
