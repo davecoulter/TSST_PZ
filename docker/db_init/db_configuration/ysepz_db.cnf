@@ -3,3 +3,10 @@ local_infile=1
 log_error=/var/log/mysql/mysql_error.log
 general_log_file=/var/log/mysql/mysql.log
 general_log=1
+# --- runaway-query guard rails ---
+# Kill any SELECT running longer than 10 seconds.
+max_execution_time=10000
+# Cap InnoDB on-disk internal temp tablespace (default: unbounded autoextend).
+innodb_temp_data_file_path=ibtmp1:12M:autoextend:max:2G
+# Cap TempTable engine disk spill for internal temp tables.
+temptable_max_mmap=1G

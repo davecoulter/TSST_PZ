@@ -33,6 +33,13 @@ DEBUG = bool(config.get('site_settings', 'IS_DEBUG'))
 
 ALLOWED_HOSTS = ['*']
 
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8080',   # nginx (LOCAL_HTTP_PORT)
+    'http://127.0.0.1:8080',
+    'http://localhost:8000',   # web container direct port
+    'http://127.0.0.1:8000',
+]
+
 
 # Application definitionEXPLORER_SQL_BLACKLIST
 

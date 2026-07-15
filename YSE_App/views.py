@@ -22,7 +22,11 @@ from YSE_App.yse_utils.yse_pa import yse_pa
 from django.utils.decorators import method_decorator
 
 from astropy.utils import iers
-iers.conf.auto_download = True
+# Never block a web request on an IERS-A bulletin download: use the IERS-B data
+# bundled with astropy and cap any remote access. auto_download=True put an
+# unbounded network call in the request path, which could hang a worker.
+iers.conf.auto_download = False
+iers.conf.remote_timeout = 10
 from astropy.utils.iers import conf
 conf.auto_max_age = None
 
@@ -102,24 +106,18 @@ def auth_logout(request):
 def dashboard(request):
 
     transient_categories = []
-    # for title, statusname in zip(['New Transients','Followup Requested','Following','Interesting','Watch','Finished Following','Needs Template'],
-    #                             ['New','FollowupRequested','Following','Interesting','Watch','FollowupFinished','NeedsTemplate']):
-    for title, statusname in zip(['New Candidates'], ['Candidate']):
-        status = TransientStatus.objects.filter(name=statusname).order_by('-modified_date')
-        if len(status) == 1:
-            transients = Transient.objects.filter(status=status[0]).order_by('-disc_date')
-        else:
-            transients = Transient.objects.filter(status=None).order_by('-disc_date')
+    # One dashboard box per tag, read live from the DB (tags are seeded by
+    # db_init/YSE_rest_of_tables_insert.sql / created via upload, not hardcoded).
+    for tagname in TransientTag.objects.order_by('name').values_list('name', flat=True):
+        prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
+        transients = Transient.objects.filter(tags__name=tagname).order_by('-disc_date')
 
-        transientfilter = TransientFilter(request.GET, queryset=transients,prefix=statusname.lower())
-        if statusname == 'New':
-            table = NewTransientTable(transientfilter.qs, prefix=statusname.lower())
-        else:
-            table = TransientTable(transientfilter.qs, prefix=statusname.lower())
+        transientfilter = TransientFilter(request.GET, queryset=transients, prefix=prefix)
+        table = TransientTable(transientfilter.qs, prefix=prefix)
 
         RequestConfig(request, paginate={'per_page': 10}).configure(table)
-        transient_categories += [(table,title,statusname.lower(),transientfilter),]
-    
+        transient_categories += [(table, tagname, tagname, transientfilter),]
+
     if request.META['QUERY_STRING']:
         anchor = request.META['QUERY_STRING'].split('-')[0]
     else: anchor = ''
@@ -212,6 +210,8 @@ def transient_summary(request,status_or_query_name,
     status = TransientStatus.objects.filter(name=status_or_query_name.replace('followrequest','FollowupRequested')).order_by('-modified_date')
     if len(status) == 1:
         transients = Transient.objects.filter(status=status[0]).order_by('-disc_date')
+    elif TransientTag.objects.filter(name=unquote(status_or_query_name)).exists():
+        transients = Transient.objects.filter(tags__name=unquote(status_or_query_name)).order_by('-disc_date')
     else:
         query = Query.objects.filter(title=unquote(status_or_query_name))
         if len(query):
@@ -942,6 +942,23 @@ def download_targets_and_finders(request, telescope, obs_date):
 @login_required
 def transient_detail(request, slug):
 
+    # --- DIAGNOSTIC: bare-minimum render (toggle with ?bare=1) ---------------
+    # Reads exactly one transient row and returns plain text: no template, no
+    # template tags, no Aladin/JS9, no host/photometry/spectra/image queries,
+    # no remote fetches. If ?bare=1 is fast and light while the normal page
+    # hangs/balloons memory, the culprit is the heavy context or a remote
+    # download in the full template -- not the DB row lookup itself.
+    if request.GET.get('bare'):
+        t = Transient.objects.filter(slug=slug).values('name', 'ra', 'dec').first()
+        if not t:
+            raise Http404('Transient not found')
+        return HttpResponse(
+            "BARE transient_detail\n"
+            f"name={t['name']}\nra={t['ra']}\ndec={t['dec']}\n",
+            content_type='text/plain',
+        )
+    # -------------------------------------------------------------------------
+
     classical_resource_form = ClassicalResourceForm()
     too_resource_form = ToOResourceForm()
     automated_spectrum_form = AutomatedSpectrumRequest()
@@ -1033,7 +1050,10 @@ def transient_detail(request, slug):
 
         lastphotdata = view_utils.get_recent_phot_for_transient(request.user, transient_id=transient_id)
         firstphotdata = view_utils.get_disc_mag_for_transient(request.user, transient_id=transient_id)
-        allphotdata = view_utils.get_all_phot_for_transient(request.user, transient_id).select_related()
+        # NOTE: bare .select_related() explodes here (recursive joins over every
+        # non-null FK incl. created_by/modified_by -> MySQL optimizer blow-up).
+        # Scope to the FKs the template actually uses (band.name, band.instrument.name).
+        allphotdata = view_utils.get_all_phot_for_transient(request.user, transient_id).select_related('band__instrument')
         #import pdb
         #pdb.set_trace()
 
@@ -1060,7 +1080,7 @@ def transient_detail(request, slug):
             'followups':followups,
             # 'telescope_list': tellist,
             'observing_nights': obsnights,
-            'too_resource_list': too_resources.select_related(),
+            'too_resource_list': too_resources.select_related('telescope__observatory'),
             'nowtime':date.strftime(date_format),
             'transient_followup_form': transient_followup_form,
             'transient_observation_task_form': transient_observation_task_form,
