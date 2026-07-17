@@ -42,7 +42,11 @@ import django
 import datetime
 from astroplan.plots import plot_airmass
 from astropy.utils import iers
-iers.conf.auto_download = True
+# Never block a web request on an IERS-A bulletin download: use the IERS-B data
+# bundled with astropy and cap any remote access. auto_download=True put an
+# unbounded network call in the request path, which could hang a worker.
+iers.conf.auto_download = False
+iers.conf.remote_timeout = 10
 from astropy.cosmology import FlatLambdaCDM
 from bokeh.models import Legend
 cosmo = FlatLambdaCDM(70,0.3)
@@ -147,7 +151,8 @@ def getMoonAngle(observingdate,telescope,ra,dec):
     return('%.1f'%cs.separation(mooncoord).deg)
 
 def get_obs_nights_happening_soon(user):
-    allowed_nights = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(user).select_related()
+    allowed_nights = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(user).select_related(
+        'resource__telescope__observatory', 'night_type')
     allowed_nights_happening_soon = []
     for an in allowed_nights:
         if an.happening_soon():

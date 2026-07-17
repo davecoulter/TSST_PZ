@@ -211,7 +211,7 @@ class InstrumentFilter(django_filters.FilterSet):
         fields = ()
     
 ### `Instrument` ViewSets ###
-class InstrumentViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class InstrumentViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Instrument.objects.all()
     serializer_class = InstrumentSerializer
     lookup_field = "id"
@@ -248,7 +248,7 @@ class HostObservationTaskViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet
     permission_classes = (permissions.IsAuthenticated,)
 
 ### `Observatory` ViewSets ###
-class ObservatoryViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class ObservatoryViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Observatory.objects.all()
     serializer_class = ObservatorySerializer
     permission_classes = (permissions.IsAuthenticated,)
@@ -313,7 +313,7 @@ class HostImageViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     permission_classes = (permissions.IsAuthenticated,)
 
 ### `Photometric Band` ViewSets ###
-class PhotometricBandViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class PhotometricBandViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = PhotometricBand.objects.all()
     serializer_class = PhotometricBandSerializer
     lookup_field = "id"
@@ -423,7 +423,7 @@ class ClassicalObservingDateViewSet(custom_viewsets.ListCreateRetrieveUpdateView
         return allowed_resource
 
 ### `Telescope` ViewSets ###
-class TelescopeViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TelescopeViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Telescope.objects.all()
     serializer_class = TelescopeSerializer
     permission_classes = (permissions.IsAuthenticated,)
@@ -445,7 +445,7 @@ class TransientFilter(django_filters.FilterSet):
         fields = ('created_date','modified_date')
 
 ### `Transient` ViewSets ###
-class TransientViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TransientViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Transient.objects.all()
     serializer_class = TransientSerializer
     permission_classes = (permissions.IsAuthenticated,)
@@ -471,7 +471,7 @@ class GroupViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = (permissions.IsAuthenticated,)
 
 ### `Tag` ViewSets ###
-class TransientTagViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TransientTagViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = TransientTag.objects.all()
     serializer_class = TransientTagSerializer
     permission_classes = (permissions.IsAuthenticated,)

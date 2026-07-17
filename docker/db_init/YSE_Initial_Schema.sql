@@ -540,7 +540,6 @@ CREATE TABLE `YSE_App_hostphotdata` (
   `modified_by_id` int NOT NULL,
   `photometry_id` int NOT NULL,
   `unit_id` int DEFAULT NULL,
-  `data_quality_id` int DEFAULT NULL,
   `diffim` tinyint(1) DEFAULT NULL,
   `zp_off` double DEFAULT NULL,
   `mag_sys_id` int DEFAULT NULL,
@@ -550,11 +549,9 @@ CREATE TABLE `YSE_App_hostphotdata` (
   KEY `YSE_App_hostphotdata_modified_by_id_78cc811c_fk_auth_user_id` (`modified_by_id`),
   KEY `YSE_App_hostphotdata_photometry_id_b04ce33f_fk_YSE_App_h` (`photometry_id`),
   KEY `YSE_App_hostphotdata_unit_id_77a51e6b_fk_YSE_App_unit_id` (`unit_id`),
-  KEY `YSE_App_hostphotdata_data_quality_id_6c96463d_fk_YSE_App_d` (`data_quality_id`),
   KEY `YSE_App_hostphotdata_mag_sys_id_fd405dc6_fk_YSE_App_magsystem_id` (`mag_sys_id`),
   CONSTRAINT `YSE_App_hostphotdata_band_id_81a13f79_fk_YSE_App_p` FOREIGN KEY (`band_id`) REFERENCES `YSE_App_photometricband` (`id`),
   CONSTRAINT `YSE_App_hostphotdata_created_by_id_5f1e3dbe_fk_auth_user_id` FOREIGN KEY (`created_by_id`) REFERENCES `auth_user` (`id`),
-  CONSTRAINT `YSE_App_hostphotdata_data_quality_id_6c96463d_fk_YSE_App_d` FOREIGN KEY (`data_quality_id`) REFERENCES `YSE_App_dataquality` (`id`),
   CONSTRAINT `YSE_App_hostphotdata_mag_sys_id_fd405dc6_fk_YSE_App_magsystem_id` FOREIGN KEY (`mag_sys_id`) REFERENCES `YSE_App_magsystem` (`id`),
   CONSTRAINT `YSE_App_hostphotdata_modified_by_id_78cc811c_fk_auth_user_id` FOREIGN KEY (`modified_by_id`) REFERENCES `auth_user` (`id`),
   CONSTRAINT `YSE_App_hostphotdata_photometry_id_b04ce33f_fk_YSE_App_h` FOREIGN KEY (`photometry_id`) REFERENCES `YSE_App_hostphotometry` (`id`),
@@ -705,6 +702,7 @@ CREATE TABLE `YSE_App_hostspectrum` (
   `spec_data_file` varchar(512) DEFAULT NULL,
   `spectrum_notes` longtext,
   `tdr` double DEFAULT NULL,
+  `reference` varchar(512) DEFAULT NULL,
   `created_by_id` int NOT NULL,
   `followup_id` int DEFAULT NULL,
   `host_id` int NOT NULL,
@@ -712,7 +710,6 @@ CREATE TABLE `YSE_App_hostspectrum` (
   `modified_by_id` int NOT NULL,
   `obs_group_id` int NOT NULL,
   `unit_id` int DEFAULT NULL,
-  `data_quality_id` int DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `YSE_App_hostspectrum_created_by_id_84a495b5_fk_auth_user_id` (`created_by_id`),
   KEY `YSE_App_hostspectrum_followup_id_3ccb9d5a_fk_YSE_App_h` (`followup_id`),
@@ -721,9 +718,7 @@ CREATE TABLE `YSE_App_hostspectrum` (
   KEY `YSE_App_hostspectrum_modified_by_id_e8c50cfb_fk_auth_user_id` (`modified_by_id`),
   KEY `YSE_App_hostspectrum_obs_group_id_bbcd2788_fk_YSE_App_o` (`obs_group_id`),
   KEY `YSE_App_hostspectrum_unit_id_282ef9ed_fk_YSE_App_unit_id` (`unit_id`),
-  KEY `YSE_App_hostspectrum_data_quality_id_7b2b7b39_fk_YSE_App_d` (`data_quality_id`),
   CONSTRAINT `YSE_App_hostspectrum_created_by_id_84a495b5_fk_auth_user_id` FOREIGN KEY (`created_by_id`) REFERENCES `auth_user` (`id`),
-  CONSTRAINT `YSE_App_hostspectrum_data_quality_id_7b2b7b39_fk_YSE_App_d` FOREIGN KEY (`data_quality_id`) REFERENCES `YSE_App_dataquality` (`id`),
   CONSTRAINT `YSE_App_hostspectrum_followup_id_3ccb9d5a_fk_YSE_App_h` FOREIGN KEY (`followup_id`) REFERENCES `YSE_App_hostfollowup` (`id`),
   CONSTRAINT `YSE_App_hostspectrum_host_id_febaa670_fk_YSE_App_host_id` FOREIGN KEY (`host_id`) REFERENCES `YSE_App_host` (`id`),
   CONSTRAINT `YSE_App_hostspectrum_instrument_id_c34b97cc_fk_YSE_App_i` FOREIGN KEY (`instrument_id`) REFERENCES `YSE_App_instrument` (`id`),
@@ -1395,6 +1390,7 @@ CREATE TABLE `YSE_App_surveyobservation` (
   `stack_id` varchar(128) DEFAULT NULL,
   `warp_id` varchar(128) DEFAULT NULL,
   `msb_id` int DEFAULT NULL,
+  `priority` int DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `YSE_App_surveyobservation_created_by_id_0d8a6c2a_fk_auth_user_id` (`created_by_id`),
   KEY `YSE_App_surveyobserv_modified_by_id_2db2f1a9_fk_auth_user` (`modified_by_id`),
@@ -1810,7 +1806,6 @@ CREATE TABLE `YSE_App_transientphotdata` (
   `photometry_id` int NOT NULL,
   `discovery_point` tinyint(1) DEFAULT NULL,
   `unit_id` int DEFAULT NULL,
-  `data_quality_id` int DEFAULT NULL,
   `diffim` tinyint(1) DEFAULT NULL,
   `zp_off` double DEFAULT NULL,
   `mag_sys_id` int DEFAULT NULL,
@@ -1820,10 +1815,8 @@ CREATE TABLE `YSE_App_transientphotdata` (
   KEY `YSE_App_transientpho_modified_by_id_6eeed5db_fk_auth_user` (`modified_by_id`),
   KEY `YSE_App_transientpho_photometry_id_fbc5dfd2_fk_YSE_App_t` (`photometry_id`),
   KEY `YSE_App_transientphotdata_unit_id_22ad2703_fk_YSE_App_unit_id` (`unit_id`),
-  KEY `YSE_App_transientpho_data_quality_id_42c5683e_fk_YSE_App_d` (`data_quality_id`),
   KEY `YSE_App_transientpho_mag_sys_id_2f6411d4_fk_YSE_App_m` (`mag_sys_id`),
   CONSTRAINT `YSE_App_transientpho_band_id_ba0c5fc2_fk_YSE_App_p` FOREIGN KEY (`band_id`) REFERENCES `YSE_App_photometricband` (`id`),
-  CONSTRAINT `YSE_App_transientpho_data_quality_id_42c5683e_fk_YSE_App_d` FOREIGN KEY (`data_quality_id`) REFERENCES `YSE_App_dataquality` (`id`),
   CONSTRAINT `YSE_App_transientpho_mag_sys_id_2f6411d4_fk_YSE_App_m` FOREIGN KEY (`mag_sys_id`) REFERENCES `YSE_App_magsystem` (`id`),
   CONSTRAINT `YSE_App_transientpho_modified_by_id_6eeed5db_fk_auth_user` FOREIGN KEY (`modified_by_id`) REFERENCES `auth_user` (`id`),
   CONSTRAINT `YSE_App_transientpho_photometry_id_fbc5dfd2_fk_YSE_App_t` FOREIGN KEY (`photometry_id`) REFERENCES `YSE_App_transientphotometry` (`id`),
@@ -1938,6 +1931,7 @@ CREATE TABLE `YSE_App_transientspectrum` (
   `spectrum_notes` longtext,
   `rlap` double DEFAULT NULL,
   `snid_plot_file` varchar(512) DEFAULT NULL,
+  `reference` varchar(512) DEFAULT NULL,
   `created_by_id` int NOT NULL,
   `followup_id` int DEFAULT NULL,
   `instrument_id` int NOT NULL,
@@ -1946,7 +1940,6 @@ CREATE TABLE `YSE_App_transientspectrum` (
   `spec_phase` double DEFAULT NULL,
   `transient_id` int NOT NULL,
   `unit_id` int DEFAULT NULL,
-  `data_quality_id` int DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `YSE_App_transientspectrum_created_by_id_9c3a247e_fk_auth_user_id` (`created_by_id`),
   KEY `YSE_App_transientspe_followup_id_3052a379_fk_YSE_App_t` (`followup_id`),
@@ -1955,8 +1948,6 @@ CREATE TABLE `YSE_App_transientspectrum` (
   KEY `YSE_App_transientspe_obs_group_id_14bc781d_fk_YSE_App_o` (`obs_group_id`),
   KEY `YSE_App_transientspe_transient_id_3d4fe5ec_fk_YSE_App_t` (`transient_id`),
   KEY `YSE_App_transientspectrum_unit_id_dfdc44ef_fk_YSE_App_unit_id` (`unit_id`),
-  KEY `YSE_App_transientspe_data_quality_id_dc019acc_fk_YSE_App_d` (`data_quality_id`),
-  CONSTRAINT `YSE_App_transientspe_data_quality_id_dc019acc_fk_YSE_App_d` FOREIGN KEY (`data_quality_id`) REFERENCES `YSE_App_dataquality` (`id`),
   CONSTRAINT `YSE_App_transientspe_followup_id_3052a379_fk_YSE_App_t` FOREIGN KEY (`followup_id`) REFERENCES `YSE_App_transientfollowup` (`id`),
   CONSTRAINT `YSE_App_transientspe_instrument_id_e484c746_fk_YSE_App_i` FOREIGN KEY (`instrument_id`) REFERENCES `YSE_App_instrument` (`id`),
   CONSTRAINT `YSE_App_transientspe_modified_by_id_3b605817_fk_auth_user` FOREIGN KEY (`modified_by_id`) REFERENCES `auth_user` (`id`),
@@ -2623,6 +2614,54 @@ CREATE TABLE `silk_sqlquery` (
   CONSTRAINT `silk_sqlquery_request_id_6f8f0527_fk_silk_request_id` FOREIGN KEY (`request_id`) REFERENCES `silk_request` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=25292 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- data_quality M2M through tables (Transient/Host phot+spec <-> DataQuality)
+--
+CREATE TABLE `YSE_App_hostphotdata_data_quality` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `hostphotdata_id` int NOT NULL,
+  `dataquality_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `YSE_App_hostphotdata_dat_hostphotdata_id_dataqual_aac07e62_uniq` (`hostphotdata_id`,`dataquality_id`),
+  KEY `YSE_App_hostphotdata_dataquality_id_533eb35f_fk_YSE_App_d` (`dataquality_id`),
+  CONSTRAINT `YSE_App_hostphotdata_dataquality_id_533eb35f_fk_YSE_App_d` FOREIGN KEY (`dataquality_id`) REFERENCES `YSE_App_dataquality` (`id`),
+  CONSTRAINT `YSE_App_hostphotdata_hostphotdata_id_501a453f_fk_YSE_App_h` FOREIGN KEY (`hostphotdata_id`) REFERENCES `YSE_App_hostphotdata` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+CREATE TABLE `YSE_App_hostspectrum_data_quality` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `hostspectrum_id` int NOT NULL,
+  `dataquality_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `YSE_App_hostspectrum_dat_hostspectrum_id_dataqual_3a9aaa04_uniq` (`hostspectrum_id`,`dataquality_id`),
+  KEY `YSE_App_hostspectrum_dataquality_id_f17889a1_fk_YSE_App_d` (`dataquality_id`),
+  CONSTRAINT `YSE_App_hostspectrum_dataquality_id_f17889a1_fk_YSE_App_d` FOREIGN KEY (`dataquality_id`) REFERENCES `YSE_App_dataquality` (`id`),
+  CONSTRAINT `YSE_App_hostspectrum_hostspectrum_id_37dda9b1_fk_YSE_App_h` FOREIGN KEY (`hostspectrum_id`) REFERENCES `YSE_App_hostspectrum` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+CREATE TABLE `YSE_App_transientphotdata_data_quality` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `transientphotdata_id` int NOT NULL,
+  `dataquality_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `YSE_App_transientphotdat_transientphotdata_id_dat_71c1d877_uniq` (`transientphotdata_id`,`dataquality_id`),
+  KEY `YSE_App_transientpho_dataquality_id_90e16214_fk_YSE_App_d` (`dataquality_id`),
+  CONSTRAINT `YSE_App_transientpho_dataquality_id_90e16214_fk_YSE_App_d` FOREIGN KEY (`dataquality_id`) REFERENCES `YSE_App_dataquality` (`id`),
+  CONSTRAINT `YSE_App_transientpho_transientphotdata_id_3ebfc994_fk_YSE_App_t` FOREIGN KEY (`transientphotdata_id`) REFERENCES `YSE_App_transientphotdata` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+CREATE TABLE `YSE_App_transientspectrum_data_quality` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `transientspectrum_id` int NOT NULL,
+  `dataquality_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `YSE_App_transientspectru_transientspectrum_id_dat_10f6ab14_uniq` (`transientspectrum_id`,`dataquality_id`),
+  KEY `YSE_App_transientspe_dataquality_id_6baf5b5d_fk_YSE_App_d` (`dataquality_id`),
+  CONSTRAINT `YSE_App_transientspe_dataquality_id_6baf5b5d_fk_YSE_App_d` FOREIGN KEY (`dataquality_id`) REFERENCES `YSE_App_dataquality` (`id`),
+  CONSTRAINT `YSE_App_transientspe_transientspectrum_id_aed7e661_fk_YSE_App_t` FOREIGN KEY (`transientspectrum_id`) REFERENCES `YSE_App_transientspectrum` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
