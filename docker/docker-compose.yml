@@ -28,6 +28,7 @@ services:
         depends_on:
           yse_db:
             condition: service_healthy
+        restart: unless-stopped
         tty: true
         networks:
           - tsst_net
@@ -52,6 +53,7 @@ services:
         test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
         timeout: 20s
         retries: 10
+      restart: unless-stopped
       networks:
         - tsst_net
     yse_nginx:
@@ -64,6 +66,7 @@ services:
         - ${STATIC_VOL}:/static
       depends_on:
         - web
+      restart: unless-stopped
       networks:
         - tsst_net
 networks:

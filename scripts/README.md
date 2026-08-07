@@ -4,7 +4,7 @@ Bulk-uploads JWST transients and their light curves via the `/add_transient/` en
 
 ## Run
 
-```sh
+```bash
 python scripts/ingest_transients_cli.py \
     --transient-list scripts/resources/jets_cands_labels.txt \
     --lightcurve-dir scripts/resources/ \
