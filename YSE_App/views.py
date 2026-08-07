@@ -111,6 +111,9 @@ def dashboard(request):
     for tagname in TransientTag.objects.order_by('name').values_list('name', flat=True):
         prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
         transients = Transient.objects.filter(tags__name=tagname).order_by('-disc_date')
+        # omit tags with no matching transients from the dashboard grid
+        if not transients.exists():
+            continue
 
         transientfilter = TransientFilter(request.GET, queryset=transients, prefix=prefix)
         table = TransientTable(transientfilter.qs, prefix=prefix)
