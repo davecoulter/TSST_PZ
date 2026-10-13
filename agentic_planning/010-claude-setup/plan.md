@@ -2,7 +2,7 @@
 
 - **Issue:** #10
 - **Branch:** `10-claude-setup`
-- **Status:** Draft, awaiting Dave's review
+- **Status:** Implemented, in review
 
 ## Why
 
@@ -30,12 +30,12 @@ Dave's goals, which shape how Claude explains things:
 |---|---|---|
 | 1 | `CLAUDE.md` | One screen of team rules. See the contents below. |
 | 2 | `.claude/settings.json` | Shared permission allow/ask/deny lists. |
-| 3 | `.claude/skills/log_issue/SKILL.md` | `/log-issue`: draft, confirm, then `gh issue create`. Labels: `bug`, `enhancement`, `tech-debt`. |
-| 4 | `.claude/skills/gen_pr/SKILL.md` | `/gen-pr`: draft commit message, PR title and body from the branch diff, filling `.github/pull_request_template.md`. |
+| 3 | `.claude/skills/log-issue/SKILL.md` | `/log-issue`: draft, confirm, then `gh issue create`. Labels: `bug`, `enhancement`, `tech-debt`. |
+| 4 | `.claude/skills/gen-pr/SKILL.md` | `/gen-pr`: draft commit message, PR title and body from the branch diff, filling `.github/pull_request_template.md`. |
 | 5 | `agentic_planning/README.md` | How we work, the folder convention (`<zero-padded issue#>-<slug>/plan.md`, matching the branch), and a short plan template. |
 | 6 | `agentic_planning/agentic_workflow.md` | Running log of workflow lessons. Seeded with this setup's decisions. |
 | 7 | `.gitignore` additions | `collab_scratch/`, `.claude/settings.local.json`, `CLAUDE.local.md` |
-| 8 | `.github/workflows/ci.yml` | Minimal PR check. See CI below. |
+| 8 | `.github/workflows/ci.yml` + `ruff.toml` | Minimal PR check, with the legacy violations baselined. See CI below. |
 | 9 | Fix `.github/workflows/check_docker_build.yml` | Point it at `master` instead of the nonexistent `develop`. Keep the path filter. |
 
 Out of scope: branch protection (a GitHub setting that Dave flips after merge), unit tests, Sphinx/RTD changes, reformatting or linting existing code, and the stray bower deletions seen locally (a separate `tech-debt` issue if we want to prune).
@@ -83,9 +83,12 @@ Out of scope: branch protection (a GitHub setting that Dave flips after merge), 
 
 Triggers: `pull_request` to `master`, and `push` to `master`.
 
-One job on `ubuntu-latest` and Python 3.x (the version to be confirmed against `docker/requirements.web.dev`). It runs:
-- `ruff check --select E9,F63,F7,F82 .`, which catches syntax errors and undefined names only, so legacy style doesn't drown it.
-- `python -m compileall -q YSE_App YSE_PZ scripts`
+One job, `ruff (bugs only)`, which runs `astral-sh/ruff-action` (ruff pinned to 0.16.8) with the config in `ruff.toml`:
+- Rules `E9, F63, F7, F82`: syntax errors, undefined names, invalid `print >>`. No style rules.
+- `target-version = "py38"`, so CI doesn't need the legacy image's Python. Ruff is a standalone binary.
+- Excludes the vendored `bower_components/` and the unreferenced Python 2 file `YSE_App/common/getGWevents.py`.
+- Baselines 16 files with pre-existing violations under `per-file-ignores`. This list should only shrink.
+- `compileall` was dropped. Ruff's `E9` already catches syntax errors, and it does so against the target version instead of the runner's Python.
 
 Stretch goal, only if it's cheap: run `manage.py check` and `makemigrations --check --dry-run` inside the existing `ghcr.io/davecoulter/yse_pz` image. Settings need a DB config at import time, so if this needs real setup, defer it to a `tech-debt` issue rather than bloating this PR.
 
@@ -111,12 +114,17 @@ python -m compileall -q YSE_App YSE_PZ scripts
 
 ## Open questions for Dave
 
-1. Python version for CI. I'll read it from the Docker image unless you know it offhand.
-2. Should the `ruff` subset show up in CI as a hard fail or a warning? I propose a hard fail, since that subset only catches real bugs.
-3. Are there any other devs who'll work on this soon? That affects how much `CLAUDE.md` should explain.
+1. ~~Python version for CI.~~ It's legacy, defined in the ghcr image (3.8 per `docker/web_image_history/base`). This is solved by ruff's `target-version = "py38"`, so no runtime is needed.
+2. ~~Hard fail or warning?~~ Hard fail.
+3. ~~Other devs soon?~~ Yes: Shane Benlolo (@sbenlolo), with more later. `CLAUDE.md` is written for newcomers, and personal preferences go in `CLAUDE.local.md`.
+4. **New:** should the 48 baselined legacy violations go into one `tech-debt` issue? (Proposed; not filed yet.)
 
 ## Log
 
 - **2026-10-13:** Drafted the workplan from the setup plan agreed in the project thread. Dave chose this posture: plan in a doc, Claude drafts, review together.
 - **2026-10-13:** Moved from `docs/workplans/` to `agentic_planning/010-claude-setup/plan.md`. `docs/` is the RTD Sphinx source, so it stays user docs only. The layout follows the spec-driven pattern (ADRs/RFCs, GitHub Spec Kit, Kiro): one numbered folder per feature, keyed to the issue and branch.
 - **2026-10-13:** Added the model/effort check-in rule to the `CLAUDE.md` contents, at Dave's request.
+- **2026-10-13:** Implemented the scope.
+  - The first ruff run on `master` found 48 pre-existing violations, all latent bugs: undefined names (e.g. `transients_ra` in `get_YSE_PAs*.py`, `getIDfromName` in `uploadTransientData.py`), Python 2 `print >>` in `snana.py`, and Python 2 `raise X, msg` in `getGWevents.py`.
+  - We baselined them rather than fixing them, per the tech-debt rule, so that CI starts green and only new violations fail.
+  - The skill folders use hyphens (`log-issue`, `gen-pr`), matching their slash-command names.
