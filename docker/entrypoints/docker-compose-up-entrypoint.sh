@@ -2,9 +2,11 @@
 
 bash ./Entrypoints/wait-for-it.sh yse_db:3306 --timeout=0 &&
 echo "**** LET'S GO GAMERS! ****" &&
-# Schema + seed data are provisioned entirely by docker/db_init/*.sql on a fresh
-# DB volume. This project has no Django migrations, so we intentionally do NOT
-# run `manage.py migrate` here.
+# Schema + seed data are provisioned by docker/db_init/*.sql on a fresh DB
+# volume; YSE_django_migrations_insert.sql records which migrations that schema
+# represents. Model changes go through YSE_App/migrations/. We intentionally do
+# NOT run `manage.py migrate` on start: a human migrates shared/live DBs
+# (see docker/README.md, "Migrations").
 # python3 manage.py migrate --noinput &&
 # Multiple workers/threads so one slow view can't freeze the whole app, and a
 # finite --timeout so a stuck request is recycled instead of wedging forever

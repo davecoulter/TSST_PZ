@@ -1,0 +1,92 @@
+# 019: Restore Django migrations for YSE_App
+
+- **Issue:** #19
+- **Branch:** `19-restore-migrations`
+- **Status:** Verified; ready for PR
+
+## Why
+
+We need migrations to track model changes, and CLAUDE.md already requires a model change to ship with its migration. Right now that's impossible: there is no `YSE_App/migrations/` package.
+
+History:
+- `d1bf3a4` (2022-04-07, dockerization) squashed the 68 original YSE_PZ migrations into a new `0001_initial`.
+- `b205a60` (2022-05) added `0002_hostspectrum_reference_transientspectrum_reference_and_more` (spectrum `reference` fields, and `data_quality` moved from FK to M2M on phot/spec data).
+- `eeb710b` (2022-08) added `0003_surveyobservation_priority`.
+- The dev seed `docker/db_init/YSE_django_migrations_insert.sql` (mounted as `5.sql`) only recorded `YSE_App 0001_initial`, so a fresh DB didn't match 0002/0003.
+- `496f10f` (PR #5, 2026-07) worked around that. It hand-applied 0002/0003 into `YSE_Initial_Schema.sql`, deleted the migration files and the seed (and its compose mount), and commented out `migrate` in the entrypoint ("This project has no Django migrations").
+
+Consequences today:
+- A fresh dev DB has an **empty** `django_migrations` table. Running `migrate` would try to re-create every table (auth, admin, YSE_App, ...).
+- Existing DBs that were migrated properly still carry the records. An existing DB Dave checked on 2026-10-13 records `YSE_App` 0001–0003 (0002/0003 applied 2023-11-16), plus every third-party app up to `auditlog 0009`. It should match the restored files exactly.
+
+## Scope
+
+| # | Deliverable | Notes |
+|---|---|---|
+| 1 | Restore `YSE_App/migrations/` | `__init__.py`, `0001_initial.py`, `0002_...and_more.py` and `0003_surveyobservation_priority.py`, restored verbatim from `496f10f^`. The names must match the existing DB records, so no regeneration or re-squash. |
+| 2 | Restore the `django_migrations` seed | `docker/db_init/YSE_django_migrations_insert.sql`, mounted again as `5.sql`. Contents: the full record set from the existing DB (Dave's list, ids 1–124: all apps, including `YSE_App` 0002/0003 and `auditlog` 0008/0009), so a fresh DB matches an existing one. |
+| 3 | Verify models ↔ migrations ↔ SQL schema | See Verification. Any drift becomes a new `0004_*` migration, never another SQL hand-edit. |
+| 3b | `0004_align_state_with_models` | State-only fix for drift found in verification (see Log): removes `TransientTag.associated_users` from migration state without touching the DB, and normalizes the `data_quality` M2M reference. `sqlmigrate` emits no SQL. |
+| 4 | Entrypoint and docs | Replace the "no Django migrations" comment. Keep `migrate` **out** of the entrypoint (see Design notes). Add a "Migrations" section to `docker/README.md`: how to `makemigrations`, how to `migrate` locally, and that shared/live DBs are migrated by a human. |
+| 5 | Prod check | Done 2026-10-13: prod's `django_migrations` has the same 56 records as the old local DB (0002/0003 applied by `migrate` on 2026-02-25), so prod needs no change. After deploy, Dave runs the read-only `showmigrations` to confirm nothing is pending. |
+
+Out of scope: reconciling with upstream YSE_PZ's migration lineage (it was broken by the 2022 squash), any model change (#16 comes after this), dependency or image changes.
+
+## Design notes
+
+- **Restore, don't regenerate.** Django matches migrations by `(app, name)`. Existing DBs already record these three names, so restoring them verbatim makes those DBs consistent with no `--fake` needed. A fresh `makemigrations` would produce new names and force every DB to be faked.
+- **The seed is the source of truth for fresh DBs.** `YSE_Initial_Schema.sql` builds the tables; the seed says which migrations they represent. The two must change together. After this, the rule is: schema changes go through migrations, and the SQL dumps get regenerated from a migrated DB rather than hand-edited.
+- **Third-party rows depend on the image.** `auditlog`, `explorer`, `silk`, `django_cron` and `authtoken` records must match the package versions in the runtime image. `showmigrations` on a fresh DB catches any mismatch (an unapplied `[ ]` row). If a mismatch shows up, investigate it; don't upgrade a package to fix it (dependency guardrail).
+- **No auto-migrate.** Running `migrate` on container start would apply migrations to whatever DB the container points at, including prod. CLAUDE.md says a human runs `migrate` against shared or live DBs, so it stays manual.
+- **`data_quality` M2M.** 0002 changes `data_quality` from FK to M2M. `496f10f` dropped the FK columns and added `*_data_quality` through tables by hand. The schema diff below is what proves the hand-written tables match what Django would create (names, unique keys, charset).
+
+## Acceptance criteria
+
+- [ ] `YSE_App/migrations/` holds `__init__.py` and 0001–0003, identical to `496f10f^`.
+- [x] On a fresh DB volume, `showmigrations` shows every migration applied (`[X]`), with none pending. (Verified in a scratch MySQL: all 0001–0003 and every third-party row applied; only the new 0004 pending, and `migrate` applied it cleanly.)
+- [x] `makemigrations YSE_App --check --dry-run` reports "No changes detected" (scoped to `YSE_App`: the image's hand-patched `auditlog` always reports its own drift, which is out of scope).
+- [x] The schema built by `migrate` on an empty DB matches the SQL-seeded schema for `YSE_App_*` tables (`mysqldump --no-data` diff), or the differences are explained in the Log. (Explained in the Log: charset/collation, the orphan `associated_users` table, one key-name hash.)
+- [x] Dave's existing local DB shows no pending migrations. (`migrate --plan` listed only 0004; after `migrate`, `showmigrations YSE_App` shows 0001–0004 `[X]`.)
+- [x] Prod's state is checked: no `--fake` or table edits are needed. `showmigrations` after deploy shows nothing pending.
+- [ ] No change to the Docker image, requirements files or dependencies.
+
+## Verification
+
+Local Claude or Dave, against the running stack (never prod):
+
+```bash
+cd docker
+# 1. Fresh DB from SQL seeds (use a throwaway VOL_DB path; never delete the real one)
+docker compose up -d
+docker compose exec web python3 manage.py showmigrations      # all [X]
+docker compose exec web python3 manage.py makemigrations --check --dry-run
+
+# 2. Schema built by migrations vs. schema built by SQL
+#    Create an empty scratch database, point a one-off settings override at it, run
+#    `migrate`, then diff `mysqldump --no-data` of both, restricted to YSE_App_* tables.
+
+# 3. Existing local DB
+docker compose exec web python3 manage.py showmigrations YSE_App
+```
+
+## Open questions
+
+1. ~~Which DB was the record list from?~~ The old local DB. Prod was checked too and has the same records, so neither needs any change.
+2. Is a one-off settings override for the scratch DB in step 2 acceptable, or would you rather compare a `mysqldump --no-data` from your existing local DB?
+
+## Log
+
+- **2026-10-13:** Issue #19 filed. Traced the removal to `496f10f` (PR #5). The existing DB Dave checked has `YSE_App` 0001–0003 recorded, so restoring the files verbatim should make it consistent with no `--fake`.
+- **2026-10-13:** Prod's `django_migrations` matches the old local DB record for record (ids 1–124, 56 rows; prod applied YSE_App 0002/0003 and auditlog 0008/0009 on 2026-02-25). Every row is an applied migration, so there's nothing to clear or reseed on existing DBs. Only fresh dev DBs need the seed.
+- **2026-10-13:** Plan approved by Dave. Restored `YSE_App/migrations/` (`__init__.py`, 0001–0003) verbatim from `496f10f^`. Restored `docker/db_init/YSE_django_migrations_insert.sql` and its `5.sql` mount. The old seed's 52 rows (ids 1–120) match prod's records exactly, and ids 121–124 were appended with prod's timestamps, for 56 rows total. Replaced the entrypoint's "no Django migrations" comment (`migrate` still not run on start) and added a Migrations section to `docker/README.md`. Next: Local Claude runs the Verification steps.
+- **2026-10-13:** Verification (Local Claude). Restored files are byte-identical to `496f10f^`. On Dave's existing DB, `showmigrations YSE_App` shows 0001–0003 `[X]`. `makemigrations --check --dry-run` found drift:
+  - `TransientTag.associated_users`: migration 0002 adds it, but the model has never defined it (no code outside `migrations/` has ever referenced it). Existing DBs that ran 0002 via `migrate` have an empty `YSE_App_transienttag_associated_users` table (checked: 0 rows on both Dave's local DB and prod); SQL-seeded fresh DBs don't have the table. A plain `RemoveField` would drop it on the former and fail on the latter, so **0004 removes it from state only** (`SeparateDatabaseAndState`, no DB operation).
+  - `data_quality` on 4 models: 0002 writes the target as `YSE_App.dataquality`, the models resolve `YSE_App.DataQuality`. Same table; `sqlmigrate` emits no SQL.
+  - `auditlog` 0010: the image's hand-patched `auditlog` disagrees with its own migrations. Third-party and out of scope (dependency guardrail); criteria use `makemigrations YSE_App`.
+- **2026-10-13:** Fresh-DB check, in a throwaway MySQL 8.0.35 container (seeded from `db_init/*.sql`, own scratch data folder, removed afterwards; Dave's DB untouched). `showmigrations`: every third-party row (auditlog, django_cron, explorer, authtoken, ...) matches the image, so nothing unapplied except 0004. `migrate` applied 0004 OK; a second `migrate` was a no-op.
+- **2026-10-13:** Schema diff: `migrate` against an empty second database vs the SQL-seeded one. `migrate` aborts there with a system-check error, because `YSE_App/forms.py:40` queries `YSE_App_followupstatus` at import time (reached through `urls.py` -> `views.py` -> `forms.py`); this is why the seed populates that table. Not fixed here (tech-debt candidate). With `--skip-checks` the migrations build 95 tables. Compared to the seed's 99:
+  - `YSE_App_*` tables match, except the orphan `YSE_App_transienttag_associated_users` (migrations only; expected).
+  - Column definitions match once charset/collation (seed `latin1` vs Django `utf8mb4`) and column order are ignored.
+  - One unique-key name differs only by Django's hash suffix (`YSE_App_surveyfieldmsb_survey_fields`).
+  - `silk_*` tables are in the seed only (`silk` isn't in the migrated app list).
+- **2026-10-13:** Dave ran `migrate` on his local DB: only 0004 applied (state-only), and `showmigrations YSE_App` shows 0001–0004 `[X]`. All acceptance criteria met except the post-deploy prod `showmigrations`, which Dave runs after deploy. Follow-up filed: #20 (drop the orphan `associated_users` table).
