@@ -2,7 +2,7 @@
 
 - **Issue:** #10
 - **Branch:** `10-claude-setup`
-- **Status:** Implemented, in review
+- **Status:** Done
 
 ## Why
 
@@ -64,20 +64,20 @@ Out of scope: branch protection (a GitHub setting that Dave flips after merge), 
 ### `.claude/settings.json` permissions
 
 - **allow:**
-  - `git status`, `git diff`, `git log`, `git branch`, `git switch`, `git add`, `git commit`
+  - `git status`, `git diff`, `git log`, `git show`, `git branch`, `git switch`, `git add`, `git commit`, `git fetch`, `git pull`
   - `docker compose ps`, `docker compose logs`, `docker compose build`, `docker compose up`, `docker compose restart`
   - `python -m pytest`
   - `python manage.py check`, `python manage.py makemigrations`, `python manage.py showmigrations`
-  - `gh issue view`, `gh pr view`
+  - `gh issue view`, `gh issue list`, `gh pr view`, `gh pr list`, `gh pr checks`
 - **ask:**
   - `git push`
   - `docker compose down`
   - `python manage.py migrate`
   - `gh issue create`, `gh pr create`
 - **deny:**
-  - `git push --force*`, any push to `master`
-  - `docker compose down -v`
-  - `rm -rf` outside `collab_scratch/`
+  - `git push --force`/`-f`, any push to `master`
+  - `docker compose down -v`, `docker volume rm`
+  - Reading `docker/.env` and `db_configuration/*.ini`
 
 ### CI (`ci.yml`)
 
@@ -130,3 +130,4 @@ python -m compileall -q YSE_App YSE_PZ scripts
   - The skill folders use hyphens (`log-issue`, `gen-pr`), matching their slash-command names.
 - **2026-10-13:** Added a `CLAUDE.md` guardrail, dictated by Dave: every permission prompt comes with a 1–2 sentence synopsis of what the command does and why.
 - **2026-10-13:** Filed #12 for the lint baseline. Added the `CLAUDE.md` section "Dependencies and the Docker image" (approved by Dave). The runtime image is a layered chain with hand-patched site-packages, so a dependency change always needs its own plan and a regression check.
+- **2026-10-13:** Merged as PR #11. Hotfix `hotfix_claude_consistency` made this plan match `.claude/settings.json` (extra allow entries, extra deny entries, dropped the unenforced `rm -rf` deny) and set Status to Done.

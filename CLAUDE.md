@@ -23,6 +23,7 @@ This is a TSST customization of [YSE_PZ](https://github.com/davecoulter/YSE_PZ),
 
 ## Git (GitHub flow)
 - Open an issue, branch `<issue#>-<slug>` from `master`, then open a PR to `master`. Never commit directly to `master`.
+- Trivial doc/config fixes may skip the issue: use a `hotfix_<slug>` branch and a PR. Anything with a plan, a behavior change or a model change still gets an issue.
 - Create the plan on the branch, never on `master`.
 - Only one writer per branch at a time (a person, Local Claude, or Project Claude). Hand off with `git push` / `git pull`.
 - PR bodies use `.github/pull_request_template.md` (`/gen-pr` drafts one).
