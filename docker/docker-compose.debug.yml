@@ -1,0 +1,8 @@
+# Debug override for the web service. Layer it on the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d web
+# Then attach from VS Code ("Attach to web (debugpy)"). See docker/README.md.
+services:
+    web:
+        command: bash ./Entrypoints/docker-compose-debug-entrypoint.sh
+        ports:
+        - "${LOCAL_DEBUG_PORT:-5678}:5678"
