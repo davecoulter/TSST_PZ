@@ -57,6 +57,19 @@ Notes:
 - The debug server runs a single process, so nothing else in the app is parallel while debugging.
 - The DB container keeps running when you detach, and its data persists.
 
+## 5. Migrations
+
+Model changes are tracked in `YSE_App/migrations/`. A fresh DB is built from the SQL scripts in `db_init/`, and `YSE_django_migrations_insert.sql` records which migrations that schema already includes. When the schema scripts change, that file has to change with them.
+
+```bash
+cd docker
+docker compose exec web python3 manage.py showmigrations                  # what's applied
+docker compose exec web python3 manage.py makemigrations YSE_App          # after a model change; commit the file
+docker compose exec web python3 manage.py migrate                         # local dev DB only
+```
+
+The entrypoint does not run `migrate`. Shared and live DBs are migrated by a person, never automatically and never by Claude. Change the schema through migrations, not by hand-editing the `db_init/` SQL.
+
 ## Changing dependencies
 
 The runtime image is a brittle chain (see `web_image_history/`). Don't add or change dependencies as a side fix; see `CLAUDE.md`.
