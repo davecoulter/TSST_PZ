@@ -129,3 +129,4 @@ python -m compileall -q YSE_App YSE_PZ scripts
   - We baselined them rather than fixing them, per the tech-debt rule, so that CI starts green and only new violations fail.
   - The skill folders use hyphens (`log-issue`, `gen-pr`), matching their slash-command names.
 - **2026-10-13:** Added a `CLAUDE.md` guardrail, dictated by Dave: every permission prompt comes with a 1–2 sentence synopsis of what the command does and why.
+- **2026-10-13:** Filed #12 for the lint baseline. Added the `CLAUDE.md` section "Dependencies and the Docker image" (approved by Dave). The runtime image is a layered chain with hand-patched site-packages, so a dependency change always needs its own plan and a regression check.

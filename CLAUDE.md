@@ -38,6 +38,11 @@ This is a TSST customization of [YSE_PZ](https://github.com/davecoulter/YSE_PZ),
   - Propose edits to this file or `.claude/**` in chat first, and wait for confirmation.
   - The exception is when the human dictated the exact change.
 
+## Dependencies and the Docker image (handle with care)
+- The runtime image is a bespoke, brittle chain. `docker/web_image_history/` has layered requirements files and hand-patched site-packages (`auditlog`, `el_pagination`, `django_cron`, `jsonfield`). Treat it as load-bearing.
+- Never add, upgrade or remove a dependency, or touch the image chain, as a side fix. A dependency change needs its own issue and plan, a regression check against the running stack, and Dave's approval.
+- If a bug looks like "just bump package X," stop and propose that instead of doing it.
+
 ## Checks
 - CI (`.github/workflows/ci.yml`) runs `ruff check .` using `ruff.toml`. It catches syntax errors and undefined names only, against Python 3.8.
 - Known legacy violations are baselined in `ruff.toml` under `per-file-ignores`. Shrink that list; never grow it to make CI pass.
