@@ -27,7 +27,7 @@ Consequences today:
 | 2 | Restore the `django_migrations` seed | `docker/db_init/YSE_django_migrations_insert.sql`, mounted again as `5.sql`. Contents: the full record set from the existing DB (Dave's list, ids 1–124: all apps, including `YSE_App` 0002/0003 and `auditlog` 0008/0009), so a fresh DB matches an existing one. |
 | 3 | Verify models ↔ migrations ↔ SQL schema | See Verification. Any drift becomes a new `0004_*` migration, never another SQL hand-edit. |
 | 4 | Entrypoint and docs | Replace the "no Django migrations" comment. Keep `migrate` **out** of the entrypoint (see Design notes). Add a "Migrations" section to `docker/README.md`: how to `makemigrations`, how to `migrate` locally, and that shared/live DBs are migrated by a human. |
-| 5 | Prod check | Dave compares prod's `django_migrations` with the seed. If prod lacks 0002/0003 records but has the columns, run `migrate YSE_App 0003 --fake` (human only). Record the outcome in the Log. |
+| 5 | Prod check | Done 2026-10-13: prod's `django_migrations` has the same 52 records as the old local DB (0002/0003 applied by `migrate` on 2026-02-25), so prod needs no change. After deploy, Dave runs the read-only `showmigrations` to confirm nothing is pending. |
 
 Out of scope: reconciling with upstream YSE_PZ's migration lineage (it was broken by the 2022 squash), any model change (#16 comes after this), dependency or image changes.
 
@@ -46,7 +46,7 @@ Out of scope: reconciling with upstream YSE_PZ's migration lineage (it was broke
 - [ ] `makemigrations --check --dry-run` reports "No changes detected" (or a reviewed `0004` is added).
 - [ ] The schema built by `migrate` on an empty DB matches the SQL-seeded schema for `YSE_App_*` tables (`mysqldump --no-data` diff), or the differences are explained in the Log.
 - [ ] Dave's existing local DB shows no pending migrations.
-- [ ] Prod's state is checked, and any `--fake` step is documented and run by Dave.
+- [x] Prod's state is checked: no `--fake` or table edits are needed. `showmigrations` after deploy shows nothing pending.
 - [ ] No change to the Docker image, requirements files or dependencies.
 
 ## Verification
@@ -70,9 +70,10 @@ docker compose exec web python3 manage.py showmigrations YSE_App
 
 ## Open questions
 
-1. Which DB was the record list from: the old local one or prod? We need both checked.
+1. ~~Which DB was the record list from?~~ The old local DB. Prod was checked too and has the same records, so neither needs any change.
 2. Is a one-off settings override for the scratch DB in step 2 acceptable, or would you rather compare a `mysqldump --no-data` from your existing local DB?
 
 ## Log
 
 - **2026-10-13:** Issue #19 filed. Traced the removal to `496f10f` (PR #5). The existing DB Dave checked has `YSE_App` 0001–0003 recorded, so restoring the files verbatim should make it consistent with no `--fake`.
+- **2026-10-13:** Prod's `django_migrations` matches the old local DB record for record (ids 1–124, 52 rows; prod applied YSE_App 0002/0003 and auditlog 0008/0009 on 2026-02-25). Every row is an applied migration, so there's nothing to clear or reseed on existing DBs. Only fresh dev DBs need the seed.
