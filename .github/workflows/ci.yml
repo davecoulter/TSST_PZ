@@ -5,6 +5,7 @@ on:
     branches: [master]
   push:
     branches: [master]
+  workflow_dispatch:  # manual "Run workflow" button in the Actions tab
 
 permissions:
   contents: read
