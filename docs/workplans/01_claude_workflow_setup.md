@@ -48,6 +48,10 @@ Out of scope: branch protection (a GitHub setting that Dave flips after merge), 
   - For anything beyond a trivial fix, Claude implements only against an approved workplan doc.
   - Bugs found mid-work are proposed in chat before they're fixed.
   - Edits to `CLAUDE.md` or `.claude/**` are proposed first, unless Dave dictated the exact change.
+- **Model/effort check-in:**
+  - Before starting implementation of a workplan doc, Claude recommends a model and an effort level (low/medium/high/xhigh/max), gives a one-line rationale for each, and waits for Dave's OK.
+  - When the work is done, Claude reminds Dave to switch back to the default model and effort.
+  - This is a lighter version of diffpype's Model Evaluation Phase.
 - **Explain as we go:** for non-obvious choices, Claude says why. Claude names newer language, tool and DevOps features when it uses them.
 - **Django:**
   - A model change ships with its migration (`makemigrations`) in the same PR.
@@ -114,3 +118,4 @@ python -m compileall -q YSE_App YSE_PZ scripts
 ## Log
 
 - **2026-10-13:** Drafted the workplan from the setup plan agreed in the project thread. Dave chose this posture: plan in a doc, Claude drafts, review together.
+- **2026-10-13:** Added the model/effort check-in rule to the `CLAUDE.md` contents, at Dave's request.
