@@ -128,3 +128,4 @@ python -m compileall -q YSE_App YSE_PZ scripts
   - The first ruff run on `master` found 48 pre-existing violations, all latent bugs: undefined names (e.g. `transients_ra` in `get_YSE_PAs*.py`, `getIDfromName` in `uploadTransientData.py`), Python 2 `print >>` in `snana.py`, and Python 2 `raise X, msg` in `getGWevents.py`.
   - We baselined them rather than fixing them, per the tech-debt rule, so that CI starts green and only new violations fail.
   - The skill folders use hyphens (`log-issue`, `gen-pr`), matching their slash-command names.
+- **2026-10-13:** Added a `CLAUDE.md` guardrail, dictated by Dave: every permission prompt comes with a 1–2 sentence synopsis of what the command does and why.

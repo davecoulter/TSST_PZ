@@ -28,6 +28,7 @@ This is a TSST customization of [YSE_PZ](https://github.com/davecoulter/YSE_PZ),
 - PR bodies use `.github/pull_request_template.md` (`/gen-pr` drafts one).
 
 ## Guardrails
+- **Every permission prompt gets context:** before any command that may prompt the human (push, migrate, `gh` writes, anything outside the allow list), say in 1–2 sentences what it does and why it's needed now. Also put that in the tool call's description, so it shows up in the prompt itself.
 - **Bugs found mid-work:** propose the fix in chat (what's broken, the fix, which layer) and wait for confirmation before applying it.
 - **Tech debt:** file it as a GitHub issue labeled `tech-debt` (`/log-issue`). Don't fix it on the side.
 - **Django models:** a model change ships with its migration (`python manage.py makemigrations`) in the same PR. Remind the human to `migrate`. Never run `migrate` against a shared or live DB yourself.
