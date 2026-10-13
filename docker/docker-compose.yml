@@ -1,4 +1,4 @@
-version: '3.8'
+name: tsstpz
 services:
     web:
         container_name: tsstpz_web_container
@@ -11,7 +11,7 @@ services:
             - ${VOL_GHOST}:/app/ghost_logs
         command: bash ./Entrypoints/docker-compose-up-entrypoint.sh
         ports:
-        - "8000:8000"
+        - "${LOCAL_WEB_PORT:-8001}:8000"
         environment:
           CONDA_DEFAULT_ENV: base
           _: /opt/conda/bin/python
