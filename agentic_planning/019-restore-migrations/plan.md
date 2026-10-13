@@ -2,7 +2,7 @@
 
 - **Issue:** #19
 - **Branch:** `19-restore-migrations`
-- **Status:** Verified on a fresh DB; 0004 added; awaiting Dave's local `migrate` and review
+- **Status:** Verified; ready for PR
 
 ## Why
 
@@ -46,7 +46,7 @@ Out of scope: reconciling with upstream YSE_PZ's migration lineage (it was broke
 - [x] On a fresh DB volume, `showmigrations` shows every migration applied (`[X]`), with none pending. (Verified in a scratch MySQL: all 0001–0003 and every third-party row applied; only the new 0004 pending, and `migrate` applied it cleanly.)
 - [x] `makemigrations YSE_App --check --dry-run` reports "No changes detected" (scoped to `YSE_App`: the image's hand-patched `auditlog` always reports its own drift, which is out of scope).
 - [x] The schema built by `migrate` on an empty DB matches the SQL-seeded schema for `YSE_App_*` tables (`mysqldump --no-data` diff), or the differences are explained in the Log. (Explained in the Log: charset/collation, the orphan `associated_users` table, one key-name hash.)
-- [ ] Dave's existing local DB shows no pending migrations. (0001–0003 are `[X]`; 0004 is state-only and gets recorded when Dave runs `migrate`.)
+- [x] Dave's existing local DB shows no pending migrations. (`migrate --plan` listed only 0004; after `migrate`, `showmigrations YSE_App` shows 0001–0004 `[X]`.)
 - [x] Prod's state is checked: no `--fake` or table edits are needed. `showmigrations` after deploy shows nothing pending.
 - [ ] No change to the Docker image, requirements files or dependencies.
 
@@ -89,3 +89,4 @@ docker compose exec web python3 manage.py showmigrations YSE_App
   - Column definitions match once charset/collation (seed `latin1` vs Django `utf8mb4`) and column order are ignored.
   - One unique-key name differs only by Django's hash suffix (`YSE_App_surveyfieldmsb_survey_fields`).
   - `silk_*` tables are in the seed only (`silk` isn't in the migrated app list).
+- **2026-10-13:** Dave ran `migrate` on his local DB: only 0004 applied (state-only), and `showmigrations YSE_App` shows 0001–0004 `[X]`. All acceptance criteria met except the post-deploy prod `showmigrations`, which Dave runs after deploy. Follow-up filed: #20 (drop the orphan `associated_users` table).
