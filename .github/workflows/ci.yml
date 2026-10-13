@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:  # manual "Run workflow" button in the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ruff (bugs only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Config lives in ruff.toml: syntax errors + undefined names, Python 3.8 target,
+      # legacy violations baselined. No Python setup needed — ruff is a standalone binary.
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.16.8"
+          args: "check --output-format github"

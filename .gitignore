@@ -22,3 +22,8 @@ database_logs/*
 *.DS_Store
 
 
+
+# Claude co-development
+collab_scratch/
+CLAUDE.local.md
+.claude/settings.local.json

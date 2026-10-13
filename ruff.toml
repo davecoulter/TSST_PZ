@@ -1,0 +1,30 @@
+# Minimal lint: only real bugs (syntax errors, undefined names, invalid print >>).
+# Style rules are deliberately off; see CLAUDE.md "Checks".
+target-version = "py38"
+extend-exclude = [
+    "YSE_App/static/YSE_App/bower_components",  # vendored third-party JS/py
+    "YSE_App/common/getGWevents.py",            # legacy: Python 2 syntax, unreferenced (baseline)
+]
+
+[lint]
+select = ["E9", "F63", "F7", "F82"]
+
+# Legacy baseline (2026-10-13, tracked in #12): pre-existing violations, ignored so CI can start green.
+# Shrink this list as files are fixed; never add to it to make a PR pass.
+[lint.per-file-ignores]
+"YSE_App/common/alert.py" = ["F821"]
+"YSE_App/common/utilities.py" = ["F821"]
+"YSE_App/data_ingest/Gaia_LC.py" = ["F821"]
+"YSE_App/data_ingest/QUB_data.py" = ["F821"]
+"YSE_App/data_ingest/YSE_observations.py" = ["F821"]
+"YSE_App/data_ingest/ZTF_Forced_Phot.py" = ["F821"]
+"YSE_App/templatetags/dashboard_extras.py" = ["F821"]
+"YSE_App/util/GaiaPhot.py" = ["F821"]
+"YSE_App/util/get_YSE_PAs.new.py" = ["F821"]
+"YSE_App/util/get_YSE_PAs.newdj.py" = ["F821"]
+"YSE_App/util/get_YSE_PAs.newdj_041321.py" = ["F821"]
+"YSE_App/util/get_YSE_PAs.py" = ["F821"]
+"YSE_App/util/snana.py" = ["F633"]
+"YSE_App/util/uploadTransientData.py" = ["F821"]
+"YSE_App/yse_utils/get_YSE_PAs.py" = ["F821"]
+"YSE_App/yse_utils/get_yse_obsfields.py" = ["F821"]

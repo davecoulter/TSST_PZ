@@ -2,7 +2,7 @@ name: Publish Docker image
 
 on:
   pull_request:
-    branches: [develop]
+    branches: [master]
     paths:
       - "docker/Dockerfile.web.dev"
       - "docker/requirements.web.dev"
