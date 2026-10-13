@@ -2,7 +2,7 @@
 
 - **Issue:** #14
 - **Branch:** `14-add-vscode-debug`
-- **Status:** Draft
+- **Status:** Done, in review
 
 ## Why
 
@@ -14,7 +14,7 @@ What PyCharm did, for reference: it used a "Remote Python 3.8.10 Docker Compose 
 
 | # | Deliverable | Notes |
 |---|---|---|
-| 1 | Compose isolation | `name: tsstpz` in `docker-compose.yml`; `LOCAL_WEB_PORT` for the web port; drop obsolete `version:`. Keeps this stack from colliding with other projects (e.g. diffpype). **Done, uncommitted.** |
+| 1 | Compose isolation | `name: tsstpz` in `docker-compose.yml`; `LOCAL_WEB_PORT` for the web port; drop obsolete `version:`. Keeps this stack from colliding with other projects (e.g. diffpype). **Done.** |
 | 2 | `docker/docker-compose.debug.yml` | Override for `web`: install `debugpy` into a mounted folder, then run `runserver 0.0.0.0:8000 --noreload` under `debugpy --listen 0.0.0.0:5678`. Publish 5678. DB and nginx unchanged. |
 | 3 | `.vscode/launch.json` | Python attach config, `pathMappings` local repo root to `/app`. |
 | 4 | `.gitignore` | Ignore the mounted debugpy folder (e.g. `.debugpy/`). `.vscode/` stays tracked. |
@@ -34,11 +34,11 @@ Out of scope: merging `docker/README.md` into the install guide under `docs/` (f
 
 ## Acceptance criteria
 
-- [ ] From a configured `docker/.env`, the stack runs under project `tsstpz` with no orphan warning and no port collisions with diffpype.
-- [ ] Starting with the debug override, attaching from VS Code hits a breakpoint in a view when a page loads.
-- [ ] The DB container stays up and its data persists after the debugger detaches.
-- [ ] No change to the Docker image, requirements files, or dependencies.
-- [ ] The setup steps are written down for new developers.
+- [x] From a configured `docker/.env`, the stack runs under project `tsstpz` with no orphan warning and no port collisions with diffpype.
+- [x] Starting with the debug override, attaching from VS Code hits a breakpoint in a view when a page loads.
+- [x] The DB container stays up and its data persists after the debugger detaches.
+- [x] No change to the Docker image, requirements files, or dependencies.
+- [x] The setup steps are written down for new developers.
 
 ## Verification
 
@@ -61,3 +61,5 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d web
 - **2026-10-13:** Issue #14 filed. Verified the stack runs from the repo (DB healthy, app 200). Static assets 404'd because `collectstatic` is not run by the entrypoint; ran manually and it worked. Added compose isolation (project name, web port variable) so this stack doesn't collide with diffpype.
 - **2026-10-13:** Web port default moved to 8001 (diffpype's API uses 8000). Verified `debugpy` 1.8.21 installs on the image's Python 3.8.10. Note: a `docker compose -p docker down` also removed two stopped diffpype containers that shared the old default project name; no data lost as far as known (bind-mounted DB).
 - **2026-10-13:** Open questions resolved with Dave: docs go in `docker/README.md`; first-start PyPI access is fine. MySQL Workbench connects as `root` with `DB_PWD`; the `dev` and `dev_explorer` users have separate passwords from `YSE_create_users.sql`.
+- **2026-10-13:** Implemented the debug override (`docker-compose.debug.yml` plus `entrypoints/docker-compose-debug-entrypoint.sh`), `.vscode/launch.json`, the `.debugpy/` ignore, and `docker/README.md` (replaces `readme.txt`). Tested: `debugpy` 1.8.21 installed on first start into the bind-mounted `.debugpy/`, port 5678 open, web (8001) and nginx (80) returned 200, and Dave attached from VS Code and hit a breakpoint in `YSE_App/views.py`.
+- **2026-10-13:** Decided against a `tasks.json` / `preLaunchTask` to start the debug container on play. Dave is fine with the two-step flow (start with the override, then attach). Revisit if it gets tedious. Follow-up: update or merge the install guide in `docs/` with `docker/README.md`.

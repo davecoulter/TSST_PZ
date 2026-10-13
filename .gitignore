@@ -27,3 +27,4 @@ database_logs/*
 collab_scratch/
 CLAUDE.local.md
 .claude/settings.local.json
+.debugpy/
