@@ -1,4 +1,4 @@
-# 01: Claude co-development workflow setup
+# 010: Claude co-development workflow setup
 
 - **Issue:** #10
 - **Branch:** `10-claude-setup`
@@ -14,10 +14,10 @@ This is deliberately lightweight. Unit tests, coverage gates, docs builds and li
 
 This is the loop from diffpype:
 
-1. **Plan together.** Each unit of work gets a numbered doc in `docs/workplans/` with its scope and acceptance criteria. It's committed on the feature branch, and Dave approves it before any code is written.
+1. **Plan together.** Each unit of work gets a folder `agentic_planning/<issue#>-<slug>/` with a `plan.md` with its scope and acceptance criteria. It's committed on the feature branch, and Dave approves it before any code is written.
 2. **Claude writes the code** against the approved doc.
 3. **Review together.** Claude explains the non-obvious choices, and maps newer concepts back to familiar ones where useful. Dave decides.
-4. **Log what we learn.** Decisions and bugs go in the doc's `## Log` section. Workflow lessons ("aha" moments) go in `docs/agentic_workflow.md`.
+4. **Log what we learn.** Decisions and bugs go in the doc's `## Log` section. Workflow lessons ("aha" moments) go in `agentic_planning/agentic_workflow.md`.
 
 Dave's goals, which shape how Claude explains things:
 - Learn agentic engineering well, and formalize good ideas into workflows.
@@ -32,8 +32,8 @@ Dave's goals, which shape how Claude explains things:
 | 2 | `.claude/settings.json` | Shared permission allow/ask/deny lists. |
 | 3 | `.claude/skills/log_issue/SKILL.md` | `/log-issue`: draft, confirm, then `gh issue create`. Labels: `bug`, `enhancement`, `tech-debt`. |
 | 4 | `.claude/skills/gen_pr/SKILL.md` | `/gen-pr`: draft commit message, PR title and body from the branch diff, filling `.github/pull_request_template.md`. |
-| 5 | `docs/workplans/README.md` | How to write a workplan doc. Includes a short template. |
-| 6 | `docs/agentic_workflow.md` | Running log of workflow lessons. Seeded with this setup's decisions. |
+| 5 | `agentic_planning/README.md` | How we work, the folder convention (`<zero-padded issue#>-<slug>/plan.md`, matching the branch), and a short plan template. |
+| 6 | `agentic_planning/agentic_workflow.md` | Running log of workflow lessons. Seeded with this setup's decisions. |
 | 7 | `.gitignore` additions | `collab_scratch/`, `.claude/settings.local.json`, `CLAUDE.local.md` |
 | 8 | `.github/workflows/ci.yml` | Minimal PR check. See CI below. |
 | 9 | Fix `.github/workflows/check_docker_build.yml` | Point it at `master` instead of the nonexistent `develop`. Keep the path filter. |
@@ -118,4 +118,5 @@ python -m compileall -q YSE_App YSE_PZ scripts
 ## Log
 
 - **2026-10-13:** Drafted the workplan from the setup plan agreed in the project thread. Dave chose this posture: plan in a doc, Claude drafts, review together.
+- **2026-10-13:** Moved from `docs/workplans/` to `agentic_planning/010-claude-setup/plan.md`. `docs/` is the RTD Sphinx source, so it stays user docs only. The layout follows the spec-driven pattern (ADRs/RFCs, GitHub Spec Kit, Kiro): one numbered folder per feature, keyed to the issue and branch.
 - **2026-10-13:** Added the model/effort check-in rule to the `CLAUDE.md` contents, at Dave's request.
