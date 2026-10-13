@@ -14,4 +14,4 @@ Lessons about *how* we work with Claude, captured when they click. The ones that
   - `agentic_planning/` is the team's planning record.
 
   This follows the spec-driven pattern (ADRs/RFCs, GitHub Spec Kit, Kiro).
-- **Baseline legacy lint, don't fix it on the side.** The first lint run found 48 latent bugs (undefined names, Python 2 syntax). We baseline them in `ruff.toml` so CI starts green, and only new violations fail. The baseline is a visible to-do list that should only shrink.
+- **Baseline legacy lint, don't fix it on the side.** The first lint run found 42 latent bugs (undefined names, Python 2 syntax). We baseline them in `ruff.toml` so CI starts green, and only new violations fail. The baseline is a visible to-do list that should only shrink.

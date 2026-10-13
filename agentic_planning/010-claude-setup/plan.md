@@ -117,7 +117,7 @@ python -m compileall -q YSE_App YSE_PZ scripts
 1. ~~Python version for CI.~~ It's legacy, defined in the ghcr image (3.8 per `docker/web_image_history/base`). This is solved by ruff's `target-version = "py38"`, so no runtime is needed.
 2. ~~Hard fail or warning?~~ Hard fail.
 3. ~~Other devs soon?~~ Yes: Shane Benlolo (@sbenlolo), with more later. `CLAUDE.md` is written for newcomers, and personal preferences go in `CLAUDE.local.md`.
-4. **New:** should the 48 baselined legacy violations go into one `tech-debt` issue? (Proposed; not filed yet.)
+4. ~~One `tech-debt` issue for the baseline?~~ Yes: filed as #12.
 
 ## Log
 
@@ -125,7 +125,7 @@ python -m compileall -q YSE_App YSE_PZ scripts
 - **2026-10-13:** Moved from `docs/workplans/` to `agentic_planning/010-claude-setup/plan.md`. `docs/` is the RTD Sphinx source, so it stays user docs only. The layout follows the spec-driven pattern (ADRs/RFCs, GitHub Spec Kit, Kiro): one numbered folder per feature, keyed to the issue and branch.
 - **2026-10-13:** Added the model/effort check-in rule to the `CLAUDE.md` contents, at Dave's request.
 - **2026-10-13:** Implemented the scope.
-  - The first ruff run on `master` found 48 pre-existing violations, all latent bugs: undefined names (e.g. `transients_ra` in `get_YSE_PAs*.py`, `getIDfromName` in `uploadTransientData.py`), Python 2 `print >>` in `snana.py`, and Python 2 `raise X, msg` in `getGWevents.py`.
+  - The first ruff run on `master` found 42 pre-existing violations in project code (48 including vendored `bower_components`), all latent bugs: undefined names (e.g. `transients_ra` in `get_YSE_PAs*.py`, `getIDfromName` in `uploadTransientData.py`), Python 2 `print >>` in `snana.py`, and Python 2 `raise X, msg` in `getGWevents.py`.
   - We baselined them rather than fixing them, per the tech-debt rule, so that CI starts green and only new violations fail.
   - The skill folders use hyphens (`log-issue`, `gen-pr`), matching their slash-command names.
 - **2026-10-13:** Added a `CLAUDE.md` guardrail, dictated by Dave: every permission prompt comes with a 1–2 sentence synopsis of what the command does and why.
