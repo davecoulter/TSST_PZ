@@ -1,0 +1,83 @@
+{% extends 'YSE_App/base.html' %}
+{% load static %}
+{% load candidate_extras %}
+
+{% block styles %}
+<style>
+  .candidate-card .box-body { padding: 8px; }
+  .candidate-thumb { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: contain;
+                     background: #222; margin-bottom: 6px; }
+  .candidate-nothumb { display: flex; align-items: center; justify-content: center; width: 100%;
+                       aspect-ratio: 1 / 1; background: #eee; color: #888; margin-bottom: 6px; }
+  .candidate-name { font-weight: bold; word-break: break-all; }
+  .candidate-card dl { margin: 4px 0 0; }
+  .candidate-card dt { float: left; clear: left; width: 80px; font-weight: normal; color: #777; }
+  .candidate-card dd { margin-left: 84px; }
+</style>
+{% endblock %}
+
+{% block content_header %}
+    <h1>
+        Candidates
+        <small>{{ n_candidates }} awaiting triage</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li class="active">Candidates</li>
+    </ol>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-xs-12" style="margin-bottom:10px">
+    Sort:
+    {% for key, label in sorts.items %}
+      {% if key == sort %}<b>{{ label }}</b>{% else %}<a href="?sort={{ key }}">{{ label }}</a>{% endif %}{% if not forloop.last %} &middot; {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+{% if not page.object_list %}
+<div class="box"><div class="box-body">No candidates. Candidates arrive through <code>/add_candidate/</code> or <code>scripts/ingest_candidates_cli.py</code>.</div></div>
+{% endif %}
+
+<div class="row">
+  {% for c in page.object_list %}
+  <div class="col-lg-2 col-md-3 col-sm-4 col-xs-6">
+    <div class="box box-default candidate-card">
+      <div class="box-body">
+        <a href="{% url 'transient_detail' c.transient.slug %}" title="Open {{ c.transient.name }}">
+          {% if c.thumb %}
+            <img class="candidate-thumb" src="{{ c.thumb|stamp_src }}" alt="DIFF stamp of {{ c.transient.name }}" loading="lazy">
+          {% else %}
+            <span class="candidate-nothumb">no stamp</span>
+          {% endif %}
+          <span class="candidate-name">{{ c.transient.name }}</span>
+        </a>
+        <dl>
+          <dt>RA, Dec</dt><dd>{{ c.transient.ra|floatformat:5 }}, {{ c.transient.dec|floatformat:5 }}</dd>
+          <dt>Discovered</dt><dd>{% if c.transient.disc_date %}{{ c.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</dd>
+          <dt>Max S/N</dt><dd>{% if c.max_snr is not None %}{{ c.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</dd>
+          <dt>Filters &ge;3&sigma;</dt><dd>{% if c.filters %}{{ c.filters|join:", " }}{% else %}&ndash;{% endif %}</dd>
+          <dt>Host z</dt><dd>{% if c.host_z %}{{ c.host_z.0|floatformat:3 }} ({{ c.host_z.2 }}){% else %}&ndash;{% endif %}</dd>
+          <dt>Detections</dt><dd>{{ c.n_detections }}</dd>
+          <dt>Runs</dt><dd>{{ c.n_runs }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+  {% if forloop.counter|divisibleby:2 %}<div class="clearfix visible-xs-block"></div>{% endif %}
+  {% if forloop.counter|divisibleby:3 %}<div class="clearfix visible-sm-block"></div>{% endif %}
+  {% if forloop.counter|divisibleby:4 %}<div class="clearfix visible-md-block"></div>{% endif %}
+  {% if forloop.counter|divisibleby:6 %}<div class="clearfix visible-lg-block"></div>{% endif %}
+  {% endfor %}
+</div>
+
+{% if page.has_other_pages %}
+<ul class="pagination">
+  {% if page.has_previous %}<li><a href="?sort={{ sort }}&page={{ page.previous_page_number }}">&laquo;</a></li>{% endif %}
+  <li class="active"><span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
+  {% if page.has_next %}<li><a href="?sort={{ sort }}&page={{ page.next_page_number }}">&raquo;</a></li>{% endif %}
+</ul>
+{% endif %}
+{% endblock %}

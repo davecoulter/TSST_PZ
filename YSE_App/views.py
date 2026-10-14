@@ -35,6 +35,7 @@ from .forms import *
 from .common import utilities
 from . import view_utils
 from .candidate_ingest import find_by_name
+from . import candidate_views
 import datetime
 from datetime import timedelta
 import pytz
@@ -109,11 +110,11 @@ def dashboard(request):
     transient_categories = []
     # One dashboard box per tag, read live from the DB (tags are seeded by
     # db_init/YSE_rest_of_tables_insert.sql / created via upload, not hardcoded).
-    # candidates (#16) have their own dashboard, never the main one
+    # candidates (#16) have their own dashboard (/candidates/), never the main
+    # one. The "Candidate" tag stays on promoted candidates as a label, so its
+    # box lists those (#27).
     candidate_status = find_by_name(TransientStatus, 'Candidate')
     for tagname in TransientTag.objects.order_by('name').values_list('name', flat=True):
-        if (tagname or '').strip().lower() == 'candidate':
-            continue
         prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
         transients = Transient.objects.filter(tags__name=tagname)
         if candidate_status is not None:
@@ -223,6 +224,10 @@ def transient_summary(request,status_or_query_name,
         transients = Transient.objects.filter(status=status[0]).order_by('-disc_date')
     elif TransientTag.objects.filter(name=unquote(status_or_query_name)).exists():
         transients = Transient.objects.filter(tags__name=unquote(status_or_query_name)).order_by('-disc_date')
+        # like the main dashboard's tag boxes, leave out candidates (#27)
+        candidate_status = find_by_name(TransientStatus, 'Candidate')
+        if candidate_status is not None:
+            transients = transients.exclude(status=candidate_status)
     else:
         query = Query.objects.filter(title=unquote(status_or_query_name))
         if len(query):
@@ -1134,6 +1139,9 @@ def transient_detail(request, slug):
             context['qub_candidate'] = transient_obj.postage_stamp_file.split('/')[-1].split('_')[0]
             
         context['automated_spectrum_form'] = automated_spectrum_form
+        # "Candidate data" section (#27), present when the transient has
+        # candidate-pipeline data or is a candidate
+        context.update(candidate_views.candidate_section_context(transient_obj))
 
 
         # we need to add a submit to TNS button

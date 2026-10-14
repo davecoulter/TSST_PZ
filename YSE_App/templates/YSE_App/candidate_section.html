@@ -1,0 +1,109 @@
+{% load candidate_extras %}
+{# "Candidate data" on the transient detail page (#27): everything /add_candidate/ stored. #}
+<div class="row">
+  <div class="col-xs-12">
+    <div class="box box-warning">
+      <div class="box-header with-border">
+        <h3 class="box-title">Candidate data</h3>
+        {% if transient.status.name|lower == 'candidate' %}
+          <span class="label label-warning" style="margin-left:8px">Status: Candidate</span>
+        {% endif %}
+        <a href="{% url 'candidate_dashboard' %}" style="margin-left:8px">All candidates</a>
+      </div>
+      <div class="box-body">
+        <div class="row">
+          <div class="col-md-7">
+            <h4>Runs</h4>
+            <table class="table table-condensed">
+              <thead><tr><th>Candidate ID</th><th>websniff page</th></tr></thead>
+              <tbody>
+              {% for run in candidate_runs %}
+                <tr>
+                  <td>{{ run.name }}</td>
+                  <td>
+                    {% for url in run.permalinks %}
+                      <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>{% if not forloop.last %}<br>{% endif %}
+                    {% empty %}&ndash;{% endfor %}
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="col-md-5">
+            <h4>Flagged by</h4>
+            <table class="table table-condensed">
+              <thead><tr><th>User</th><th>First</th><th>Last</th><th>Points sent</th></tr></thead>
+              <tbody>
+              {% for u in candidate_flagged_by %}
+                <tr>
+                  <td>{% if u.created_by__first_name or u.created_by__last_name %}{{ u.created_by__first_name }} {{ u.created_by__last_name }} ({{ u.created_by__username }}){% else %}{{ u.created_by__username }}{% endif %}</td>
+                  <td>{{ u.first|date:"Y-m-d H:i" }}</td>
+                  <td>{{ u.last|date:"Y-m-d H:i" }}</td>
+                  <td>{{ u.n_points }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="4">&ndash;</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+            <h4>Host</h4>
+            {% if transient.host %}
+            <table class="table table-condensed">
+              <tbody>
+                <tr><td>Name</td><td>{{ transient.host.name }}</td></tr>
+                <tr><td>Photo-z</td><td>{% if transient.host.photo_z is not None %}{{ transient.host.photo_z|floatformat:3 }}{% if transient.host.photo_z_err is not None %} &plusmn; {{ transient.host.photo_z_err|floatformat:3 }}{% endif %}{% if transient.host.photo_z_source %} ({{ transient.host.photo_z_source }}){% endif %}{% else %}&ndash;{% endif %}</td></tr>
+                <tr><td>Spec-z</td><td>{% if transient.host.redshift is not None %}{{ transient.host.redshift|floatformat:4 }}{% if transient.host.redshift_err is not None %} &plusmn; {{ transient.host.redshift_err|floatformat:4 }}{% endif %}{% else %}&ndash;{% endif %}</td></tr>
+              </tbody>
+            </table>
+            {% else %}
+            <p>No host recorded.</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <h4>
+          Image triplets
+          {% if candidate_n_superseded %}
+            <small><label style="font-weight:normal;margin-left:8px">
+              <input type="checkbox" id="candidate_show_superseded"
+                     onchange="$('.candidate-superseded').toggle(this.checked)">
+              show superseded ({{ candidate_n_superseded }})
+            </label></small>
+          {% endif %}
+        </h4>
+        {% if candidate_images %}
+        <table class="table table-bordered table-striped">
+          <thead>
+            <tr>
+              <th>Date (UTC)</th><th>Filter</th><th>Flux</th><th>S/N</th><th>Mag</th>
+              <th>SCI</th><th>REF</th><th>DIFF</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in candidate_images %}
+            <tr{% if row.superseded %} class="candidate-superseded" style="display:none;opacity:0.6"{% endif %}>
+              <td>{{ row.phot.obs_date|date:"Y-m-d H:i:s" }}{% if row.superseded %}<br><span class="label label-default">superseded</span>{% endif %}</td>
+              <td>{{ row.phot.band.name }}<br><small>{{ row.phot.band.instrument.name }}</small></td>
+              <td>{% if row.phot.flux is not None %}{{ row.phot.flux|floatformat:4 }}{% if row.phot.flux_err is not None %} &plusmn; {{ row.phot.flux_err|floatformat:4 }}{% endif %}{% else %}&ndash;{% endif %}</td>
+              <td>{% if row.snr is not None %}{{ row.snr|floatformat:1 }}{% else %}&ndash;{% endif %}{% if not row.detection %}<br><span class="label label-default">limit</span>{% endif %}</td>
+              <td>{% if row.phot.mag is not None %}{{ row.phot.mag|floatformat:2 }}{% if row.phot.mag_err is not None %} &plusmn; {{ row.phot.mag_err|floatformat:2 }}{% endif %}{% else %}&ndash;{% endif %}</td>
+              {% for stamp, fits in row.stamps %}
+              <td style="text-align:center">
+                {% if stamp %}
+                  <a href="{{ stamp|stamp_src }}" target="_blank" rel="noopener"><img src="{{ stamp|stamp_src }}" style="width:150px" alt="" loading="lazy"></a>
+                {% else %}&ndash;{% endif %}
+                {% if fits %}<br><small style="word-break:break-all">{{ fits }}</small>{% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p>No images registered.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>

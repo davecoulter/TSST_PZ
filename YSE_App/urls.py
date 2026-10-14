@@ -7,7 +7,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework.schemas import get_schema_view
 from django.urls import path, re_path, include
 
-from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest
+from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest, candidate_views
 from . import api_views
 from .form_views import *
 from .yse_utils.yse_forms import MoveYSEFormView
@@ -25,6 +25,7 @@ urlpatterns = [
     re_path(r'^$', views.index, name='index'),
     re_path(r'^dashboard/$', views.dashboard, name='dashboard'),
     re_path(r'^yse_home/$', views.yse_home, name='yse_home'),
+    re_path(r'^candidates/$', candidate_views.candidate_dashboard, name='candidate_dashboard'),
     re_path(r'^personaldashboard/$', views.personaldashboard, name='personaldashboard'),
     re_path(r'^calendar/$', views.calendar, name='calendar'),
     re_path(r'^followup/$', views.followup, name='followup'),
