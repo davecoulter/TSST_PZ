@@ -3,7 +3,7 @@
 - **Issue:** #23 (part of #16)
 - **Branch:** `23-add-candidate-endpoint`
 - **Depends on:** #24 (data migrations: "Candidate" status, "Superseded" DataQuality, "diffpype" InformationSource, "Candidate" tag)
-- **Status:** Approved; implemented, awaiting verification against the stack
+- **Status:** Verified on the local stack except the browser checks; ready for review
 
 ## Why
 
@@ -21,6 +21,7 @@ diff_pype publishes JWST candidates on static websniff pages. We want each candi
 | 5 | Superseded photometry | Same transient, instrument, band and `obs_date` (to the second): add DQ "Superseded" to the old point, then insert the new one. |
 | 6 | Hide superseded points | Light-curve plots (`view_utils.lightcurveplot_summary`, `_detail`, `_flux`) and the transient detail data skip points flagged "Superseded" only. Other DQ flags keep today's behavior. |
 | 6b | Keep candidates off the main dashboard | `views.dashboard()` draws one box per tag. Skip the "Candidate" tag's box and exclude status "Candidate" from every other box, so the first ingested candidate doesn't show up there (Dave, 2026-10-14). Candidate-specific dashboard and detail pages are #27. |
+| 2b | Array form (contract v1.1) | `/add_candidate/` also accepts a JSON array: each candidate independent (own transaction), the reply lists per-item status and which failed (Dave, 2026-10-14). The web-sniff page packages an array and a driver script POSTs it. |
 | 7 | Notebook example | `scripts/examples/add_candidate.ipynb` or a `.py`: builds a payload and POSTs it, with credentials from the environment. |
 | 8 | Docs | Endpoint section in `docker/README.md` or `docs/` (decide in review). |
 
@@ -58,13 +59,13 @@ Out of scope:
 ## Acceptance criteria
 
 - [x] Contract v1.0 frozen (`contract.md`).
-- [ ] `add_transient` matches at 0.2″ through the shared helper; existing integration tests still pass.
-- [ ] POST of a new candidate returns 201 and creates the transient (status Candidate, tag Candidate), a web resource, photometry and diff images.
-- [ ] POST of a different `candidate_id` within the radius returns 200 and appends (a new web resource and new photometry); name, slug and coordinates are unchanged.
-- [ ] Re-posting a point with the same band and `obs_date` flags the old one "Superseded"; light-curve plots show only the new one.
-- [ ] An invalid payload returns 400 and writes nothing.
-- [ ] Audit fields are the authenticated user.
-- [ ] The main dashboard shows no candidates (no "Candidate" box; candidates excluded from field boxes).
+- [x] `add_transient` matches at 0.2″ through the shared helper; existing integration tests still pass. (9/9)
+- [x] POST of a new candidate returns 201 and creates the transient (status Candidate, tag Candidate), a web resource, photometry and diff images.
+- [x] POST of a different `candidate_id` within the radius returns 200 and appends (a new web resource and new photometry); name, slug and coordinates are unchanged.
+- [ ] Re-posting a point with the same band and `obs_date` flags the old one "Superseded" (verified in the DB); light-curve plots show only the new one (browser check pending).
+- [x] An invalid payload returns 400 and writes nothing.
+- [x] Audit fields are the authenticated user.
+- [ ] The main dashboard shows no candidates (no "Candidate" box; candidates excluded from field boxes). (Browser check: dashboard empty on the local DB; see Log.)
 - [ ] `ruff check .` passes; no dependency or image change.
 
 ## Verification
@@ -109,3 +110,8 @@ Then check the transient detail page and the light curve. Add integration tests 
   - Missing lookup rows (migration 0005 not applied) return 500 with a message.
   - Validation was exercised offline against the contract example and seven bad payloads. The example's max S/N comes out at 15.2, matching the websniff page. Nothing has run against a DB yet.
 - **2026-10-14:** Merged master after #24 landed (PR #30). Following Local Claude's note on 0005, the endpoint's lookups (status, tag, obs group, DataQuality, InformationSource, mag system) and the dashboard's Candidate exclusion now match names ignoring case and surrounding whitespace, via `candidate_ingest.find_by_name()`, so they find the same rows 0005 reused. Instruments still match case-insensitively by name plus telescope. `ruff check .` passes.
+- **2026-10-14:** Review (Local Claude) found no blocking issues. Decisions with Dave: (1) unexpected auth failure returns 403 before any write; (2) TESS and Thacher checks in the `Transient` post_save receiver are mothballed (`tag_TESS, tag_Thacher = False, False`, and the `else:` that also called `tess_obs` is now `elif tag_TESS:`), because `tess_obs()` makes an untimed live request to NASA HEASARC for every created transient and raises on non-200, which would hang or fail a POST on a network without internet (#31 tracks revisiting it); (3) a simultaneous POST race (two requests for the same new candidate before either commits) is accepted for one instance and human-rate use; (4) the "Superseded" filter in `view_utils` still matches the exact name, which is fine because 0005 creates it exactly.
+- **2026-10-14:** Verified on Dave's local stack as an admin `test4`. The local DB predated the seed's JWST chain, so the example POST first returned 400 (`unknown instrument "NIRCam"`, as designed, nothing written); applied the seed's guarded JWST observatory/telescope/instrument block locally, and prod already has them. Then: example POST 201 (4 points), repeat 200 (4 superseded); every new row's `created_by`/`modified_by` is `test4`; status and tag `Candidate`; one web resource; thumbnail set. `test_add_candidate.py` 8/8 and `test_add_transient.py` 9/9 passed, with no leftover `ITEST_` rows.
+- **2026-10-14:** Justin's `jwst_5324_trig7_candidates.json` (array of 2, NIRCam, 4 points each) validates against v1.0. Posted one object at a time: 201, 201; re-post: 200 and 4 superseded each; a copy under a new ID shifted 0.1″ appended to the first by position (`match_separation_arcsec` 0.1), kept its name and coordinates, and added one alias and its permalink. The two candidates are ~49″ apart and stayed separate.
+- **2026-10-14:** Added the array form (contract v1.1) at Dave's request, as above: independent candidates, per-item results, at most 500, empty list is 400, a single object is unchanged. Three new tests (independence with a bad candidate in the middle, batch re-post supersedes, empty list); `test_add_candidate.py` 11/11. Justin's whole array in one POST returned 200 with `{"created": 0, "appended": 2, "failed": 0}` and 4 superseded each.
+- **2026-10-14:** The main dashboard is empty on Dave's local DB, as designed: every transient there, including the old test rows SN0 and SN1 (tag `Justin`), has status `Candidate`, and the dashboard excludes status `Candidate`. **Before deploy, check prod:** any existing transient with status `Candidate` (the row exists on prod) would vanish from the main dashboard boxes.

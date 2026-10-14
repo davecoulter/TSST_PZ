@@ -1,4 +1,4 @@
-# STZ-PZ `/add_candidate/` payload (v1.0)
+# STZ-PZ `/add_candidate/` payload (v1.1)
 
 This is what the websniff **Save candidate** button (or a notebook or script) POSTs to STZ-PZ for one candidate. It is one JSON object per candidate. A full example is in `add_candidate_example.json`; it uses the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`, with its diff-image magnitudes from the page. The MJD, stamp URLs and FITS paths are placeholders.
 
@@ -6,6 +6,22 @@ This is what the websniff **Save candidate** button (or a notebook or script) PO
 - **Response:** `201` created a new candidate, or `200` appended to an existing one, as JSON: `{"result": "created"|"appended", "transient": "<name>", "url": "/transient_detail/<slug>/", "match_separation_arcsec": <float|null>, "photometry_added": <int>, "photometry_superseded": <int>}`. `400` with `{"errors": {...}}` for a bad payload (nothing is saved). `401`/`403` for a bad login.
 
 STZ-PZ matches each POST to existing objects within **0.2″**. A later run that detects the same source under a new `candidate_id` is appended to the same object. The client doesn't need to know what STZ-PZ already holds.
+
+## Several candidates in one request (v1.1)
+
+The body may also be a **JSON array** of candidate objects (the objects above). Each candidate is independent: it is validated and saved in its own transaction, in order (a later one can match an earlier one), and one that fails does not stop or undo the others. The reply is always `200` (for a well-formed request) and says what happened to each:
+
+```json
+{"summary": {"created": 2, "appended": 0, "failed": 1},
+ "results": [
+   {"index": 0, "candidate_id": "…_0", "status": 201, "result": "created", "transient": "…_0",
+    "url": "/transient_detail/…_0/", "match_separation_arcsec": null,
+    "photometry_added": 4, "photometry_superseded": 0},
+   {"index": 1, "candidate_id": "…_1", "status": 400, "errors": {"ra": "required"}},
+   {"index": 2, "candidate_id": "…_2", "status": 200, "result": "appended", "…": "…"}]}
+```
+
+Each result carries the HTTP status that a single POST of that candidate would have returned, plus the same fields. An empty array, or more than 500 candidates, is a `400` for the whole request. A single object behaves exactly as in v1.0.
 
 ## Top level
 
@@ -66,4 +82,4 @@ STZ-PZ matches each POST to existing objects within **0.2″**. A later run that
 
 - Re-sending the same `band` and `mjd` for an object replaces the earlier point. The old one is kept but flagged "Superseded".
 - Never send `created_by`, `status` or a `name`; STZ-PZ sets these.
-- v1.0 is frozen (Dave, 2026-10-14), so diff_pype and STZ-PZ can be built in parallel. Any change after this is a new version, agreed by both sides and noted here.
+- v1.0 was frozen 2026-10-14 so diff_pype and STZ-PZ could be built in parallel. v1.1 (2026-10-14, Dave) adds the array form; nothing else changed, and single objects work as before. Any further change is a new version, agreed by both sides and noted here.

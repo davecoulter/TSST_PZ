@@ -298,7 +298,9 @@ def execute_after_save(sender, instance, created, *args, **kwargs):
 				instance.k2_validated = True
 				instance.k2_msg = C19_msg
 				instance.tags.add(k2c19tag)
-		tag_TESS,tag_Thacher = True,True #False,False
+		# Mothballed (#23): tess_obs() makes an untimed live request to NASA HEASARC for every
+		# created transient, and Thacher is legacy. Flip back to True to re-enable.
+		tag_TESS,tag_Thacher = False,False
 		print('Checking TESS')
 		if tag_TESS and instance.disc_date:
 			TESSFlag = tess_obs(instance.ra,instance.dec,date_to_mjd(instance.disc_date)+2400000.5)
@@ -307,7 +309,7 @@ def execute_after_save(sender, instance, created, *args, **kwargs):
 					tesstag = TransientTag.objects.get(name='TESS')
 					instance.tags.add(tesstag)
 				except: pass
-		else:
+		elif tag_TESS:
 			TESSFlag = tess_obs(instance.ra,instance.dec,date_to_mjd(instance.modified_date)+2400000.5)
 			if TESSFlag:
 				try:

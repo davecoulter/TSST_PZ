@@ -8,6 +8,7 @@ to the same Transient. Nothing is written unless the whole request succeeds.
 import base64
 import datetime
 import json
+import logging
 import math
 
 from django.conf import settings as djangoSettings
@@ -26,6 +27,8 @@ from .models import (
     TransientWebResource,
 )
 
+logger = logging.getLogger(__name__)
+
 CANDIDATE = 'Candidate'
 SUPERSEDED = 'Superseded'
 DEFAULT_SOURCE = 'diffpype'
@@ -35,6 +38,8 @@ ZERO_POINTS = {'ujy': 23.9, 'njy': 31.4}
 # Re-posted points within this many seconds of an existing one (same band)
 # supersede it.
 SAME_EPOCH_SECONDS = 1.0
+# A POST may carry a list of candidates (contract v1.1); cap it so one request can't run forever.
+MAX_BATCH = 500
 
 
 class PayloadError(Exception):
@@ -426,6 +431,49 @@ def _request_user(request):
     return auth.authenticate(username=username, password=password)
 
 
+def _ingest_one(data, user):
+    """Validate and ingest one candidate in its own transaction.
+
+    Returns (http_status, body). Nothing is written unless the whole candidate succeeds."""
+    try:
+        payload = validate_payload(data)
+        with transaction.atomic():
+            body = ingest_candidate(payload, user)
+    except PayloadError as e:
+        return 400, {'errors': e.errors}
+    except LookupError as e:
+        return 500, {'errors': {'': str(e)}}
+    return (201 if body['result'] == 'created' else 200), body
+
+
+def _add_batch(items, user):
+    """A list of candidates: each is independent (own transaction, in order, so
+    a later item can match an earlier one). The response says which failed."""
+    if not items:
+        return JsonResponse({'errors': {'': 'the list is empty'}}, status=400)
+    if len(items) > MAX_BATCH:
+        return JsonResponse({'errors': {'': 'at most %d candidates per request' % MAX_BATCH}}, status=400)
+    results = []
+    for index, item in enumerate(items):
+        try:
+            status, body = _ingest_one(item, user)
+        except Exception:
+            logger.exception('add_candidate: unexpected error on item %d', index)
+            status, body = 500, {'errors': {'': 'internal error; see the server log'}}
+        results.append({
+            'index': index,
+            'candidate_id': item.get('candidate_id') if isinstance(item, dict) else None,
+            'status': status,
+            **body,
+        })
+    summary = {
+        'created': sum(r['status'] == 201 for r in results),
+        'appended': sum(r['status'] == 200 for r in results),
+        'failed': sum(r['status'] not in (200, 201) for r in results),
+    }
+    return JsonResponse({'summary': summary, 'results': results}, status=200)
+
+
 @csrf_exempt
 @login_or_basic_auth_required
 def add_candidate(request):
@@ -436,14 +484,12 @@ def add_candidate(request):
     except (ValueError, UnicodeDecodeError):
         return JsonResponse({'errors': {'': 'body is not valid JSON'}}, status=400)
 
-    try:
-        payload = validate_payload(data)
-        user = _request_user(request)
-        with transaction.atomic():
-            body = ingest_candidate(payload, user)
-    except PayloadError as e:
-        return JsonResponse({'errors': e.errors}, status=400)
-    except LookupError as e:
-        return JsonResponse({'errors': {'': str(e)}}, status=500)
+    user = _request_user(request)
+    if user is None:
+        # never write anything without an authenticated user
+        return JsonResponse({'errors': {'': 'authentication failed'}}, status=403)
 
-    return JsonResponse(body, status=201 if body['result'] == 'created' else 200)
+    if isinstance(data, list):
+        return _add_batch(data, user)
+    status, body = _ingest_one(data, user)
+    return JsonResponse(body, status=status)

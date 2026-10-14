@@ -12,7 +12,7 @@ import pytest
 import requests
 from requests.auth import HTTPBasicAuth
 
-from conftest import TEST_PREFIX, _delete_quietly
+from conftest import TEST_PREFIX, _delete_quietly, unique_name
 
 pytestmark = pytest.mark.integration
 
@@ -139,3 +139,39 @@ def test_unknown_instrument_is_rejected(post_candidate, new_transient):
 def test_get_is_not_allowed(base_url, credentials):
     resp = requests.get(base_url + "/add_candidate/", auth=HTTPBasicAuth(*credentials), timeout=30)
     assert resp.status_code == 405
+
+
+# --- a list of candidates (contract v1.1) ------------------------------------
+
+def test_batch_items_are_independent(post_candidate, new_transient, delete_transient_named, api_get):
+    good = candidate_payload(**new_transient)
+    bad = candidate_payload(unique_name("bad"), new_transient["ra"], new_transient["dec"])
+    del bad["ra"]
+    other = unique_name("other")
+    far = candidate_payload(other, _offset(new_transient["ra"], new_transient["dec"], 120),
+                            new_transient["dec"])
+    try:
+        resp = post_candidate([good, bad, far])
+        assert resp.status_code == 200, resp.text[:500]
+        body = resp.json()
+        assert [r["status"] for r in body["results"]] == [201, 400, 201]
+        assert body["summary"] == {"created": 2, "appended": 0, "failed": 1}
+        assert body["results"][1]["candidate_id"] == bad["candidate_id"]
+        assert "ra" in body["results"][1]["errors"]
+        found = api_get(f"/api/transients/?name={bad['candidate_id']}&format=json")["results"]
+        assert found == []  # the failed one wrote nothing; the others still landed
+    finally:
+        delete_transient_named(other)
+
+
+def test_batch_repost_supersedes(post_candidate, new_transient):
+    payload = candidate_payload(**new_transient)
+    assert post_candidate([payload]).json()["results"][0]["status"] == 201
+    again = post_candidate([payload]).json()
+    assert again["results"][0]["status"] == 200
+    assert again["results"][0]["photometry_superseded"] == 2
+    assert again["summary"] == {"created": 0, "appended": 1, "failed": 0}
+
+
+def test_batch_empty_list_is_rejected(post_candidate):
+    assert post_candidate([]).status_code == 400
