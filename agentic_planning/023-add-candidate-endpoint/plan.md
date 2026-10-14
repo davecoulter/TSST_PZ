@@ -20,6 +20,7 @@ diff_pype publishes JWST candidates on static websniff pages. We want each candi
 | 4 | Create or append | See "Merge rules". Runs inside `transaction.atomic()`. |
 | 5 | Superseded photometry | Same transient, instrument, band and `obs_date` (to the second): add DQ "Superseded" to the old point, then insert the new one. |
 | 6 | Hide superseded points | Light-curve plots (`view_utils.lightcurveplot_summary`, `_detail`, `_flux`) and the transient detail data skip points flagged "Superseded" only. Other DQ flags keep today's behavior. |
+| 6b | Keep candidates off the main dashboard | `views.dashboard()` draws one box per tag. Skip the "Candidate" tag's box and exclude status "Candidate" from every other box, so the first ingested candidate doesn't show up there (Dave, 2026-10-14). Candidate-specific dashboard and detail pages are #27. |
 | 7 | Notebook example | `scripts/examples/add_candidate.ipynb` or a `.py`: builds a payload and POSTs it, with credentials from the environment. |
 | 8 | Docs | Endpoint section in `docker/README.md` or `docs/` (decide in review). |
 
@@ -63,6 +64,7 @@ Draft v0.1 in [`contract.md`](contract.md), with a full example in [`add_candida
 - [ ] Re-posting a point with the same band and `obs_date` flags the old one "Superseded"; light-curve plots show only the new one.
 - [ ] An invalid payload returns 400 and writes nothing.
 - [ ] Audit fields are the authenticated user.
+- [ ] The main dashboard shows no candidates (no "Candidate" box; candidates excluded from field boxes).
 - [ ] `ruff check .` passes; no dependency or image change.
 
 ## Verification
@@ -89,3 +91,4 @@ Then check the transient detail page and the light curve. Add integration tests 
 - **2026-10-14:** Plan drafted. Design agreed with Dave in the project thread: candidates are transients with status "Candidate", matching is server-side, re-posted epochs are superseded via DataQuality, and aliases are web resources.
 - **2026-10-14:** Dave set the match radius to 0.2″ and asked that `add_transient` use the same rule (added as 3b). Contract v0.1 written (`contract.md`, `add_candidate_example.json`) for Dave to share with Justin. Dave created the "Candidate" tag by hand on his local DB; #24's `get_or_create` migrations make fresh installs match.
 - **2026-10-14:** The automatic tag is "Candidate" (Dave), not "diffpype". Provenance stays with the permalink's `InformationSource` "diffpype". Status "Candidate" is kept as well, so candidates stay out of the "New" queue until promoted.
+- **2026-10-14:** Dave wants candidates off the main dashboard entirely, with their own dashboard and detail pages (#27). The exclusion is added here (6b), so it ships with the first candidate.
