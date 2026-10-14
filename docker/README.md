@@ -68,6 +68,8 @@ docker compose exec web python3 manage.py makemigrations YSE_App          # afte
 docker compose exec web python3 manage.py migrate                         # local dev DB only
 ```
 
+Some migrations also add lookup rows (e.g. `0005_candidate_lookup_rows`: the "Candidate" status and tag, the "Superseded" data-quality flag, and the "diffpype" information source). They're attributed to the first superuser. On a DB with no superuser they're skipped with a printed note; create the rows by hand, or create a superuser and re-run that migration's function.
+
 The entrypoint does not run `migrate`. Shared and live DBs are migrated by a person, never automatically and never by Claude. Change the schema through migrations, not by hand-editing the `db_init/` SQL.
 
 ## Changing dependencies
