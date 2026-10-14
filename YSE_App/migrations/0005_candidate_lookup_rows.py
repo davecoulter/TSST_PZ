@@ -11,12 +11,25 @@ CANDIDATE_LOOKUP_ROWS = [
 ]
 
 
+def _has_row(Model, name):
+    """True if a row exists whose name matches ignoring case and surrounding
+    whitespace. Compared in Python, not SQL, so the result doesn't depend on the
+    column's collation (the SQL seeds are latin1, migration-built tables are
+    utf8mb4, and trailing-space handling differs between them). These lookup
+    tables are tiny."""
+    wanted = name.strip().lower()
+    return any((existing or '').strip().lower() == wanted
+               for existing in Model.objects.values_list('name', flat=True))
+
+
 def add_candidate_lookup_rows(apps, schema_editor):
-    """Create each row unless one with the same name (any case) already exists.
+    """Create each row unless one with the same name already exists, ignoring
+    case and surrounding whitespace.
 
     Rows are attributed to the first superuser, like the SQL seeds in
     docker/db_init/YSE_rest_of_tables_insert.sql. Existing rows are never
-    modified, so a hand-made row (e.g. Dave's "Candidate" tag) is reused.
+    modified, so a hand-made row (e.g. Dave's "Candidate" tag on prod) is reused
+    as is. A new row is created with the exact name from CANDIDATE_LOOKUP_ROWS.
     """
     app_label, model_name = settings.AUTH_USER_MODEL.split('.')
     User = apps.get_model(app_label, model_name)
@@ -28,7 +41,7 @@ def add_candidate_lookup_rows(apps, schema_editor):
 
     for model_name, name in CANDIDATE_LOOKUP_ROWS:
         Model = apps.get_model('YSE_App', model_name)
-        if not Model.objects.filter(name__iexact=name).exists():
+        if not _has_row(Model, name):
             Model.objects.create(name=name, created_by=admin, modified_by=admin)
 
 
