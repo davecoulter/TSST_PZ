@@ -22,7 +22,7 @@
                   <td>{{ run.name }}</td>
                   <td>
                     {% for url in run.permalinks %}
-                      <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>{% if not forloop.last %}<br>{% endif %}
+                      {% if url|is_url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>{% else %}{{ url }}{% endif %}{% if not forloop.last %}<br>{% endif %}
                     {% empty %}&ndash;{% endfor %}
                   </td>
                 </tr>

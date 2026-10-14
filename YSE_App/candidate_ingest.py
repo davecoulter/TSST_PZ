@@ -111,6 +111,9 @@ def validate_payload(data):
         'telescope': _string(data, 'telescope', '', errors, max_length=64) or DEFAULT_TELESCOPE,
         'instrument': _string(data, 'instrument', '', errors, required=True, max_length=64),
     }
+    if p['permalink'] is not None and not p['permalink'].lower().startswith(('http://', 'https://')):
+        # it is shown as a link on the candidate pages; never accept e.g. javascript:
+        errors['permalink'] = 'must be an http:// or https:// URL'
     if p['ra'] is not None and not 0 <= p['ra'] < 360:
         errors['ra'] = 'must be in [0, 360)'
     if p['dec'] is not None and not -90 <= p['dec'] <= 90:
