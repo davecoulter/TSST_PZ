@@ -25,7 +25,7 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.parsers import JSONParser
 from django.db.models import ForeignKey
 from .common.alert import sendemail
-from .common.utilities import getRADecBox
+from .common.utilities import getRADecBox, find_nearest_within
 from django.db.models import Q
 from .queries.yse_python_queries import *
 from .queries import yse_python_queries
@@ -291,16 +291,17 @@ def add_transient(request):
                 dbtransient = Transient.objects.filter(name=transient['name'])
 
             if not len(dbtransient):
-                # check RA/dec
-                ramin,ramax,decmin,decmax = getRADecBox(transient['ra'],transient['dec'],size=0.00042)
+                # check RA/dec: nearest transient within TRANSIENT_MATCH_RADIUS_ARCSEC
+                nearby = Transient.objects.all()
                 if 'disc_date' in transient.keys():
-                    dbtransient = Transient.objects.filter(
-                        Q(ra__gt=ramin) & Q(ra__lt=ramax) & Q(dec__gt=decmin) & Q(dec__lt=decmax) &
+                    nearby = nearby.filter(
                         Q(disc_date__gte=dateutil.parser.parse(transient['disc_date'])-datetime.timedelta(365)) &
                         Q(disc_date__lte=dateutil.parser.parse(transient['disc_date'])+datetime.timedelta(365)))
-                else:
-                    dbtransient = Transient.objects.filter(
-                        Q(ra__gt=ramin) & Q(ra__lt=ramax) & Q(dec__gt=decmin) & Q(dec__lt=decmax))
+                match, _ = find_nearest_within(
+                    nearby, float(transient['ra']), float(transient['dec']),
+                    djangoSettings.TRANSIENT_MATCH_RADIUS_ARCSEC)
+                # keep a queryset: the code below calls .update() on it
+                dbtransient = Transient.objects.filter(pk=match.pk) if match else Transient.objects.none()
 
                 if len(dbtransient):
                     #dbtransient = dbtransient[0]

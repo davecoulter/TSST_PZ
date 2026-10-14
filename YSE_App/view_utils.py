@@ -115,7 +115,8 @@ def get_recent_phot_for_host(user, host_id=None):
 def get_all_phot_for_transient(user, transient_id=None):
     photdata = PhotometryService.GetAuthorizedTransientPhotData_ByUser_ByTransient(
         user, transient_id, includeBadData=True)
-    return(photdata)
+    # points replaced by a re-post of the same band and epoch (#23)
+    return(photdata.exclude(data_quality__name='Superseded'))
 
 def get_recent_phot_for_transient(user, transient_id=None):
     photdata = get_all_phot_for_transient(user, transient_id)

@@ -109,8 +109,12 @@ def dashboard(request):
     # One dashboard box per tag, read live from the DB (tags are seeded by
     # db_init/YSE_rest_of_tables_insert.sql / created via upload, not hardcoded).
     for tagname in TransientTag.objects.order_by('name').values_list('name', flat=True):
+        # candidates (#16) have their own dashboard, never the main one
+        if tagname.lower() == 'candidate':
+            continue
         prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
-        transients = Transient.objects.filter(tags__name=tagname).order_by('-disc_date')
+        transients = Transient.objects.filter(tags__name=tagname).exclude(
+            status__name='Candidate').order_by('-disc_date')
         # omit tags with no matching transients from the dashboard grid
         if not transients.exists():
             continue

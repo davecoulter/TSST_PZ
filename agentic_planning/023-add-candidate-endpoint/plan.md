@@ -3,7 +3,7 @@
 - **Issue:** #23 (part of #16)
 - **Branch:** `23-add-candidate-endpoint`
 - **Depends on:** #24 (data migrations: "Candidate" status, "Superseded" DataQuality, "diffpype" InformationSource, "Candidate" tag)
-- **Status:** Draft, awaiting approval
+- **Status:** Approved; implemented, awaiting verification against the stack
 
 ## Why
 
@@ -93,3 +93,18 @@ Then check the transient detail page and the light curve. Add integration tests 
 - **2026-10-14:** The automatic tag is "Candidate" (Dave), not "diffpype". Provenance stays with the permalink's `InformationSource` "diffpype". Status "Candidate" is kept as well, so candidates stay out of the "New" queue until promoted.
 - **2026-10-14:** Dave wants candidates off the main dashboard entirely, with their own dashboard and detail pages (#27). The exclusion is added here (6b), so it ships with the first candidate.
 - **2026-10-14:** Dave froze the JSON as contract v1.0 so STZ-PZ and diff_pype can be built in parallel. #28 (promotion scan) is future work, not part of this sequence.
+- **2026-10-14:** Plan approved by Dave (Opus, high effort). Implemented on this branch, with #24's branch merged in for migration 0005:
+  - `YSE_App/candidate_ingest.py` (`add_candidate`, routed at `^add_candidate/`).
+  - `find_nearest_within()` in `YSE_App/common/utilities.py` and `TRANSIENT_MATCH_RADIUS_ARCSEC = 0.2` in settings.
+  - `add_transient` uses the shared match (3b). A side effect fixes a latent bug: its box query could match several transients, and `.update()` then rewrote all of them. Now only the nearest one is updated.
+  - `view_utils.get_all_phot_for_transient` hides "Superseded" points. That covers the three light-curve plots, the detail page and RAPID; exports are unchanged.
+  - `views.dashboard()` skips the Candidate tag's box and excludes status Candidate from the others (6b).
+  - `scripts/examples/add_candidate.py` (stdlib client) and `tests/integration/test_add_candidate.py`.
+- **2026-10-14:** Decisions made while building:
+  - Aliases go in the existing `AlternateTransientNames` table (also used by `add_transient`), as well as one `TransientWebResource` per permalink.
+  - A repeat of the same `candidate_id` (as name or alias) always appends, before any position check.
+  - On a match to an existing non-candidate transient, its status and tags are kept, and the Candidate tag is not added.
+  - Upper limits keep `flux`/`flux_err` (derived from the limiting mag if needed) with `mag` empty, because the existing plots draw a point with a mag as a detection.
+  - Unknown payload `tags` are rejected (400), like the CLI.
+  - Missing lookup rows (migration 0005 not applied) return 500 with a message.
+  - Validation was exercised offline against the contract example and seven bad payloads. The example's max S/N comes out at 15.2, matching the websniff page. Nothing has run against a DB yet.

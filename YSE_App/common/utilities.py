@@ -124,3 +124,23 @@ def getRADecBox(ra,dec,size=None):
 			ramin+=360.0
 			ramax+=360.0
 	return(ramin,ramax,decmin,decmax)
+
+def find_nearest_within(queryset, ra, dec, radius_arcsec):
+	"""Return (obj, separation_arcsec) for the object in `queryset` nearest to
+	ra/dec (deg) within `radius_arcsec`, or (None, None).
+
+	`queryset` is any model with `ra`/`dec` fields (e.g. Transient), possibly
+	pre-filtered by the caller. A box query narrows it first; the true angular
+	separation then decides.
+	"""
+	size = 2*radius_arcsec/3600.
+	ramin,ramax,decmin,decmax = getRADecBox(ra,dec,size=size)
+	candidates = queryset.filter(ra__gte=ramin,ra__lte=ramax,dec__gte=decmin,dec__lte=decmax)
+
+	target = SkyCoord(ra,dec,unit=u.deg)
+	nearest, nearest_sep = None, None
+	for obj in candidates:
+		sep = target.separation(SkyCoord(obj.ra,obj.dec,unit=u.deg)).arcsec
+		if sep <= radius_arcsec and (nearest_sep is None or sep < nearest_sep):
+			nearest, nearest_sep = obj, sep
+	return(nearest,nearest_sep)
