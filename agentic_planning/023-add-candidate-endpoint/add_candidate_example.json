@@ -1,0 +1,91 @@
+{
+  "candidate_id": "jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1",
+  "ra": 189.21972548,
+  "dec": 62.16717944,
+  "permalink": "https://www.stsci.edu/~tsst/diffpype_test/jwst_5324_trig2/jw05324-o017_t014_nircam_clear/#jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1",
+  "source": "diffpype",
+  "run_id": "jwst_5324_trig2",
+  "field": "jw05324-o017_t014_nircam_clear",
+  "telescope": "JWST",
+  "instrument": "NIRCam",
+  "tags": [],
+  "host": null,
+  "photometry": [
+    {
+      "band": "F150W",
+      "mjd": 61102.41532,
+      "flux": 0.0305,
+      "flux_err": 0.002,
+      "flux_unit": "uJy",
+      "flux_zero_point": 23.9,
+      "mag": 27.69,
+      "mag_err": 0.07,
+      "upper_limit": false,
+      "limit_sigma": null,
+      "stamps": {
+        "sci": "https://www.stsci.edu/~tsst/diffpype_test/jwst_5324_trig2/jw05324-o017_t014_nircam_clear/stamps/jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F150W_sci.png",
+        "ref": "https://www.stsci.edu/~tsst/diffpype_test/jwst_5324_trig2/jw05324-o017_t014_nircam_clear/stamps/jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F150W_ref.png",
+        "diff": "https://www.stsci.edu/~tsst/diffpype_test/jwst_5324_trig2/jw05324-o017_t014_nircam_clear/stamps/jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F150W_diff.png"
+      },
+      "fits": {
+        "sci": "/path/to/jw05324-o017_t014_nircam_clear_f150w_i2d.fits",
+        "ref": "/path/to/ref_f150w_i2d.fits",
+        "diff": "/path/to/diff_f150w.fits"
+      }
+    },
+    {
+      "band": "F200W",
+      "mjd": 61102.41532,
+      "flux": 0.0525,
+      "flux_err": 0.0044,
+      "flux_unit": "uJy",
+      "flux_zero_point": 23.9,
+      "mag": 27.1,
+      "mag_err": 0.09,
+      "upper_limit": false,
+      "limit_sigma": null,
+      "stamps": {
+        "sci": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F200W_sci.png",
+        "ref": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F200W_ref.png",
+        "diff": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F200W_diff.png"
+      },
+      "fits": null
+    },
+    {
+      "band": "F277W",
+      "mjd": 61102.41532,
+      "flux": 0.0069,
+      "flux_err": 0.0009,
+      "flux_unit": "uJy",
+      "flux_zero_point": 23.9,
+      "mag": 29.31,
+      "mag_err": 0.14,
+      "upper_limit": false,
+      "limit_sigma": null,
+      "stamps": {
+        "sci": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F277W_sci.png",
+        "ref": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F277W_ref.png",
+        "diff": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F277W_diff.png"
+      },
+      "fits": null
+    },
+    {
+      "band": "F444W",
+      "mjd": 61102.41532,
+      "flux": 0.0052,
+      "flux_err": 0.0008,
+      "flux_unit": "uJy",
+      "flux_zero_point": 23.9,
+      "mag": 29.6,
+      "mag_err": 0.17,
+      "upper_limit": false,
+      "limit_sigma": null,
+      "stamps": {
+        "sci": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F444W_sci.png",
+        "ref": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F444W_ref.png",
+        "diff": "https://.../jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1_F444W_diff.png"
+      },
+      "fits": null
+    }
+  ]
+}

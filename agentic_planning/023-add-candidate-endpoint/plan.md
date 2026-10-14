@@ -13,9 +13,10 @@ diff_pype publishes JWST candidates on static websniff pages. We want each candi
 
 | # | Deliverable | Notes |
 |---|---|---|
-| 1 | Payload contract | This plan's "Contract" section, refined during review. It moves to `agentic_planning/023-add-candidate-endpoint/contract.md` once agreed. |
+| 1 | Payload contract | `contract.md` and `add_candidate_example.json` in this folder; v0.1 now, v1.0 after Justin's feedback. |
 | 2 | `add_candidate` view | New module `YSE_App/candidate_ingest.py` (keeps `data_utils.py` from growing). It's routed at `^add_candidate/` in `YSE_App/urls.py` and uses `@csrf_exempt` and `@login_or_basic_auth_required`, like `add_transient`. |
-| 3 | Cross-match | Prefilter with `getRADecBox`, then compute true angular separation (astropy `SkyCoord`, already in the image). Pick the nearest within the radius. Radius comes from settings (`CANDIDATE_MATCH_RADIUS_ARCSEC`, default 0.3), overridable per request up to a cap. |
+| 3 | Cross-match | Shared helper (e.g. `YSE_App/common/utilities.py: find_transient_near(ra, dec, radius_arcsec)`): prefilter with `getRADecBox`, then compute true angular separation (astropy, already in the image) and return the nearest within the radius. The radius comes from settings, `TRANSIENT_MATCH_RADIUS_ARCSEC = 0.2` (decided by Dave 2026-10-14). |
+| 3b | `add_transient` uses the same match | Replace its ±0.76″ box (`size=0.00042`) with the shared helper at 0.2″. Keep its name-first lookup and its ±1-year `disc_date` condition. **Behavior change** for every `add_transient` client (CLI, other ingests): objects 0.2–0.76″ apart that used to merge will now stay separate. |
 | 4 | Create or append | See "Merge rules". Runs inside `transaction.atomic()`. |
 | 5 | Superseded photometry | Same transient, instrument, band and `obs_date` (to the second): add DQ "Superseded" to the old point, then insert the new one. |
 | 6 | Hide superseded points | Light-curve plots (`view_utils.lightcurveplot_summary`, `_detail`, `_flux`) and the transient detail data skip points flagged "Superseded" only. Other DQ flags keep today's behavior. |
@@ -27,55 +28,14 @@ Out of scope:
 - Updating ra/dec to a weighted mean across detections.
 - Any dependency or image change.
 
-## Contract (draft)
+## Contract
 
-`POST /add_candidate/`, JSON body, HTTP basic auth (interim; tokens in #17).
-
-```json
-{
-  "candidate_id": "jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1",
-  "ra": 189.21972548,
-  "dec": 62.16717944,
-  "permalink": "https://www.stsci.edu/~tsst/diffpype_test/jwst_5324_trig2/jw05324-o017_t014_nircam_clear/#jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1",
-  "source": "diffpype",
-  "run_id": "jwst_5324_trig2",
-  "telescope": "JWST",
-  "instrument": "NIRCam",
-  "obs_group": "JWST",
-  "tags": ["COSMOS"],
-  "match_radius_arcsec": 0.3,
-  "host": {
-    "name": "…", "ra": 189.2197, "dec": 62.1672,
-    "photo_z": 0.81, "photo_z_err": 0.05,
-    "redshift": null, "redshift_err": null
-  },
-  "photometry": [
-    {
-      "band": "F200W",
-      "obs_date": "2026-03-14T05:12:00Z",
-      "flux": 52.1, "flux_err": 4.7, "flux_zero_point": 23.9,
-      "mag": 27.10, "mag_err": 0.09,
-      "forced": false, "diffim": true,
-      "stamps": {
-        "sci": "https://…/F200W_sci.png",
-        "ref": "https://…/F200W_ref.png",
-        "diff": "https://…/F200W_diff.png",
-        "sci_fits": null, "ref_fits": null, "diff_fits": null
-      }
-    }
-  ]
-}
-```
-
-- **Required:** `candidate_id`, `ra`, `dec`, `permalink`, `instrument`, and at least one `photometry` entry with `band`, `obs_date` and `flux`/`flux_err` (or `mag`/`mag_err`).
-- **Optional:** `host`, `tags`, `stamps`, `run_id`, `telescope`, `obs_group`, `match_radius_arcsec`.
-- **Never accepted from the client:** `created_by`, `modified_by`, `status`, `name` (set server-side).
-- **Response 201 (created) / 200 (appended):**
-  ```json
-  {"result": "created", "transient": "jwst_…_1", "url": "/transient_detail/jwst_..._1/",
-   "match_separation_arcsec": null, "photometry_added": 4, "photometry_superseded": 0}
-  ```
-- **Errors:** 400 with a field list for an invalid payload or an unknown instrument; 401/403 for auth. Nothing is written on error (transaction rollback).
+Draft v0.1 in [`contract.md`](contract.md), with a full example in [`add_candidate_example.json`](add_candidate_example.json) (the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`). Dave is sharing it with Justin for feedback before v1.0. Key points:
+- Times are `mjd` (converted server-side to `obs_date`).
+- Flux is in µJy with zero point 23.9.
+- Non-detections send `upper_limit: true`, the limiting `mag` and `limit_sigma`.
+- Per-point `stamps` (PNG URLs) and `fits` (paths) are optional.
+- `created_by`, `status` and `name` are never accepted from the client.
 
 ## Merge rules
 
@@ -88,15 +48,16 @@ Out of scope:
 
 ## Decisions (recommendation first; confirm in review)
 
-1. **Match radius:** 0.3″ default, configurable. The CLI uses 0.2″; `add_transient`'s box (`size=0.00042` deg) is about ±0.76″.
+1. ~~Match radius~~ **Decided: 0.2″**, shared by `add_candidate` and `add_transient` (see 3b).
 2. **Unknown band** for a known instrument: create the `PhotometricBand` (follows the CLI's lazy creation). **Unknown instrument:** reject with 400, instead of `add_transient`'s silent "Unknown".
-3. **Upper limits:** store forced flux and flux error, and let S/N decide (YSE convention). Mark `forced=true` for non-detections. Needs confirming against diff_pype's output.
-4. **Same-epoch key:** band and `obs_date` to the second. If diff_pype re-reduces with slightly different timestamps, we may need a tolerance.
+3. **Upper limits:** the contract sends `upper_limit`, the limiting `mag` and `limit_sigma`. There is no limit column, so store `flux`/`flux_err`, `mag` = the limit and `mag_err` = null. Check how the existing light-curve plots draw such points (#27 may need a tweak).
+4. **Same-epoch key:** band and `mjd` within ~1 s. If diff_pype re-reduces with slightly different timestamps, we may need a tolerance.
 5. **Error emails:** none (unlike `add_transient`).
 
 ## Acceptance criteria
 
-- [ ] Contract agreed and written to `contract.md`.
+- [ ] Contract v1.0 agreed with Justin (`contract.md`).
+- [ ] `add_transient` matches at 0.2″ through the shared helper; existing integration tests still pass.
 - [ ] POST of a new candidate returns 201 and creates the transient (status Candidate, tag diffpype), a web resource, photometry and diff images.
 - [ ] POST of a different `candidate_id` within the radius returns 200 and appends (a new web resource and new photometry); name, slug and coordinates are unchanged.
 - [ ] Re-posting a point with the same band and `obs_date` flags the old one "Superseded"; light-curve plots show only the new one.
@@ -120,9 +81,10 @@ Then check the transient detail page and the light curve. Add integration tests 
 ## Open questions
 
 1. A sample of diff_pype's per-candidate data (JSON or the page's embedded data) to pin down field names, upper limits and timestamps. Can Justin share one?
-2. Final match radius.
+2. ~~Final match radius~~ 0.2″.
 3. Should payload `tags` that don't exist be created, or rejected (current CLI behavior: hard fail)?
 
 ## Log
 
 - **2026-10-14:** Plan drafted. Design agreed with Dave in the project thread: candidates are transients with status "Candidate", matching is server-side, re-posted epochs are superseded via DataQuality, and aliases are web resources.
+- **2026-10-14:** Dave set the match radius to 0.2″ and asked that `add_transient` use the same rule (added as 3b). Contract v0.1 written (`contract.md`, `add_candidate_example.json`) for Dave to share with Justin. Dave created the "diffpype" tag by hand on his local DB; #24's `get_or_create` migrations make fresh installs match.
