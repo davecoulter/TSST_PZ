@@ -175,3 +175,47 @@ def test_batch_repost_supersedes(post_candidate, new_transient):
 
 def test_batch_empty_list_is_rejected(post_candidate):
     assert post_candidate([]).status_code == 400
+
+
+# --- dry run (contract v1.2) --------------------------------------------------
+
+def test_dry_run_reports_but_saves_nothing(base_url, credentials, new_transient, api_get):
+    payload = candidate_payload(**new_transient)
+    resp = requests.post(base_url + "/add_candidate/?dry_run=1", data=json.dumps(payload),
+                         auth=HTTPBasicAuth(*credentials), timeout=60)
+    assert resp.status_code == 201, resp.text[:500]
+    body = resp.json()
+    assert body["result"] == "created" and body["dry_run"] is True
+    assert body["photometry_added"] == 2
+    found = api_get(f"/api/transients/?name={new_transient['name']}&format=json")["results"]
+    assert found == []  # rolled back
+
+
+def test_dry_run_of_a_list_has_per_candidate_results(base_url, credentials, new_transient, api_get):
+    good = candidate_payload(**new_transient)
+    bad = candidate_payload(unique_name("bad"), new_transient["ra"], new_transient["dec"])
+    del bad["ra"]
+    resp = requests.post(base_url + "/add_candidate/?dry_run=1", data=json.dumps([good, bad]),
+                         auth=HTTPBasicAuth(*credentials), timeout=60)
+    assert resp.status_code == 200, resp.text[:500]
+    body = resp.json()
+    assert [r["status"] for r in body["results"]] == [201, 400]
+    assert body["summary"] == {"created": 1, "appended": 0, "failed": 1, "dry_run": True}
+    assert api_get(f"/api/transients/?name={new_transient['name']}&format=json")["results"] == []
+
+
+def test_dry_run_on_an_existing_candidate_saves_nothing(
+        base_url, credentials, post_candidate, new_transient, delete_transient_named):
+    payload = candidate_payload(**new_transient)
+    assert post_candidate(payload).status_code == 201
+    # same place, new ID: matched by position, which would add an alias
+    again = candidate_payload(unique_name("again"), new_transient["ra"], new_transient["dec"])
+    dry = requests.post(base_url + "/add_candidate/?dry_run=1", data=json.dumps(again),
+                        auth=HTTPBasicAuth(*credentials), timeout=60)
+    assert dry.status_code == 200, dry.text[:500]
+    assert dry.json()["result"] == "appended" and dry.json()["dry_run"] is True
+    # If the dry run had kept the alias, this real post would be matched by that alias
+    # (separation null). Rolled back, it is matched by position, so a separation is given.
+    real = post_candidate(again)
+    assert real.status_code == 200
+    assert real.json()["match_separation_arcsec"] is not None

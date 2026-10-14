@@ -431,14 +431,20 @@ def _request_user(request):
     return auth.authenticate(username=username, password=password)
 
 
-def _ingest_one(data, user):
+def _ingest_one(data, user, dry_run=False):
     """Validate and ingest one candidate in its own transaction.
 
-    Returns (http_status, body). Nothing is written unless the whole candidate succeeds."""
+    Returns (http_status, body). Nothing is written unless the whole candidate
+    succeeds. With dry_run the full create-or-append logic runs, then the
+    transaction is rolled back, so the reply is exactly what a real run would
+    say but nothing is saved."""
     try:
         payload = validate_payload(data)
         with transaction.atomic():
             body = ingest_candidate(payload, user)
+            if dry_run:
+                transaction.set_rollback(True)
+                body['dry_run'] = True
     except PayloadError as e:
         return 400, {'errors': e.errors}
     except LookupError as e:
@@ -446,7 +452,7 @@ def _ingest_one(data, user):
     return (201 if body['result'] == 'created' else 200), body
 
 
-def _add_batch(items, user):
+def _add_batch(items, user, dry_run=False):
     """A list of candidates: each is independent (own transaction, in order, so
     a later item can match an earlier one). The response says which failed."""
     if not items:
@@ -456,7 +462,7 @@ def _add_batch(items, user):
     results = []
     for index, item in enumerate(items):
         try:
-            status, body = _ingest_one(item, user)
+            status, body = _ingest_one(item, user, dry_run)
         except Exception:
             logger.exception('add_candidate: unexpected error on item %d', index)
             status, body = 500, {'errors': {'': 'internal error; see the server log'}}
@@ -471,6 +477,8 @@ def _add_batch(items, user):
         'appended': sum(r['status'] == 200 for r in results),
         'failed': sum(r['status'] not in (200, 201) for r in results),
     }
+    if dry_run:
+        summary['dry_run'] = True
     return JsonResponse({'summary': summary, 'results': results}, status=200)
 
 
@@ -489,7 +497,8 @@ def add_candidate(request):
         # never write anything without an authenticated user
         return JsonResponse({'errors': {'': 'authentication failed'}}, status=403)
 
+    dry_run = request.GET.get('dry_run', '').lower() in ('1', 'true', 'yes')
     if isinstance(data, list):
-        return _add_batch(data, user)
-    status, body = _ingest_one(data, user)
+        return _add_batch(data, user, dry_run)
+    status, body = _ingest_one(data, user, dry_run)
     return JsonResponse(body, status=status)
