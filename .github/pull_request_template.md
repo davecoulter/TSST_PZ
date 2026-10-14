@@ -9,6 +9,7 @@ Please check all that apply to your proposed changes
 <!-- Replace '[ ]' with '[x]' to indicate that the checklist item is completed. -->
 <!-- You can check the boxes now or later by just clicking on them. -->
 
+- [ ] Code change
 - [ ] HTML code change
 - [ ] Added package dependency
 - [ ] Added data
