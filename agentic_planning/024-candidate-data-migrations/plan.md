@@ -28,7 +28,7 @@ Out of scope: any schema change, the endpoint itself (#23), and view changes (#2
 - **Historical models.** It uses `apps.get_model(...)` (migration-safe), not direct model imports.
 - **Reverse.** A no-op: the rows stay. Deleting them could orphan transients, photometry flags or web resources that already point at them, and a no-op keeps `migrate YSE_App 0004` working.
 - **Not in the SQL seeds.** A fresh install runs `migrate` after the seed (`docker/README.md`, "Migrations"), so duplicating these rows in `YSE_rest_of_tables_insert.sql` would add a second source of truth.
-- **Side effect: free dashboard box.** The dashboard draws one box per tag that has transients (`YSE_App/views.py`, `dashboard()`). Once candidates exist, a "Candidate" box appears automatically. Candidates that also carry a field tag (e.g. COSMOS) will appear in that field's box too; #27 decides whether to exclude them.
+- **Dashboard.** The main dashboard draws one box per tag that has transients (`YSE_App/views.py`, `dashboard()`), so a "Candidate" box would appear once candidates exist. Dave wants candidates off the main dashboard, so #23 excludes them (plan 023, item 6b); #27 builds the candidate dashboard.
 
 ## Acceptance criteria
 
@@ -61,3 +61,4 @@ Repeat on a throwaway fresh DB (scratch `VOL_DB`), as in plan 019.
 ## Log
 
 - **2026-10-14:** Plan drafted. The dashboard creates one box per tag (`views.dashboard()`), so the "Candidate" tag yields a candidate grid for free; noted for #27.
+- **2026-10-14:** Dave agreed with idempotent creation and first-superuser attribution. Clarified that the reverse no-op leaves the rows, and that the rows live in the migration only, not the SQL seed.
