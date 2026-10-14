@@ -181,8 +181,19 @@ def validate_payload(data):
 
 # --- lookups ----------------------------------------------------------------
 
+def find_by_name(model, name):
+    """The row whose name matches ignoring case and surrounding whitespace
+    (compared in Python, so collation doesn't matter; same rule as migration
+    0005), or None. For small lookup tables only."""
+    wanted = name.strip().lower()
+    for obj in model.objects.order_by('id'):
+        if (obj.name or '').strip().lower() == wanted:
+            return obj
+    return None
+
+
 def _named(model, name, what):
-    obj = model.objects.filter(name__iexact=name).order_by('id').first()
+    obj = find_by_name(model, name)
     if obj is None:
         raise LookupError('%s "%s" is missing from the database (the candidate rows come from '
                           'migration 0005; run `manage.py migrate`)' % (what, name))
@@ -199,7 +210,7 @@ def _instrument(p):
 
 
 def _obs_group(p):
-    group = ObservationGroup.objects.filter(name__iexact=p['telescope']).order_by('id').first()
+    group = find_by_name(ObservationGroup, p['telescope'])
     return group or _named(ObservationGroup, 'Unknown', 'ObservationGroup')
 
 
@@ -215,7 +226,7 @@ def _band(instrument, name, user):
 def _tags(names):
     tags, unknown = [], []
     for name in names:
-        tag = TransientTag.objects.filter(name=name).order_by('id').first()
+        tag = find_by_name(TransientTag, name)
         if tag is None:
             unknown.append(name)
         else:
@@ -284,7 +295,7 @@ def _attach_host(transient, h, user):
 
 def _add_photometry(transient, p, instrument, obs_group, user):
     superseded = _named(DataQuality, SUPERSEDED, 'DataQuality')
-    ab = MagSystem.objects.filter(name__iexact='AB').order_by('id').first()
+    ab = find_by_name(MagSystem, 'AB')
     photometry = TransientPhotometry.objects.filter(
         transient=transient, instrument=instrument, obs_group=obs_group).order_by('id').first()
     if photometry is None:
@@ -356,7 +367,7 @@ def ingest_candidate(p, user):
     instrument = _instrument(p)
     obs_group = _obs_group(p)
     extra_tags = _tags(p['tags'])
-    source = InformationSource.objects.filter(name__iexact=p['source']).order_by('id').first()
+    source = find_by_name(InformationSource, p['source'])
     if source is None:
         source = InformationSource.objects.create(name=p['source'], created_by=user, modified_by=user)
 

@@ -108,3 +108,4 @@ Then check the transient detail page and the light curve. Add integration tests 
   - Unknown payload `tags` are rejected (400), like the CLI.
   - Missing lookup rows (migration 0005 not applied) return 500 with a message.
   - Validation was exercised offline against the contract example and seven bad payloads. The example's max S/N comes out at 15.2, matching the websniff page. Nothing has run against a DB yet.
+- **2026-10-14:** Merged master after #24 landed (PR #30). Following Local Claude's note on 0005, the endpoint's lookups (status, tag, obs group, DataQuality, InformationSource, mag system) and the dashboard's Candidate exclusion now match names ignoring case and surrounding whitespace, via `candidate_ingest.find_by_name()`, so they find the same rows 0005 reused. Instruments still match case-insensitively by name plus telescope. `ruff check .` passes.
