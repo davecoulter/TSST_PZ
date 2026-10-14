@@ -1,4 +1,4 @@
-# STZ-PZ `/add_candidate/` payload (draft v0.1)
+# STZ-PZ `/add_candidate/` payload (v1.0)
 
 This is what the websniff **Save candidate** button (or a notebook or script) POSTs to STZ-PZ for one candidate. It is one JSON object per candidate. A full example is in `add_candidate_example.json`; it uses the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`, with its diff-image magnitudes from the page. The MJD, stamp URLs and FITS paths are placeholders.
 
@@ -66,4 +66,4 @@ STZ-PZ matches each POST to existing objects within **0.2″**. A later run that
 
 - Re-sending the same `band` and `mjd` for an object replaces the earlier point. The old one is kept but flagged "Superseded".
 - Never send `created_by`, `status` or a `name`; STZ-PZ sets these.
-- Field names may still change before v1.0; feedback welcome.
+- v1.0 is frozen (Dave, 2026-10-14), so diff_pype and STZ-PZ can be built in parallel. Any change after this is a new version, agreed by both sides and noted here.

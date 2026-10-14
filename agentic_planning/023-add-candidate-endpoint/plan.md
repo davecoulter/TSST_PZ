@@ -13,7 +13,7 @@ diff_pype publishes JWST candidates on static websniff pages. We want each candi
 
 | # | Deliverable | Notes |
 |---|---|---|
-| 1 | Payload contract | `contract.md` and `add_candidate_example.json` in this folder; v0.1 now, v1.0 after Justin's feedback. |
+| 1 | Payload contract | `contract.md` and `add_candidate_example.json` in this folder; v1.0, frozen. |
 | 2 | `add_candidate` view | New module `YSE_App/candidate_ingest.py` (keeps `data_utils.py` from growing). It's routed at `^add_candidate/` in `YSE_App/urls.py` and uses `@csrf_exempt` and `@login_or_basic_auth_required`, like `add_transient`. |
 | 3 | Cross-match | Shared helper (e.g. `YSE_App/common/utilities.py: find_transient_near(ra, dec, radius_arcsec)`): prefilter with `getRADecBox`, then compute true angular separation (astropy, already in the image) and return the nearest within the radius. The radius comes from settings, `TRANSIENT_MATCH_RADIUS_ARCSEC = 0.2` (decided by Dave 2026-10-14). |
 | 3b | `add_transient` uses the same match | Replace its ±0.76″ box (`size=0.00042`) with the shared helper at 0.2″. Keep its name-first lookup and its ±1-year `disc_date` condition. **Behavior change** for every `add_transient` client (CLI, other ingests): objects 0.2–0.76″ apart that used to merge will now stay separate. |
@@ -31,7 +31,7 @@ Out of scope:
 
 ## Contract
 
-Draft v0.1 in [`contract.md`](contract.md), with a full example in [`add_candidate_example.json`](add_candidate_example.json) (the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`). Dave is sharing it with Justin for feedback before v1.0. Key points:
+**v1.0 (frozen 2026-10-14)** in [`contract.md`](contract.md), with a full example in [`add_candidate_example.json`](add_candidate_example.json) (the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`). Dave decided to treat it as the contract, so both sides can build in parallel. Key points:
 - Times are `mjd` (converted server-side to `obs_date`).
 - Flux is in µJy with zero point 23.9.
 - Non-detections send `upper_limit: true`, the limiting `mag` and `limit_sigma`.
@@ -57,7 +57,7 @@ Draft v0.1 in [`contract.md`](contract.md), with a full example in [`add_candida
 
 ## Acceptance criteria
 
-- [ ] Contract v1.0 agreed with Justin (`contract.md`).
+- [x] Contract v1.0 frozen (`contract.md`).
 - [ ] `add_transient` matches at 0.2″ through the shared helper; existing integration tests still pass.
 - [ ] POST of a new candidate returns 201 and creates the transient (status Candidate, tag Candidate), a web resource, photometry and diff images.
 - [ ] POST of a different `candidate_id` within the radius returns 200 and appends (a new web resource and new photometry); name, slug and coordinates are unchanged.
@@ -82,7 +82,7 @@ Then check the transient detail page and the light curve. Add integration tests 
 
 ## Open questions
 
-1. A sample of diff_pype's per-candidate data (JSON or the page's embedded data) to pin down field names, upper limits and timestamps. Can Justin share one?
+1. ~~A sample of diff_pype's data~~ Not needed: the contract is v1.0 and diff_pype builds to it.
 2. ~~Final match radius~~ 0.2″.
 3. Should payload `tags` that don't exist be created, or rejected (current CLI behavior: hard fail)?
 
@@ -92,3 +92,4 @@ Then check the transient detail page and the light curve. Add integration tests 
 - **2026-10-14:** Dave set the match radius to 0.2″ and asked that `add_transient` use the same rule (added as 3b). Contract v0.1 written (`contract.md`, `add_candidate_example.json`) for Dave to share with Justin. Dave created the "Candidate" tag by hand on his local DB; #24's `get_or_create` migrations make fresh installs match.
 - **2026-10-14:** The automatic tag is "Candidate" (Dave), not "diffpype". Provenance stays with the permalink's `InformationSource` "diffpype". Status "Candidate" is kept as well, so candidates stay out of the "New" queue until promoted.
 - **2026-10-14:** Dave wants candidates off the main dashboard entirely, with their own dashboard and detail pages (#27). The exclusion is added here (6b), so it ships with the first candidate.
+- **2026-10-14:** Dave froze the JSON as contract v1.0 so STZ-PZ and diff_pype can be built in parallel. #28 (promotion scan) is future work, not part of this sequence.
