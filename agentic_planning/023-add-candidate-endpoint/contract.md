@@ -1,4 +1,4 @@
-# STZ-PZ `/add_candidate/` payload (v1.1)
+# STZ-PZ `/add_candidate/` payload (v1.2)
 
 This is what the websniff **Save candidate** button (or a notebook or script) POSTs to STZ-PZ for one candidate. It is one JSON object per candidate. A full example is in `add_candidate_example.json`; it uses the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`, with its diff-image magnitudes from the page. The MJD, stamp URLs and FITS paths are placeholders.
 
@@ -22,6 +22,10 @@ The body may also be a **JSON array** of candidate objects (the objects above). 
 ```
 
 Each result carries the HTTP status that a single POST of that candidate would have returned, plus the same fields. An empty array, or more than 500 candidates, is a `400` for the whole request. A single object behaves exactly as in v1.0.
+
+## Dry run (v1.2)
+
+Add `?dry_run=1` to the URL (`POST /add_candidate/?dry_run=1`, single object or array). The server runs the whole request, including the match and the create-or-append logic, and then rolls it back. The reply is exactly what a real run would return, plus `"dry_run": true` (and in the array form, `"dry_run": true` in `summary`), but **nothing is saved**: no transient, photometry, tags or aliases. Use it to find out whether a file would be accepted, and what it would create or append to.
 
 ## Top level
 
@@ -82,4 +86,4 @@ Each result carries the HTTP status that a single POST of that candidate would h
 
 - Re-sending the same `band` and `mjd` for an object replaces the earlier point. The old one is kept but flagged "Superseded".
 - Never send `created_by`, `status` or a `name`; STZ-PZ sets these.
-- v1.0 was frozen 2026-10-14 so diff_pype and STZ-PZ could be built in parallel. v1.1 (2026-10-14, Dave) adds the array form; nothing else changed, and single objects work as before. Any further change is a new version, agreed by both sides and noted here.
+- v1.0 was frozen 2026-10-14 so diff_pype and STZ-PZ could be built in parallel. v1.1 (2026-10-14, Dave) adds the array form, and v1.2 (2026-10-14, Dave) adds `?dry_run=1`; nothing else changed, and single objects work as before. Any further change is a new version, agreed by both sides and noted here.

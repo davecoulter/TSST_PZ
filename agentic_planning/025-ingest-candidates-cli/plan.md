@@ -2,7 +2,7 @@
 
 - **Issue:** #25 (part of #16; uses #23's endpoint)
 - **Branch:** `25-ingest-candidates-cli`
-- **Status:** Approved by Dave (with the changes in the Log); building
+- **Status:** Built and verified on the local stack; ready for review
 
 ## Why
 
@@ -32,7 +32,7 @@ python scripts/ingest_candidates_cli.py collab_scratch/jwst_5324_trig7_candidate
 
 - **Input:** one or more JSON files. A file holds one candidate object or an array of them (the pipeline writes one array file).
 - **Requests:** candidates are posted with the array form (contract v1.1), `--batch-size` per request (default 100, never above the endpoint's cap of 500). The endpoint saves each candidate independently and says which failed, so one bad candidate never blocks the rest.
-- **Credentials:** `URL`, `USER_YSE`, `PW` from the environment (same names as `ingest_transients_cli.py`), overridden by `--url`, `--user`, `--pw`. **No default user or password.** A missing password is prompted for without echo; a missing user is an error. The default URL is `http://localhost:8001` (the compose default for `LOCAL_WEB_PORT`).
+- **Credentials:** `USER_YSE` and `PW` from the environment (same names as `ingest_transients_cli.py`), overridden by `--user` and `--pw`. The URL comes from `--url`, else `YSE_URL`, else the generic `URL` as a last resort (a bare `URL` is already set in Dave's shell to another server, so it must not win), else the local default. The target and user are always printed (to stderr) before anything is sent. **No default user or password.** A missing password is prompted for without echo; a missing user is an error. The default URL is `http://localhost:8001` (the compose default for `LOCAL_WEB_PORT`).
 - **Clear text:** if the URL is `http://` and not `localhost`/`127.0.0.1`, print one warning that credentials and data travel unencrypted (see #17). It doesn't block.
 - **Dry run:** `--dry-run` sends the same requests with `?dry_run=1`. The server validates and runs the full create-or-append logic inside a transaction that is rolled back, so it reports exactly what a real run would do (including an unknown instrument or tag) and saves nothing. The CLI contains no copy of the contract rules, only JSON parsing. It needs the server and a login, like a real run.
 - **Output:** one line per candidate, then a summary:
@@ -49,15 +49,15 @@ python scripts/ingest_candidates_cli.py collab_scratch/jwst_5324_trig7_candidate
 
 ## Acceptance criteria
 
-- [ ] One command ingests every candidate from a run's output (a file, several files, or a directory).
-- [ ] Credentials come from the environment or flags; there is no default user or password, and a missing password is prompted for.
-- [ ] Output shows created / appended / failed per candidate and a summary; the exit code reflects failures.
-- [ ] `--dry-run` reports what would happen and saves nothing (no new rows in the DB).
-- [ ] `/add_candidate/?dry_run=1` works for a single object and for a list, and rolls back (tests).
-- [ ] Tested against the local stack with the pipeline's real test file (`jwst_5324_trig7_candidates.json`): created, then appended with superseded points on re-run.
-- [ ] A bad candidate in a file is reported by name and field and doesn't stop the good ones.
-- [ ] `scripts/examples/add_candidate.py` is removed and `scripts/README.md` documents the CLI.
-- [ ] `ruff check .` passes; no dependency or image change.
+- [x] One command ingests every candidate from a run's output (one or more files).
+- [x] Credentials come from the environment or flags; there is no default user or password, and a missing password is prompted for.
+- [x] Output shows created / appended / failed per candidate and a summary; the exit code reflects failures.
+- [x] `--dry-run` reports what would happen and saves nothing (no new rows in the DB).
+- [x] `/add_candidate/?dry_run=1` works for a single object and for a list, and rolls back (tests).
+- [x] Tested against the local stack with the pipeline's real test file (`jwst_5324_trig7_candidates.json`): created, then appended with superseded points on re-run.
+- [x] A bad candidate in a file is reported by name and field and doesn't stop the good ones.
+- [x] `scripts/examples/add_candidate.py` is removed and `scripts/README.md` documents the CLI.
+- [ ] `ruff check .` passes (CI runs it on the PR); no dependency or image change.
 
 ## Verification
 
@@ -84,3 +84,6 @@ Then check the detail pages in the browser (4 current points per candidate).
 
 - **2026-10-14:** Plan drafted from Dave's request for a user-driven loader to use before the page can POST (#26). Dave agreed the example script `scripts/examples/add_candidate.py` should be removed once the CLI exists.
 - **2026-10-14:** Dave approved the plan with three changes: sibling script; **dry run on the server** (`?dry_run=1`, full logic then rollback) instead of a client-side copy of the rules, which adds a small endpoint feature (contract v1.2); and no directory input, since the pipeline writes a single JSON array file passed as an argument.
+- **2026-10-14:** While building, `--help` showed a default URL of `http://plvulcan.stsci.edu`: a `URL` variable is already exported in Dave's shell (the old CLI's convention reads `URL`). Changed the new CLI to prefer `YSE_URL` (the name the tests use), keep `URL` only as a fallback, and print `Target: <url> as <user>` before sending, so a stale variable can't silently aim a run at the wrong server.
+- **2026-10-14:** Built. `/add_candidate/?dry_run=1` (contract v1.2): `_ingest_one` runs the full logic and calls `transaction.set_rollback(True)`, and the reply carries `dry_run: true`; three new endpoint tests (new candidate leaves no transient; a list gives per-candidate results; a dry run on an existing candidate leaves no alias, shown by the next real post still matching by position). `scripts/ingest_candidates_cli.py` as designed, standard library only, one request per batch with the array form. Removed `scripts/examples/add_candidate.py` (the older plan 023 text still mentions it as history) and added a `scripts/README.md` section.
+- **2026-10-14:** Verified on Dave's local stack as admin `test4`: `test_ingest_candidates_cli.py` 7/7 (dry run saves nothing; single object created then appended with 2 superseded; a bad candidate is reported and the good one saved; unreadable and missing files don't stop the run; missing password without a terminal exits 2; a bad login exits 2 and sends nothing; the target is printed), `test_add_candidate.py` 14/14. On the pipeline's real file (`jwst_5324_trig7_candidates.json`, 2 candidates): `--dry-run` reported "2 would append, 4 superseded each" and the stored point counts were identical before and after; the real run reported "2 appended, 4 superseded each" and each candidate gained 4 points. `ruff` isn't installed locally; CI runs it.
