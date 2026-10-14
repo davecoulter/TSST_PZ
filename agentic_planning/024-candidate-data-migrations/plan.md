@@ -2,7 +2,7 @@
 
 - **Issue:** #24 (part of #16; needed by #23)
 - **Branch:** `24-candidate-data-migrations`
-- **Status:** Draft, awaiting approval
+- **Status:** Approved; migration written, awaiting verification against the stack
 
 ## Why
 
@@ -62,3 +62,4 @@ Repeat on a throwaway fresh DB (scratch `VOL_DB`), as in plan 019.
 
 - **2026-10-14:** Plan drafted. The dashboard creates one box per tag (`views.dashboard()`), so the "Candidate" tag yields a candidate grid for free; noted for #27.
 - **2026-10-14:** Dave agreed with idempotent creation and first-superuser attribution. Clarified that the reverse no-op leaves the rows, and that the rows live in the migration only, not the SQL seed.
+- **2026-10-14:** Plan approved by Dave. Wrote `YSE_App/migrations/0005_candidate_lookup_rows.py` (RunPython, reverse no-op) and a note in `docker/README.md`. Not run against a DB yet; next, Local Claude runs the Verification steps.
