@@ -3,7 +3,7 @@
 - **Issue:** #23 (part of #16)
 - **Branch:** `23-add-candidate-endpoint`
 - **Depends on:** #24 (data migrations: "Candidate" status, "Superseded" DataQuality, "diffpype" InformationSource, "Candidate" tag)
-- **Status:** Verified on the local stack except the browser checks; ready for review
+- **Status:** Verified on the local stack, including the browser checks; ready for review
 
 ## Why
 
@@ -62,10 +62,10 @@ Out of scope:
 - [x] `add_transient` matches at 0.2″ through the shared helper; existing integration tests still pass. (9/9)
 - [x] POST of a new candidate returns 201 and creates the transient (status Candidate, tag Candidate), a web resource, photometry and diff images.
 - [x] POST of a different `candidate_id` within the radius returns 200 and appends (a new web resource and new photometry); name, slug and coordinates are unchanged.
-- [ ] Re-posting a point with the same band and `obs_date` flags the old one "Superseded" (verified in the DB); light-curve plots show only the new one (browser check pending).
+- [x] Re-posting a point with the same band and `obs_date` flags the old one "Superseded"; the detail page shows only the current points (browser: 4 of 12 stored, 8 superseded).
 - [x] An invalid payload returns 400 and writes nothing.
 - [x] Audit fields are the authenticated user.
-- [ ] The main dashboard shows no candidates (no "Candidate" box; candidates excluded from field boxes). (Browser check: dashboard empty on the local DB; see Log.)
+- [x] The main dashboard shows no candidates (no "Candidate" box; candidates excluded from field boxes). (Browser: after Dave moved the old test rows SN0/SN1 to status New, SN1 showed under its tag box; SN0 has no tag, so no box.)
 - [ ] `ruff check .` passes; no dependency or image change.
 
 ## Verification
@@ -115,3 +115,4 @@ Then check the transient detail page and the light curve. Add integration tests 
 - **2026-10-14:** Justin's `jwst_5324_trig7_candidates.json` (array of 2, NIRCam, 4 points each) validates against v1.0. Posted one object at a time: 201, 201; re-post: 200 and 4 superseded each; a copy under a new ID shifted 0.1″ appended to the first by position (`match_separation_arcsec` 0.1), kept its name and coordinates, and added one alias and its permalink. The two candidates are ~49″ apart and stayed separate.
 - **2026-10-14:** Added the array form (contract v1.1) at Dave's request, as above: independent candidates, per-item results, at most 500, empty list is 400, a single object is unchanged. Three new tests (independence with a bad candidate in the middle, batch re-post supersedes, empty list); `test_add_candidate.py` 11/11. Justin's whole array in one POST returned 200 with `{"created": 0, "appended": 2, "failed": 0}` and 4 superseded each.
 - **2026-10-14:** The main dashboard is empty on Dave's local DB, as designed: every transient there, including the old test rows SN0 and SN1 (tag `Justin`), has status `Candidate`, and the dashboard excludes status `Candidate`. **Before deploy, check prod:** any existing transient with status `Candidate` (the row exists on prod) would vanish from the main dashboard boxes.
+- **2026-10-14:** Browser checks (Dave): `/transient_detail/jwst_5324_trig7_61263_0/` shows 4 photometry points (8 superseded hidden); the main dashboard shows no candidate and no `Candidate` box. The old test rows SN0/SN1 carry status `Candidate` (the status row was created 2023-11-16 by user `aagnello`), so they were hidden until Dave set them to `New`; SN0 has no tag, so it has no dashboard box regardless. The example candidate (`jwst_5324_trig2_…`) was deleted over the admin API at Dave's request. A mistyped detail URL (`/transient_detail/transient_detail/…`) raises `IndexError` (the view indexes an empty queryset instead of returning 404): old behavior, not part of this work. Open for deploy: prod needs `migrate` (0004, 0005) and its web container restarted; prod already has the JWST/NIRCam rows; check whether any prod transient has status `Candidate`.
