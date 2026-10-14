@@ -43,7 +43,7 @@ Out of scope:
 ## Decisions (recommendation first; confirm in review)
 
 1. ~~Table vs grid~~ **Thumbnail grid** (Dave).
-2. **The "Candidate" tag:** keep adding it on ingest as a permanent "came from the candidate pipeline" label, never used for filtering, and show its box on the main dashboard for promoted ones (item 5). The alternative is to stop adding the tag, so a person adds a real tag when promoting; until they do, the promoted transient appears in no main-dashboard box.
+2. ~~The "Candidate" tag~~ **Decided: keep it as a label** (Dave). Keep adding it on ingest as a permanent "came from the candidate pipeline" label, never used for filtering, and show its box on the main dashboard for promoted ones (item 5). The alternative is to stop adding the tag, so a person adds a real tag when promoting; until they do, the promoted transient appears in no main-dashboard box.
 3. **One detail page** (item 2) rather than a separate candidate page: it follows Dave's "use the current detail page", keeps status and tag changes where they are, and keeps the candidate data visible after promotion. This replaces the earlier redirect and `?full=1` idea.
 
 ## Acceptance criteria
@@ -69,3 +69,4 @@ Local Claude, on Dave's local stack, after loading the pipeline's real file (`jw
 
 - **2026-10-14:** Plan drafted after #23 and #25 merged. Surveyed `views.dashboard`, `transient_detail` and its template, `TransientTable` and `base.html`; found the stamp-URL, `valid_pixels` and superseded-stamps problems listed under "Why".
 - **2026-10-14:** Reviewed with Dave. Dashboard: thumbnail grid; drop obs group, spec class, last mag and last obs date; no promotion on the dashboard. Detail: build on the existing detail page rather than a separate one, show everything the JSON import stores (diff images, web resources, aliases, host z) with links back to websniff in a new tab, and keep the rest of the page for now. Stats computed at render. Status is the switch for "candidate"; the tag's role is decision 2. Replaced the redirect and `?full=1` idea with the single detail page (decision 3). Also found the detail page shows no aliases or permalinks at all today.
+- **2026-10-14:** Dave chose decision 2: keep adding the "Candidate" tag as a permanent pipeline label, and show its main-dashboard box for promoted candidates (item 5).
