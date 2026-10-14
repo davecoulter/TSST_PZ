@@ -33,6 +33,10 @@ DEBUG = config.getboolean('site_settings', 'IS_DEBUG')
 
 ALLOWED_HOSTS = ['*']
 
+# Positional match radius used by /add_transient/ and /add_candidate/ to decide
+# whether an incoming source is an existing transient (#23).
+TRANSIENT_MATCH_RADIUS_ARCSEC = 0.2
+
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8080',   # nginx (LOCAL_HTTP_PORT)
     'http://127.0.0.1:8080',

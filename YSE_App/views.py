@@ -34,6 +34,7 @@ from .models import *
 from .forms import *
 from .common import utilities
 from . import view_utils
+from .candidate_ingest import find_by_name
 import datetime
 from datetime import timedelta
 import pytz
@@ -108,9 +109,16 @@ def dashboard(request):
     transient_categories = []
     # One dashboard box per tag, read live from the DB (tags are seeded by
     # db_init/YSE_rest_of_tables_insert.sql / created via upload, not hardcoded).
+    # candidates (#16) have their own dashboard, never the main one
+    candidate_status = find_by_name(TransientStatus, 'Candidate')
     for tagname in TransientTag.objects.order_by('name').values_list('name', flat=True):
+        if (tagname or '').strip().lower() == 'candidate':
+            continue
         prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
-        transients = Transient.objects.filter(tags__name=tagname).order_by('-disc_date')
+        transients = Transient.objects.filter(tags__name=tagname)
+        if candidate_status is not None:
+            transients = transients.exclude(status=candidate_status)
+        transients = transients.order_by('-disc_date')
         # omit tags with no matching transients from the dashboard grid
         if not transients.exists():
             continue

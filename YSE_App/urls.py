@@ -7,7 +7,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework.schemas import get_schema_view
 from django.urls import path, re_path, include
 
-from . import views, view_utils, data_utils, table_utils, yse_views
+from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest
 from . import api_views
 from .form_views import *
 from .yse_utils.yse_forms import MoveYSEFormView
@@ -86,6 +86,7 @@ urlpatterns = [
     re_path(r'^get_transient/(?P<slug>.*)/$', data_utils.get_transient, name='get_transient'),
     re_path(r'^get_rising_transients/(?P<ndays>[a-zA-Z0-9_-]+)/$', data_utils.get_rising_transients, name='get_rising_transients'),
     re_path(r'^add_transient/', data_utils.add_transient, name='add_transient'),
+    re_path(r'^add_candidate/', candidate_ingest.add_candidate, name='add_candidate'),
     re_path(r'^add_yse_survey_obs/', data_utils.add_yse_survey_obs, name='add_yse_survey_obs'),
     re_path(r'^add_yse_survey_fields/', data_utils.add_yse_survey_fields, name='add_yse_survey_fields'),
 
