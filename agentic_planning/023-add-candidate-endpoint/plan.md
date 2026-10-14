@@ -2,7 +2,7 @@
 
 - **Issue:** #23 (part of #16)
 - **Branch:** `23-add-candidate-endpoint`
-- **Depends on:** #24 (data migrations: "Candidate" status, "Superseded" DataQuality, "diffpype" InformationSource and tag)
+- **Depends on:** #24 (data migrations: "Candidate" status, "Superseded" DataQuality, "diffpype" InformationSource, "Candidate" tag)
 - **Status:** Draft, awaiting approval
 
 ## Why
@@ -39,7 +39,7 @@ Draft v0.1 in [`contract.md`](contract.md), with a full example in [`add_candida
 
 ## Merge rules
 
-- **No match:** create the `Transient` with `name = candidate_id`, `status = Candidate`, tags "diffpype" plus any payload `tags` (existing tags only), and `obs_group`. Set `Transient.postage_stamp_*` from the highest-S/N stamp set as the grid thumbnail.
+- **No match:** create the `Transient` with `name = candidate_id`, `status = Candidate`, tag "Candidate" plus any payload `tags` (existing tags only), and `obs_group`. Set `Transient.postage_stamp_*` from the highest-S/N stamp set as the grid thumbnail.
 - **Match:** never change `name`, `slug`, `ra`/`dec` or `status`. Add tags if missing. Fill `postage_stamp_*` only if empty.
 - **Always:** add a `TransientWebResource` (source "diffpype", `information_text = candidate_id`, `resource_url = permalink`), skipped if that permalink is already recorded. This is the alias list.
 - **Host:** if the transient has no host, create or reuse a `Host` (by name, else position) and link it. If it has one, fill only empty redshift fields.
@@ -58,7 +58,7 @@ Draft v0.1 in [`contract.md`](contract.md), with a full example in [`add_candida
 
 - [ ] Contract v1.0 agreed with Justin (`contract.md`).
 - [ ] `add_transient` matches at 0.2″ through the shared helper; existing integration tests still pass.
-- [ ] POST of a new candidate returns 201 and creates the transient (status Candidate, tag diffpype), a web resource, photometry and diff images.
+- [ ] POST of a new candidate returns 201 and creates the transient (status Candidate, tag Candidate), a web resource, photometry and diff images.
 - [ ] POST of a different `candidate_id` within the radius returns 200 and appends (a new web resource and new photometry); name, slug and coordinates are unchanged.
 - [ ] Re-posting a point with the same band and `obs_date` flags the old one "Superseded"; light-curve plots show only the new one.
 - [ ] An invalid payload returns 400 and writes nothing.
@@ -87,4 +87,5 @@ Then check the transient detail page and the light curve. Add integration tests 
 ## Log
 
 - **2026-10-14:** Plan drafted. Design agreed with Dave in the project thread: candidates are transients with status "Candidate", matching is server-side, re-posted epochs are superseded via DataQuality, and aliases are web resources.
-- **2026-10-14:** Dave set the match radius to 0.2″ and asked that `add_transient` use the same rule (added as 3b). Contract v0.1 written (`contract.md`, `add_candidate_example.json`) for Dave to share with Justin. Dave created the "diffpype" tag by hand on his local DB; #24's `get_or_create` migrations make fresh installs match.
+- **2026-10-14:** Dave set the match radius to 0.2″ and asked that `add_transient` use the same rule (added as 3b). Contract v0.1 written (`contract.md`, `add_candidate_example.json`) for Dave to share with Justin. Dave created the "Candidate" tag by hand on his local DB; #24's `get_or_create` migrations make fresh installs match.
+- **2026-10-14:** The automatic tag is "Candidate" (Dave), not "diffpype". Provenance stays with the permalink's `InformationSource` "diffpype". Status "Candidate" is kept as well, so candidates stay out of the "New" queue until promoted.

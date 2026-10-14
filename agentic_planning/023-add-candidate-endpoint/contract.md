@@ -14,12 +14,12 @@ STZ-PZ matches each POST to existing objects within **0.2″**. A later run that
 | `candidate_id` | string | yes | The pipeline's ID for this detection (unique per run). It becomes the object's name the first time; later IDs are kept as aliases. |
 | `ra`, `dec` | float, deg (ICRS) | yes | Candidate position. |
 | `permalink` | string (URL) | yes | The websniff page URL with the `#candidate_id` anchor. |
-| `source` | string | no | Pipeline name. Default `"diffpype"`. |
+| `source` | string | no | Pipeline name, recorded as the source of the permalink. Default `"diffpype"`. |
 | `run_id` | string | no | Reduction run, e.g. `"jwst_5324_trig2"`. |
 | `field` | string | no | Field or visit, e.g. `"jw05324-o017_t014_nircam_clear"`. |
 | `telescope` | string | no | Default `"JWST"`. |
 | `instrument` | string | yes | e.g. `"NIRCam"`, `"MIRI"`. Must already exist in STZ-PZ. |
-| `tags` | list of strings | no | Extra STZ-PZ tags (must already exist). `"diffpype"` is added automatically. |
+| `tags` | list of strings | no | Extra STZ-PZ tags (must already exist). `"Candidate"` is added automatically. |
 | `host` | object or `null` | no | `null` when there's no host match. See below. |
 | `photometry` | list | yes (≥1) | One entry per filter per epoch. See below. |
 
