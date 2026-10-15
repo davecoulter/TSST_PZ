@@ -19,7 +19,7 @@
               <tbody>
               {% for run in candidate_runs %}
                 <tr>
-                  <td>{{ run.name }}</td>
+                  <td>{{ run.name }}{% if run.detail %}<br><small>{{ run.detail }}</small>{% endif %}</td>
                   <td>
                     {% for url in run.permalinks %}
                       {% if url|is_url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>{% else %}{{ url }}{% endif %}{% if not forloop.last %}<br>{% endif %}

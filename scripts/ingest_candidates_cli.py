@@ -74,7 +74,7 @@ def format_errors(errors):
 class Report:
     def __init__(self, dry_run):
         self.dry_run = dry_run
-        self.created = self.appended = self.failed = 0
+        self.created = self.appended = self.failed = self.warnings = 0
         self.files = 0
 
     def line(self, source, index, candidate_id, outcome, detail=""):
@@ -94,7 +94,14 @@ class Report:
                 result.get("photometry_superseded", 0))
             if result.get("match_separation_arcsec") is not None:
                 detail += ", matched at %.2f arcsec" % result["match_separation_arcsec"]
+            host = result.get("host")
+            if host:
+                detail += ", host %s (%s %s)" % (host.get("result"), host.get("catalog"),
+                                                 host.get("catalog_object_id"))
             self.line(source, index, candidate_id, verb, detail)
+            for warning in result.get("warnings") or []:
+                self.warnings += 1
+                print("    warning: %s" % warning)
         else:
             self.fail(source, index, candidate_id, format_errors(result.get("errors", "HTTP %s" % status)))
 
@@ -108,6 +115,8 @@ class Report:
         text = "%d candidate%s in %d file%s: %d %s, %d %s, %d failed" % (
             total, "" if total == 1 else "s", self.files, "" if self.files == 1 else "s",
             self.created, verbs[0], self.appended, verbs[1], self.failed)
+        if self.warnings:
+            text += ", %d warning%s" % (self.warnings, "" if self.warnings == 1 else "s")
         if self.dry_run:
             text += " (dry run, nothing saved)"
         print(text)

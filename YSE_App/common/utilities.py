@@ -125,6 +125,10 @@ def getRADecBox(ra,dec,size=None):
 			ramax+=360.0
 	return(ramin,ramax,decmin,decmax)
 
+def angular_separation_arcsec(ra1, dec1, ra2, dec2):
+	"""Angular separation of two positions (degrees), in arcsec."""
+	return SkyCoord(ra1,dec1,unit=u.deg).separation(SkyCoord(ra2,dec2,unit=u.deg)).arcsec
+
 def find_nearest_within(queryset, ra, dec, radius_arcsec):
 	"""Return (obj, separation_arcsec) for the object in `queryset` nearest to
 	ra/dec (deg) within `radius_arcsec`, or (None, None).

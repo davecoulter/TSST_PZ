@@ -14,7 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.shortcuts import render
 
-from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, SUPERSEDED, find_by_name
+from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, find_by_name
 from .models import (
     AlternateTransientNames, Transient, TransientDiffImage, TransientPhotData,
     TransientStatus, TransientWebResource,
@@ -156,14 +156,19 @@ def candidate_section_context(transient):
 
     # Runs: each candidate ID (the name, then aliases) with its websniff page.
     permalinks = defaultdict(list)
+    details = {}  # run and field, when the pipeline sent them (stored after the id)
     for r in resources:
-        permalinks[(r.information_text or '').strip()].append(r.resource_url)
+        key, _, detail = (r.information_text or '').strip().partition(RUN_SEPARATOR)
+        key = key.strip()
+        permalinks[key].append(r.resource_url)
+        if detail:
+            details.setdefault(key, detail)
     names = [transient.name] + list(AlternateTransientNames.objects
                                     .filter(transient=transient).order_by('id')
                                     .values_list('name', flat=True))
-    runs = [{'name': n, 'permalinks': permalinks.pop(n, [])} for n in names]
+    runs = [{'name': n, 'permalinks': permalinks.pop(n, []), 'detail': details.get(n, '')} for n in names]
     # permalinks recorded under an ID that is neither the name nor an alias
-    runs += [{'name': n, 'permalinks': urls} for n, urls in permalinks.items()]
+    runs += [{'name': n, 'permalinks': urls, 'detail': details.get(n, '')} for n, urls in permalinks.items()]
 
     images = []
     for d in (TransientDiffImage.objects

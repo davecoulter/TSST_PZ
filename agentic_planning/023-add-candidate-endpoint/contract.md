@@ -42,7 +42,7 @@ The contract follows what the pipeline's page actually emits; the field names be
 
 `host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` is the catalog's **file name**, as the pipeline knows it (agreed with Justin 2026-10-15; a nickname such as "JADES" is set on the server side, not sent); until the pipeline sends it, the server assumes the **JADES** catalog and says so in `warnings`. `host_z` is the median of the photo-z PDF and is stored as the host's photo-z. No error or PDF is sent yet. `host_z2` (the maximum likelihood estimate) and `host_sep` are accepted and not stored, and produce no warning (the separation is worked out from the positions). A host is matched by catalog and ID, then by position, else created.
 
-Reply additions: `host` (`{"result": "created" | "matched" | "kept", ...}`; `kept` means the object already had a different host, which was **not** replaced, with the separation of the one that was offered) and `warnings` (list of strings; also per result in the array form).
+Reply additions: `host` (`{"result": "created" | "matched" | "kept", "name", "catalog", "catalog_object_id", "matched_by" ("catalog id" or "position"), "separation_arcsec"}`; `kept` means the object already had a different host, which was **not** replaced and the offered one was **not** stored, with its separation) and `warnings` (list of strings; also per result in the array form). The `diffpype` web resource's text is `candidate id · run_id · field` when the run and field are sent.
 
 The v1.0 to v1.2 host fields (`name`, `ra`, `dec`, `photo_z`, ...) are replaced; no client used them.
 
