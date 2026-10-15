@@ -149,6 +149,17 @@
 <script>
 	$.widget.bridge('uibutton', $.ui.button);
 </script>
+<script>
+	// Django wants the CSRF token as a header on any same-origin request that changes data (POST, PATCH,
+	// DELETE). Pages that built their own AJAX calls passed it in an option jQuery ignores, so the
+	// server refused them (a 403). Sent here once, never to another site.
+	$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
+		var method = (options.type || 'GET').toUpperCase();
+		if (!options.crossDomain && !/^(GET|HEAD|OPTIONS|TRACE)$/.test(method)) {
+			jqXHR.setRequestHeader('X-CSRFToken', '{{ csrf_token }}');
+		}
+	});
+</script>
 <!-- Bootstrap 3.3.7 -->
 <script src="{% static 'YSE_App/bower_components/datatables.net/js/jquery.dataTables.min.js' %}"></script>
 <script src="{% static 'YSE_App/bower_components/bootstrap/dist/js/bootstrap.min.js' %}"></script>

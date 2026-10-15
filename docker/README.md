@@ -68,7 +68,7 @@ docker compose exec web python3 manage.py makemigrations YSE_App          # afte
 docker compose exec web python3 manage.py migrate                         # local dev DB only
 ```
 
-Some migrations also add lookup rows (e.g. `0005_candidate_lookup_rows`: the "Candidate" status and tag, the "Superseded" data-quality flag, and the "diffpype" information source). They're attributed to the first superuser. On a DB with no superuser they're skipped with a printed note; create the rows by hand, or create a superuser and re-run that migration's function.
+Some migrations also add lookup rows (e.g. `0005_candidate_lookup_rows`: the "Candidate" status, the "Superseded" data-quality flag, and the "diffpype" information source). They're attributed to the first superuser. On a DB with no superuser they're skipped with a printed note; create the rows by hand, or create a superuser and re-run that migration's function.
 
 A fresh DB built from `db_init/` therefore needs `migrate` run once after the seed: the candidate work lives in migrations 0004 to 0007 (the lookup rows above, host catalogs, tag kinds, the "Archived" status and NIRCam band wavelengths), not in the SQL scripts. If a migration fails partway, MySQL cannot roll back the schema changes it already made, so try a migration on a throwaway DB before a shared one.
 
