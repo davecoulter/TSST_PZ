@@ -1,0 +1,11 @@
+{# On the transient page: this object has candidate data, which lives on its candidate page (#27). #}
+<div class="row">
+  <div class="col-xs-12">
+    <div class="callout callout-warning" style="margin-bottom:10px">
+      <b>This object came from the candidate pipeline.</b>
+      <a class="btn btn-warning btn-sm" style="margin-left:10px" href="{% url 'candidate_detail' transient.slug %}">Candidate page</a>
+      {% if candidate_links.fitsmap %}<a class="btn btn-default btn-sm" target="_blank" rel="noopener" href="{{ candidate_links.fitsmap }}">View in field</a>{% endif %}
+      {% if candidate_links.permalink %}<a class="btn btn-default btn-sm" target="_blank" rel="noopener" href="{{ candidate_links.permalink }}">Permalink</a>{% endif %}
+    </div>
+  </div>
+</div>

@@ -1141,7 +1141,7 @@ def transient_detail(request, slug):
         context['automated_spectrum_form'] = automated_spectrum_form
         # "Candidate data" section (#27), present when the transient has
         # candidate-pipeline data or is a candidate
-        context.update(candidate_views.candidate_section_context(transient_obj))
+        context.update(candidate_views.candidate_pointer_context(transient_obj))
 
 
         # we need to add a submit to TNS button

@@ -90,7 +90,10 @@ def test_page_shaped_payload_is_accepted(post, new_transient, base_url, credenti
 
     html = _detail_html(browser, base_url, new_transient["name"])
     assert COMMENT in html                           # notes and confidence, as a comment
-    assert "itest_run" in html and "itest_field" in html   # run and field next to the id
+    page = browser.get(base_url + f"/candidate/{new_transient['name'].lower()}/", timeout=60).text
+    assert "itest_run" in page and "itest_field" in page   # run and field next to the id (Runs tab)
+    assert payload["fitsmap_url"] in page and "View in field" in page   # the FitsMap button
+    assert 'target="_blank"' in page.split("View in field")[0][-200:]   # opens in a new tab
     # the FitsMap link is stored as a second web resource (the page that shows it is slice 3)
     auth = HTTPBasicAuth(*credentials)
     resources = requests.get(base_url + "/api/transientwebresources/?format=json&limit=5000",

@@ -6,15 +6,19 @@ read from the rows /add_candidate/ writes (photometry, diff images, web resource
 aliases, host); nothing is stored by these views. Plan:
 agentic_planning/027-candidate-pages/plan.md.
 """
+import datetime
 from collections import defaultdict
 
 from django.db.models import Count, Max, Min
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.shortcuts import render
+from django.http import Http404
+from django.shortcuts import redirect, render
 
+from . import view_utils
 from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, find_by_name
+from .common.utilities import angular_separation_arcsec
 from .models import (
     AlternateTransientNames, Transient, TransientDiffImage, TransientPhotData,
     TransientStatus, TransientWebResource,
@@ -206,3 +210,141 @@ def candidate_section_context(transient):
         'candidate_n_superseded': sum(1 for i in images if i['superseded']),
         'candidate_host_z': _host_z(transient.host),
     }
+
+
+# --- the candidate page (/candidate/<slug>/) ---------------------------------------
+
+EPOCH_GAP_DAYS = 1.0  # points within a day of each other are one epoch
+
+
+def _best(items):
+    """Highest S/N among items, detections before non-detections."""
+    return max(items, key=lambda i: (i['detection'], i['snr'] if i['snr'] is not None else float('-inf')))
+
+
+def _triplet(item):
+    """What the page shows for one point: its three cutouts and its numbers."""
+    if item is None:
+        return None
+    pd = item['phot']
+    (sci, sci_fits), (ref, ref_fits), (diff, diff_fits) = item['stamps']
+    return {
+        'band': pd.band.name, 'date': pd.obs_date, 'flux': pd.flux, 'flux_err': pd.flux_err,
+        'mag': pd.mag, 'mag_err': pd.mag_err, 'snr': item['snr'], 'detection': item['detection'],
+        'cutouts': [('SCI', sci, sci_fits), ('REF', ref, ref_fits), ('DIFF', diff, diff_fits)],
+    }
+
+
+def _links(transient):
+    """The websniff page (latest candidate-pipeline resource) and the FitsMap view."""
+    permalink = fitsmap = None
+    for r in (TransientWebResource.objects.filter(transient=transient)
+              .select_related('information_source').order_by('-id')):
+        name = (r.information_source.name or '').strip().lower()
+        if permalink is None and name == DEFAULT_SOURCE:
+            permalink = r.resource_url
+        elif fitsmap is None and name == 'fitsmap':
+            fitsmap = r.resource_url
+    return {'permalink': permalink, 'fitsmap': fitsmap}
+
+
+def candidate_pointer_context(transient):
+    """What the transient page needs to point at the candidate page: {} when the
+    object has no candidate-pipeline data and is not a candidate."""
+    is_candidate = (transient.status.name or '').strip().lower() == CANDIDATE.lower()
+    links = _links(transient)
+    has_data = links['permalink'] is not None or TransientDiffImage.objects.filter(
+        phot_data__photometry__transient=transient).exists()
+    if not (is_candidate or has_data):
+        return {}
+    return {'candidate_pointer': True, 'candidate_links': links}
+
+
+def candidate_page_context(transient):
+    """Everything the candidate page shows, or {} when the object has no candidate data."""
+    ctx = candidate_section_context(transient)
+    if not ctx:
+        return {}
+    images = ctx['candidate_images']
+    current = [i for i in images if not i['superseded']]
+    with_stamps = [i for i in current if any(stamp for stamp, _ in i['stamps'])]
+
+    best = _best(with_stamps) if with_stamps else None
+    latest = None
+    if with_stamps:
+        newest = max(i['phot'].obs_date for i in with_stamps)
+        epoch = [i for i in with_stamps
+                 if newest - i['phot'].obs_date <= datetime.timedelta(days=EPOCH_GAP_DAYS)]
+        latest = _best(epoch)
+
+    # reference cutouts: the most recent one in each filter; the host image is the reference of
+    # the best detection (no supernova light in it), else the best one there is
+    refs = {}
+    for i in current:
+        ref, ref_fits = i['stamps'][1]
+        if ref and (i['phot'].band.name not in refs
+                    or i['phot'].obs_date > refs[i['phot'].band.name]['date']):
+            refs[i['phot'].band.name] = {'band': i['phot'].band.name, 'ref': ref,
+                                         'fits': ref_fits, 'date': i['phot'].obs_date, 'item': i}
+    host_image = None
+    if best and best['stamps'][1][0]:
+        host_image = best['stamps'][1][0]
+    elif refs:
+        host_image = _best([r['item'] for r in refs.values()])['stamps'][1][0]
+
+    filters_seen = {i['phot'].band.name for i in current}
+    filters_detected = {i['phot'].band.name for i in current if i['detection']}
+    snrs = [i['snr'] for i in current if i['detection'] and i['snr'] is not None]
+
+    host = transient.host
+    ctx.update({
+        'candidate_best': _triplet(best),
+        'candidate_latest': _triplet(latest),
+        'candidate_ref_gallery': sorted(({k: v for k, v in r.items() if k != 'item'}
+                                         for r in refs.values()), key=lambda r: r['band']),
+        'candidate_host_image': host_image,
+        'candidate_filters_seen': len(filters_seen),
+        'candidate_filters_detected': len(filters_detected),
+        'candidate_max_snr': max(snrs) if snrs else None,
+        'candidate_links': _links(transient),
+        'candidate_host_sep': (angular_separation_arcsec(transient.ra, transient.dec, host.ra, host.dec)
+                               if host else None),
+        'candidate_host_catalog': (host.catalog.nickname or host.catalog.filename)
+                                  if host and host.catalog_id else None,
+    })
+    return ctx
+
+
+@login_required
+def candidate_detail(request, slug):
+    transient = Transient.objects.filter(slug=slug).select_related('host__catalog', 'status').first()
+    if transient is None:
+        alias = AlternateTransientNames.objects.filter(slug=slug).select_related('transient').first()
+        if alias is not None:
+            return redirect('candidate_detail', slug=alias.transient.slug)
+        raise Http404('Candidate not found')
+
+    context = candidate_page_context(transient)
+    if not context:
+        # nothing from the candidate pipeline: the regular page is the page for this object
+        return redirect('transient_detail', slug=transient.slug or transient.name)
+
+    statuses = TransientStatus.objects
+    context.update({
+        'transient': transient,
+        'all_transient_statuses': statuses.order_by('name'),
+        'transient_status_follow': statuses.filter(name='Following').first(),
+        'transient_status_watch': statuses.filter(name='Watch').first(),
+        'transient_status_interesting': statuses.filter(name='Interesting').first(),
+        'transient_status_ignore': statuses.filter(name='Ignore').first(),
+    })
+    # the existing Photometric Summary, as the transient page builds it
+    last = view_utils.get_recent_phot_for_transient(request.user, transient_id=transient.id)
+    first = view_utils.get_disc_mag_for_transient(request.user, transient_id=transient.id)
+    if last and first:
+        context.update({
+            'recent_mag': last.mag, 'recent_filter': last.band, 'recent_magdate': last.obs_date,
+            'first_mag': first.mag, 'first_filter': first.band, 'first_magdate': first.obs_date,
+        })
+    return render(request, 'YSE_App/candidate_detail.html', context)
+

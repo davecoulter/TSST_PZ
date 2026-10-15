@@ -1,0 +1,43 @@
+{% load candidate_extras %}
+{# "All cutouts": every registered triplet, one row per epoch and filter; superseded rows hidden behind a toggle. #}
+<h4>
+  Every cutout
+  {% if candidate_n_superseded %}
+    <small><label style="font-weight:normal;margin-left:8px">
+      <input type="checkbox" id="candidate_show_superseded"
+             onchange="$('.candidate-superseded').toggle(this.checked)">
+      show superseded ({{ candidate_n_superseded }})
+    </label></small>
+  {% endif %}
+</h4>
+{% if candidate_images %}
+<table class="table table-bordered table-striped">
+  <thead>
+    <tr>
+      <th>Date (UTC)</th><th>Filter</th><th>Flux</th><th>S/N</th><th>Mag</th>
+      <th>SCI</th><th>REF</th><th>DIFF</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in candidate_images %}
+    <tr{% if row.superseded %} class="candidate-superseded" style="display:none;opacity:0.6"{% endif %}>
+      <td>{{ row.phot.obs_date|date:"Y-m-d H:i:s" }}{% if row.superseded %}<br><span class="label label-default">superseded</span>{% endif %}</td>
+      <td>{{ row.phot.band.name }}<br><small>{{ row.phot.band.instrument.name }}</small></td>
+      <td>{% if row.phot.flux is not None %}{{ row.phot.flux|floatformat:4 }}{% if row.phot.flux_err is not None %} &plusmn; {{ row.phot.flux_err|floatformat:4 }}{% endif %}{% else %}&ndash;{% endif %}</td>
+      <td>{% if row.snr is not None %}{{ row.snr|floatformat:1 }}{% else %}&ndash;{% endif %}{% if not row.detection %}<br><span class="label label-default">limit</span>{% endif %}</td>
+      <td>{% if row.phot.mag is not None %}{{ row.phot.mag|floatformat:2 }}{% if row.phot.mag_err is not None %} &plusmn; {{ row.phot.mag_err|floatformat:2 }}{% endif %}{% else %}&ndash;{% endif %}</td>
+      {% for stamp, fits in row.stamps %}
+      <td style="text-align:center">
+        {% if stamp %}
+          <a href="{{ stamp|stamp_src }}" target="_blank" rel="noopener"><img src="{{ stamp|stamp_src }}" style="width:150px" alt="" loading="lazy"></a>
+        {% else %}&ndash;{% endif %}
+        {% if fits %}<br><small style="word-break:break-all">{{ fits }}</small>{% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No images registered.</p>
+{% endif %}

@@ -8,6 +8,7 @@ import pytest
 import requests
 from requests.auth import HTTPBasicAuth
 
+from payloads import minimal_transient
 from test_add_candidate import candidate_payload
 
 pytestmark = pytest.mark.integration
@@ -67,24 +68,50 @@ def test_candidate_dashboard_lists_candidate(browser, base_url, candidate):
         candidate["photometry"][1]["stamps"]["diff"] in html
 
 
-def test_detail_page_shows_candidate_data(browser, base_url, candidate):
-    resp = browser.get(base_url + f"/transient_detail/{candidate['candidate_id'].lower()}/",
-                       timeout=60)
+def _candidate_page(browser, base_url, name):
+    resp = browser.get(base_url + f"/candidate/{name.lower()}/", timeout=60)
     assert resp.status_code == 200, resp.text[:500]
-    assert "Candidate data" in resp.text
-    assert candidate["permalink"] in resp.text
+    return resp.text
+
+
+def test_candidate_page_shows_the_candidate(browser, base_url, candidate):
+    html = _candidate_page(browser, base_url, candidate["candidate_id"])
+    assert candidate["permalink"] in html
     for point in candidate["photometry"]:
         for url in point["stamps"].values():
-            assert url in resp.text
+            assert url in html
+    assert "Highest S/N" in html and "Most recent" in html
+    assert "All cutouts" in html and "cand-marker" in html
+
+
+def test_candidate_and_transient_pages_link_to_each_other(browser, base_url, candidate):
+    slug = candidate["candidate_id"].lower()
+    transient_html = browser.get(base_url + f"/transient_detail/{slug}/", timeout=60).text
+    assert f"/candidate/{slug}/" in transient_html and "Candidate page" in transient_html
+    assert f"/transient_detail/{slug}/" in _candidate_page(browser, base_url, slug)
+
+
+def test_a_regular_transient_has_no_candidate_page(browser, base_url, post_transient, new_transient):
+    assert post_transient(minimal_transient(new_transient)).status_code == 200
+    resp = browser.get(base_url + f"/candidate/{new_transient['name'].lower()}/",
+                       allow_redirects=False, timeout=60)
+    assert resp.status_code in (301, 302)
+    assert f"/transient_detail/{new_transient['name'].lower()}/" in resp.headers["Location"]
+
+
+def test_unknown_candidate_is_a_404(browser, base_url):
+    assert browser.get(base_url + "/candidate/no-such-candidate-xyz/", timeout=60).status_code == 404
+
+
+def test_candidate_cards_open_the_candidate_page(browser, base_url, candidate):
+    html = _candidate_pages(browser, base_url)
+    assert f"/candidate/{candidate['candidate_id'].lower()}/" in html
 
 
 def test_promoted_candidate_leaves_dashboard_keeps_data(browser, base_url, credentials, candidate):
     _set_status(base_url, credentials, candidate["candidate_id"], "New")
     assert candidate["candidate_id"] not in _candidate_pages(browser, base_url)
-    detail = browser.get(base_url + f"/transient_detail/{candidate['candidate_id'].lower()}/",
-                         timeout=60)
-    assert "Candidate data" in detail.text
-    assert candidate["permalink"] in detail.text
+    assert candidate["permalink"] in _candidate_page(browser, base_url, candidate["candidate_id"])
 
 
 def test_candidate_not_on_main_dashboard(browser, base_url, candidate):

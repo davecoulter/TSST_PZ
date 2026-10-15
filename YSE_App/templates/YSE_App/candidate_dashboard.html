@@ -46,7 +46,7 @@
   <div class="col-lg-2 col-md-3 col-sm-4 col-xs-6">
     <div class="box box-default candidate-card">
       <div class="box-body">
-        <a href="{% url 'transient_detail' c.transient.slug %}" title="Open {{ c.transient.name }}">
+        <a href="{% url 'candidate_detail' c.transient.slug %}" title="Open {{ c.transient.name }}">
           {% if c.thumb %}
             <img class="candidate-thumb" src="{{ c.thumb|stamp_src }}" alt="DIFF stamp of {{ c.transient.name }}" loading="lazy">
           {% else %}
