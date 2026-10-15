@@ -38,16 +38,11 @@ def candidate(base_url, credentials, new_transient):
     return payload
 
 
-def _candidate_pages(browser, base_url):
-    """HTML of every page of /candidates/, sorted by name."""
-    pages, n = [], 1
-    while True:
-        resp = browser.get(base_url + f"/candidates/?sort=name&page={n}", timeout=60)
-        assert resp.status_code == 200, resp.text[:500]
-        pages.append(resp.text)
-        if f"page={n + 1}" not in resp.text:
-            return "".join(pages)
-        n += 1
+def _candidate_pages(browser, base_url, name):
+    """HTML of /candidates/ searched for this name (every grid, so wherever the candidate sits)."""
+    resp = browser.get(base_url + "/candidates/", params={"q": name}, timeout=60)
+    assert resp.status_code == 200, resp.text[:500]
+    return resp.text
 
 
 def _set_status(base_url, credentials, name, status_name):
@@ -63,7 +58,7 @@ def _set_status(base_url, credentials, name, status_name):
 
 
 def test_candidate_dashboard_lists_candidate(browser, base_url, candidate):
-    html = _candidate_pages(browser, base_url)
+    html = _candidate_pages(browser, base_url, candidate["candidate_id"])
     assert candidate["candidate_id"] in html
     assert candidate["photometry"][0]["stamps"]["diff"] in html or \
         candidate["photometry"][1]["stamps"]["diff"] in html
@@ -105,13 +100,13 @@ def test_unknown_candidate_is_a_404(browser, base_url):
 
 
 def test_candidate_cards_open_the_candidate_page(browser, base_url, candidate):
-    html = _candidate_pages(browser, base_url)
+    html = _candidate_pages(browser, base_url, candidate["candidate_id"])
     assert f"/candidate/{candidate['candidate_id'].lower()}/" in html
 
 
 def test_promoted_candidate_leaves_dashboard_keeps_data(browser, base_url, credentials, candidate):
     _set_status(base_url, credentials, candidate["candidate_id"], "New")
-    assert candidate["candidate_id"] not in _candidate_pages(browser, base_url)
+    assert f"/candidate/{candidate['candidate_id'].lower()}/" not in _candidate_pages(browser, base_url, candidate["candidate_id"])
     assert candidate["permalink"] in _candidate_page(browser, base_url, candidate["candidate_id"])
 
 
@@ -169,7 +164,7 @@ def test_candidates_table_searches_and_sorts(browser, base_url, candidate):
     found = browser.get(base_url + "/candidates/", params={"q": name}, timeout=60).text
     assert f"/candidate/{name.lower()}/" in found and "Reporters" in found
     miss = browser.get(base_url + "/candidates/", params={"q": name + "_nope"}, timeout=60).text
-    assert "No candidates" in miss
+    assert "Nothing new" in miss and f"/candidate/{name.lower()}/" not in miss   # the New grid is always shown
     for column in ("name", "snr", "z", "detections", "runs", "reporters", "last", "newest", "filters"):
         for direction in ("asc", "desc"):
             resp = browser.get(base_url + "/candidates/",
@@ -196,13 +191,13 @@ def test_candidate_tags_can_be_added_and_removed(browser, base_url, credentials,
 
         added = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "add", "name": tag})
         assert added.status_code == 200, added.text[:300]
-        assert names(added) == [tag] and tag in names(added, "available")
+        assert tag in names(added) and tag in names(added, "available")
         # the same name in another case is the same tag
         again = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "add", "name": tag.lower()})
-        assert names(again) == [tag]
+        assert names(again).count(tag) == 1 and [n for n in names(again) if n.lower() == tag.lower()] == [tag]
         assert tag in _candidate_page(browser, base_url, candidate["candidate_id"])
         removed = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "remove", "name": tag})
-        assert names(removed) == [] and tag in names(removed, "available")   # still available, just not applied
+        assert tag not in names(removed) and tag in names(removed, "available")   # still available, just not applied
         bad = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "rename", "name": tag})
         assert bad.status_code == 400
     finally:
@@ -238,7 +233,7 @@ def test_creating_a_tag_with_a_colour_makes_it_available_without_applying_it(
         made = _page_post(browser, base_url, f"/candidate_tag/{tid}/",
                           {"action": "create", "name": tag, "color": colour_id})
         assert made.status_code == 200, made.text[:300]
-        assert [t["name"] for t in made.json()["tags"]] == []                       # not applied
+        assert tag not in [t["name"] for t in made.json()["tags"]]                  # not applied
         listed = [t for t in made.json()["available"] if t["name"] == tag]
         assert len(listed) == 1 and listed[0]["color"]                               # available, coloured
     finally:

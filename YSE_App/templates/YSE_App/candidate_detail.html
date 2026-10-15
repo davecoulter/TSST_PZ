@@ -93,7 +93,14 @@
             <p class="cand-badges">
               <span class="label label-primary">{{ candidate_filters_detected }}/{{ candidate_filters_seen }} filters &ge;3&sigma;</span>
               <span class="label label-primary">max S/N {% if candidate_max_snr is not None %}{{ candidate_max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</span>
+              {% if candidate_quality %}<span class="label label-info" title="{{ candidate_quality_help }}">score {{ candidate_quality.0|floatformat:1 }} ({{ candidate_quality.1 }})</span>{% endif %}
             </p>
+            {% if candidate_is_new %}
+            <p style="margin-bottom:6px">
+              <button id="cand_triaged" type="button" class="btn btn-success btn-sm" data-next="{% if candidate_next_new %}{% url 'candidate_detail' candidate_next_new %}{% else %}{% url 'candidate_dashboard' %}{% endif %}"><i class="fa fa-check"></i> Mark triaged{% if candidate_next_new %} &amp; next{% endif %}</button>
+              {% if candidate_next_new %}<a id="cand_skip" class="btn btn-default btn-sm" href="{% url 'candidate_detail' candidate_next_new %}">Skip, next new &rarr;</a>{% endif %}
+            </p>
+            {% endif %}
             <p style="margin-bottom:4px">
               <a class="btn btn-default btn-sm" href="{% url 'transient_detail' transient.slug %}">Transient page</a>
               {% if candidate_links.fitsmap %}<a class="btn btn-warning btn-sm" target="_blank" rel="noopener" href="{{ candidate_links.fitsmap }}"><i class="fa fa-map-o"></i> View in field</a>{% endif %}
@@ -459,6 +466,17 @@
                     $('#add_transient_comment')[0].reset();
                 },
                 error: function(xhr) { alert(xhr.status + ": " + xhr.responseText); }
+            });
+        });
+
+        // Mark triaged: take the New tag off, then go on to the next new candidate (or back to the list)
+        $('#cand_triaged').on('click', function(){
+            var next = $(this).attr('data-next');
+            $.ajax({
+                url: "{% url 'candidate_tag' transient.id %}", type: "POST",
+                headers: { "X-CSRFToken": "{{ csrf_token }}" }, data: { action: 'remove', name: 'New' },
+                success: function() { window.location = next; },
+                error: function(xhr) { alert("Could not mark it triaged: " + xhr.status + " " + xhr.responseText); }
             });
         });
 

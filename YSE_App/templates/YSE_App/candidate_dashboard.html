@@ -11,13 +11,19 @@
   .cand-thumb-sm:hover { transform: scale(4); position: relative; z-index: 20; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
   .cand-nothumb-sm { display: block; width: 40px; height: 40px; background: #eee; }
   .cand-table .num { text-align: right; }
+  /* the New grid is the call to action: a coloured box, to work through */
+  .cand-new-box { border: 2px solid #f39c12; }
+  .cand-new-box > .box-header { background: #f39c12; color: #fff; }
+  .cand-new-box > .box-header .box-title { color: #fff; }
+  .cand-new-box .cand-new-count { background: #fff; color: #c87f0a; font-weight: bold; margin-left: 8px; }
+  .cand-tag-chip { display: inline-block; margin-right: 3px; }
 </style>
 {% endblock %}
 
 {% block content_header %}
     <h1>
         Candidates
-        <small>{{ n_candidates }} awaiting triage</small>
+        <small>{{ n_new }} new to review &middot; {{ n_in_all }} in all</small>
     </h1>
     <ol class="breadcrumb">
         <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
@@ -35,21 +41,32 @@
       {% if q %}<a class="btn btn-link btn-sm" href="?sort={{ sort }}&dir={{ dir }}">clear</a>{% endif %}
     </form>
   </div>
+</div>
+
+{% for grid in grids %}
+<div class="box {% if grid.is_new %}cand-new-box{% else %}box-default{% endif %}" id="grid_{{ grid.slug }}">
+  <div class="box-header with-border">
+    <h3 class="box-title">
+      {{ grid.title }}
+      {% if grid.is_new %}<span class="badge cand-new-count">{{ grid.count }} to review</span>{% else %}<span class="badge">{{ grid.count }}</span>{% endif %}
+    </h3>
+  </div>
   <div class="box-body table-responsive no-padding">
-    {% if not page.object_list %}
-      <p style="padding:12px">No candidates{% if q %} match &ldquo;{{ q }}&rdquo;{% endif %}. Candidates arrive through <code>/add_candidate/</code> or <code>scripts/ingest_candidates_cli.py</code>.</p>
+    {% if not grid.page.object_list %}
+      <p style="padding:12px">{% if grid.is_new %}Nothing new{% if q %} matches &ldquo;{{ q }}&rdquo;{% endif %}: the inbox is clear. Candidates arrive through <code>/add_candidate/</code> or <code>scripts/ingest_candidates_cli.py</code>.{% else %}No candidates.{% endif %}</p>
     {% else %}
     <table class="table table-hover table-condensed cand-table">
       <thead>
         <tr>
           <th></th>
           {% for h in headers %}
-            <th{% if h.label != 'Name' and h.label != 'Discovered' and h.label != 'Last seen' and h.label != 'Filters ≥3σ' %} class="num"{% endif %}><a href="{{ h.href }}">{{ h.label }}{% if h.arrow %} {{ h.arrow }}{% endif %}</a></th>
+            <th{% if h.label != 'Name' and h.label != 'Discovered' and h.label != 'Last seen' and h.label != 'Filters ≥3σ' %} class="num"{% endif %}{% if h.title %} title="{{ h.title }}"{% endif %}><a href="{{ h.href }}">{{ h.label }}{% if h.arrow %} {{ h.arrow }}{% endif %}</a></th>
           {% endfor %}
+          <th>Tags</th>
         </tr>
       </thead>
       <tbody>
-      {% for c in page.object_list %}
+      {% for c in grid.page.object_list %}
         <tr>
           <td style="width:48px">
             {% if c.thumb %}<img class="cand-thumb-sm" src="{{ c.thumb|stamp_src }}" alt="" loading="lazy">{% else %}<span class="cand-nothumb-sm"></span>{% endif %}
@@ -58,25 +75,28 @@
           <td>{% if c.transient.disc_date %}{{ c.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
           <td>{% if c.last_date %}{{ c.last_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
           <td class="num">{% if c.max_snr is not None %}{{ c.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</td>
+          <td class="num">{% if c.quality is not None %}{{ c.quality|floatformat:1 }} <small class="text-muted">({{ c.quality_n }})</small>{% else %}&ndash;{% endif %}</td>
           <td>{% if c.filters %}{{ c.filters|join:", " }}{% else %}&ndash;{% endif %}</td>
           <td class="num">{% if c.host_z %}{{ c.host_z.0|floatformat:3 }} <small class="text-muted">{{ c.host_z.2 }}</small>{% else %}&ndash;{% endif %}</td>
           <td class="num">{{ c.n_detections }}</td>
           <td class="num">{{ c.n_runs }}</td>
           <td class="num">{{ c.n_reporters }}</td>
+          <td>{% for name in c.tag_names %}<span class="label label-default cand-tag-chip">{{ name }}</span>{% endfor %}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
     {% endif %}
   </div>
-  {% if page.has_other_pages %}
+  {% if grid.page.has_other_pages %}
   <div class="box-footer">
     <ul class="pagination pagination-sm" style="margin:0">
-      {% if page.has_previous %}<li><a href="?{{ query_base }}&page={{ page.previous_page_number }}">&laquo;</a></li>{% endif %}
-      <li class="active"><span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
-      {% if page.has_next %}<li><a href="?{{ query_base }}&page={{ page.next_page_number }}">&raquo;</a></li>{% endif %}
+      {% if grid.page.has_previous %}<li><a href="?{{ query_base }}&{{ grid.param }}={{ grid.page.previous_page_number }}#grid_{{ grid.slug }}">&laquo;</a></li>{% endif %}
+      <li class="active"><span>Page {{ grid.page.number }} of {{ grid.page.paginator.num_pages }}</span></li>
+      {% if grid.page.has_next %}<li><a href="?{{ query_base }}&{{ grid.param }}={{ grid.page.next_page_number }}#grid_{{ grid.slug }}">&raquo;</a></li>{% endif %}
     </ul>
   </div>
   {% endif %}
 </div>
+{% endfor %}
 {% endblock %}

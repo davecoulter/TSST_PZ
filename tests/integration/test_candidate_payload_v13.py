@@ -182,12 +182,15 @@ def test_payload_tags_become_candidate_kind_tags(post, new_transient, base_url, 
                 _delete_quietly(base_url, credentials, row["url"].split("?")[0])
 
 
-def test_no_automatic_candidate_tag(post, new_transient, base_url, credentials):
+def test_a_created_candidate_gets_the_new_tag_and_nothing_else(post, new_transient, base_url, credentials):
+    """New is the call to action; there is no automatic Candidate tag (status marks a candidate)."""
     assert post(v13_payload(**new_transient)).status_code == 201
     auth = HTTPBasicAuth(*credentials)
     row = requests.get(base_url + f"/api/transients/?name={new_transient['name']}&format=json",
                        auth=auth, timeout=30).json()["results"][0]
-    assert row["tags"] == []
+    tags = [requests.get(url, auth=auth, timeout=30).json() for url in row["tags"]]
+    assert [t["name"] for t in tags] == ["New"]
+    assert requests.get(tags[0]["kind"], auth=auth, timeout=30).json()["name"] == "Candidate"
 
 
 def test_new_nircam_band_gets_its_wavelength(post, new_transient, base_url, credentials):

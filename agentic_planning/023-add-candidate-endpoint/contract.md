@@ -36,7 +36,7 @@ The contract follows what the pipeline's page actually emits; the field names be
 | `quality_flag` | The reviewer's confidence: **1 definite, 2 probable, 3 possible**, one per candidate (the page shows it as "Saved · Q1"). Who posts is the reviewer: each user posts their own choices with their own login, so the posting user is the reviewer. Stored as **text in a comment**, `quality_flag: 3; notes: <notes>` (a part is left out when empty); not an enum. |
 | `notes` | Free text from the Save dialog. Becomes a **comment by the posting user**; an identical comment by that user on that object is not added twice. |
 | `fitsmap_url` | URL of the FitsMap view. Stored as a second web resource (source "FitsMap"). |
-| `tags` | Strings from the Save dialog (a drop-down or radio choice for consistent names). Matched (ignoring case and whitespace) to existing **candidate tags**, or created. |
+| `tags` | Strings from the Save dialog (a drop-down or radio choice for consistent names). Matched (ignoring case and whitespace) to existing **candidate tags**, or created. STZ-PZ also gives every **newly created** candidate the candidate tag `New`, its call to action: removing it means it has been triaged (a later post to the same candidate never puts it back). |
 | `host` | `null`, or `{host_id, host_ra, host_dec, host_z, host_z2, host_sep, host_catalog}`. See below. |
 | `fits` values | Stored as given. A URL is shown as a link. A plain path (the pipeline's `/astro/...` paths, meaningful only on the network) is shown as **copyable text** (for DS9 and the like) unless it falls under a configured path-to-URL prefix map on the server (`path prefix -> URL prefix`), in which case it is shown as a link too. PNG stamps are already URLs. |
 

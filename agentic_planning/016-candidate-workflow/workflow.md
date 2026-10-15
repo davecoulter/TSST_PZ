@@ -58,3 +58,16 @@ Below the fold: the runs that found it, who flagged it, and every image triplet.
 - The static pages' host (`www.stsci.edu/~tsst`) is **reachable from the internet**. The PNG cutouts are already there; anything else symlinked into it (FITS files especially) is public too, so FITS stay copyable paths until a specific file is cleared.
 - The payload's `mag` is the difference-image magnitude. One magnitude per filter is shown; the reference depth and the SCI and REF magnitudes are a later enhancement.
 
+## Where things stand after the first build (2026-10-15)
+
+What the stages look like inside STZ-PZ today. Details and the dated decisions are in `agentic_planning/027-candidate-pages/plan.md`.
+
+- **Status is the lifecycle; tags are annotations.** Status `Candidate` is triage; `New` and the working statuses (Following, Watch, ...) are transients; `Archived` is kept but out of the way. A transient is always somewhere: a tag box or the **Needs review** grid on the main dashboard, the Candidates page, or the Archived page. Nothing is deleted.
+- **`New` is a call to action, not the absence of tags.** Every created candidate gets the candidate-kind tag `New` (an import from the websniff page may bring tags, so "no tags" cannot mean "unseen"). Triage means removing it, with **Mark triaged** on the candidate page (which goes on to the next new candidate). A later post to the same candidate never puts it back.
+- **`/candidates/` is a set of exclusive sub-grids**, like the main dashboard: **New** first (the backlog, in its own coloured box), then one grid per candidate tag, then **No tag**. The sidebar badge counts new candidates. A sortable table with a thumbnail, host redshift, detections, runs, reporters and a **score** (the average of each reporter's latest `quality_flag`; 1 definite, 2 probable, 3 possible).
+- **`/candidate/<slug>/` is the triage page** (a view of the same transient, linked both ways with `/transient_detail/<slug>/`): the highest-S/N and most recent triplets, the host with a crosshair on its reference image, the SED (observed and rest frame), the light curve, flagged by, comments, candidate tags, an All cutouts grid like the websniff card, and the runs.
+- **`/archived/`** is split by tag too (candidates and transients together; pipeline rows carry a badge), with a No tag grid.
+- **Judgments are text for now** (the confidence and notes arrive as a comment by the posting user). A per-person label table is possible later (#35).
+- **The posting user is the reviewer**, so each user posts with their own login (the CLI prompts for the password). Re-posting the same points supersedes them rather than duplicating.
+- Hosts: one catalog per host (`HostCatalog` keyed by file name, `Host.catalog_object_id`); a later, different host is reported and not swapped in.
+

@@ -25,7 +25,7 @@ from .models import (
     AlternateTransientNames, DataQuality, Host, HostCatalog, InformationSource, Instrument,
     Log, MagSystem, ObservationGroup, PhotometricBand, TagKind, Transient, TransientDiffImage,
     TransientPhotData, TransientPhotometry, TransientStatus, TransientTag,
-    TransientWebResource,
+    TransientWebResource, WebAppColor,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,9 @@ CANDIDATE = 'Candidate'
 SUPERSEDED = 'Superseded'
 DEFAULT_SOURCE = 'diffpype'
 DEFAULT_TELESCOPE = 'JWST'
+# The call-to-action tag every created candidate gets (candidate kind): remove it to say it has been
+# looked at. It is a tag, not the absence of tags, because a websniff import may bring tags too.
+NEW_TAG = 'New'
 # AB zero points for flux units, used when the payload omits flux_zero_point.
 ZERO_POINTS = {'ujy': 23.9, 'njy': 31.4}
 # Re-posted points within this many seconds of an existing one (same band)
@@ -272,6 +275,17 @@ def _band(instrument, name, user):
         band.modified_by = user
         band.save(update_fields=['lambda_eff', 'modified_by', 'modified_date'])
     return band
+
+
+def _new_tag(user):
+    """The candidate-kind `New` tag, created (orange) when missing."""
+    kind = _named(TagKind, 'Candidate', 'TagKind')
+    for tag in TransientTag.objects.filter(kind=kind).order_by('id'):
+        if (tag.name or '').strip().lower() == NEW_TAG.lower():
+            return tag
+    color = WebAppColor.objects.filter(color__iexact='orange').first()
+    return TransientTag.objects.create(name=NEW_TAG, kind=kind, color=color,
+                                       created_by=user, modified_by=user)
 
 
 def _candidate_tags(names, user):
@@ -524,6 +538,7 @@ def ingest_candidate(p, user):
             name=p['candidate_id'], ra=p['ra'], dec=p['dec'], status=status, obs_group=obs_group,
             disc_date=min(detections) if detections else None,
             created_by=user, modified_by=user)
+        transient.tags.add(_new_tag(user))  # a call to action; appends never re-add it
     else:
         # Append only: name, slug, ra/dec and status are never changed.
         if detections and (transient.disc_date is None or min(detections) < transient.disc_date):

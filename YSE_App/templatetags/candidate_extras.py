@@ -49,8 +49,6 @@ def archived_count():
 
 @register.simple_tag
 def candidate_count():
-    """Number of transients with status Candidate, for the sidebar."""
-    status = find_by_name(TransientStatus, CANDIDATE)
-    if status is None:
-        return 0
-    return Transient.objects.filter(status=status).count()
+    """Number of NEW candidates (still tagged New), for the sidebar badge; classifying them clears it."""
+    from ..dashboard_sets import new_candidates
+    return new_candidates().count()

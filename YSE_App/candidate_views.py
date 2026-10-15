@@ -7,6 +7,7 @@ aliases, host); nothing is stored by these views. Plan:
 agentic_planning/027-candidate-pages/plan.md.
 """
 import datetime
+import re
 from collections import defaultdict
 from urllib.parse import urlencode
 
@@ -18,7 +19,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 
-from . import view_utils
+from . import dashboard_sets, view_utils
 from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, _candidate_tags, find_by_name
 from .forms import TransientCommentForm
 from .common.utilities import angular_separation_arcsec
@@ -32,12 +33,15 @@ DETECTION_SNR = 3.0
 ROWS_PER_PAGE = 50
 # the Candidates table: (sort key, heading); a numeric or date column sorts high to low first
 COLUMNS = [
-    ('name', 'Name'), ('newest', 'Discovered'), ('last', 'Last seen'), ('snr', 'Max S/N'),
+    ('name', 'Name'), ('newest', 'Discovered'), ('last', 'Last seen'), ('snr', 'Max S/N'), ('quality', 'Score'),
     ('filters', 'Filters \u22653\u03c3'), ('z', 'Host z'), ('detections', 'Detections'),
     ('runs', 'Runs'), ('reporters', 'Reporters'),
 ]
 SORTS = dict(COLUMNS)
 _EARLIEST = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
+# the Save dialog's confidence is stored as the comment text "quality_flag: N; notes: ..."
+_QUALITY = re.compile(r'^quality_flag:\s*(\d+(?:\.\d+)?)')
+QUALITY_HELP = '1 definite, 2 probable, 3 possible; the average of each reporter\'s latest, lower is better'
 
 
 def _snr(flux, flux_err):
@@ -108,6 +112,23 @@ def candidate_stats(transient_ids):
     return stats
 
 
+def candidate_quality(ids):
+    """{transient_id: (average, reporters)} of the quality flag (1 definite, 2 probable, 3 possible):
+    each reporter's latest `quality_flag: N` comment counts once."""
+    latest = {}
+    for transient_id, user_id, comment in (Log.objects
+                                           .filter(transient_id__in=ids, comment__startswith='quality_flag:')
+                                           .order_by('id')
+                                           .values_list('transient_id', 'created_by_id', 'comment')):
+        match = _QUALITY.match(comment)
+        if match:
+            latest[(transient_id, user_id)] = float(match.group(1))
+    per_transient = defaultdict(list)
+    for (transient_id, _), value in latest.items():
+        per_transient[transient_id].append(value)
+    return {t: (sum(v) / len(v), len(v)) for t, v in per_transient.items()}
+
+
 def _sort_value(column, c):
     """The value a table column sorts by, or None when the row has none (those go last)."""
     return {
@@ -115,6 +136,7 @@ def _sort_value(column, c):
         'newest': lambda: c['transient'].disc_date,
         'last': lambda: c['last_date'],
         'snr': lambda: c['max_snr'],
+        'quality': lambda: c['quality'],
         'filters': lambda: len(c['filters']) or None,
         'z': lambda: c['host_z'][0] if c['host_z'] else None,
         'detections': lambda: c['n_detections'],
@@ -123,15 +145,27 @@ def _sort_value(column, c):
     }[column]()
 
 
+def _slug(text, taken):
+    """A short token for a grid's paging parameter, unique on the page."""
+    slug = ''.join(ch for ch in text.lower() if ch.isalnum()) or 'grid'
+    while slug in taken:
+        slug += '_'
+    taken.add(slug)
+    return slug
+
+
 @login_required
 def candidate_dashboard(request):
+    """The Candidates page (#27, #40): sub-grids, like the main dashboard. They are exclusive: a candidate
+    still tagged New is only in the New grid (the backlog, a call to action, always first); once New is
+    removed it is in one grid per candidate tag it has, or in No tag, so nothing disappears."""
     status = find_by_name(TransientStatus, CANDIDATE)
     sort = request.GET.get('sort', 'newest')
     if sort not in SORTS:
         sort = 'newest'
     direction = request.GET.get('dir')
     if direction not in ('asc', 'desc'):
-        direction = 'asc' if sort == 'name' else 'desc'
+        direction = 'asc' if sort in ('name', 'quality') else 'desc'
     query = (request.GET.get('q') or '').strip()
 
     candidates = []
@@ -142,6 +176,7 @@ def candidate_dashboard(request):
         transients = list(found.select_related('host'))
         ids = [t.id for t in transients]
         stats = candidate_stats(ids)
+        quality = candidate_quality(ids)
         alias_counts = defaultdict(int)
         for transient_id in AlternateTransientNames.objects.filter(
                 transient_id__in=ids).values_list('transient_id', flat=True):
@@ -151,6 +186,11 @@ def candidate_dashboard(request):
                                       .filter(photometry__transient_id__in=ids)
                                       .values_list('photometry__transient_id', 'created_by_id').distinct()):
             reporters[transient_id].add(user_id)
+        tag_names = defaultdict(list)  # each candidate's candidate-kind tags
+        for transient_id, name in (Transient.tags.through.objects
+                                   .filter(transient_id__in=ids, transienttag__kind__name__iexact='Candidate')
+                                   .values_list('transient_id', 'transienttag__name')):
+            tag_names[transient_id].append(name)
         for t in transients:
             s = stats.get(t.id, {})
             candidates.append({
@@ -160,29 +200,56 @@ def candidate_dashboard(request):
                 'n_detections': s.get('n_detections', 0),
                 'n_runs': 1 + alias_counts[t.id],
                 'n_reporters': len(reporters[t.id]),
+                'quality': quality[t.id][0] if t.id in quality else None,
+                'quality_n': quality[t.id][1] if t.id in quality else 0,
                 'last_date': s.get('last_date'),
                 'host_z': _host_z(t.host),
+                'tag_names': sorted(tag_names[t.id], key=str.lower),
                 # the stored headline stamps (#23) are only set on the first post
                 'thumb': (s.get('best_diff') or t.postage_stamp_diff
                           or s.get('best_sci') or t.postage_stamp_file),
             })
 
-    with_value = [c for c in candidates if _sort_value(sort, c) is not None]
-    without = [c for c in candidates if _sort_value(sort, c) is None]
-    with_value.sort(key=lambda c: _sort_value(sort, c), reverse=(direction == 'desc'))
-    candidates = with_value + without
+    # the exclusive sub-grids
+    new_name = 'new'
+    new = [c for c in candidates if any(n.strip().lower() == new_name for n in c['tag_names'])]
+    by_tag, no_tag = defaultdict(list), []
+    for c in candidates:
+        if c in new:
+            continue
+        for n in (c['tag_names'] or [None]):
+            (by_tag[n] if n is not None else no_tag).append(c)
+    groups = [('New', new, True)] + [(n, by_tag[n], False) for n in sorted(by_tag, key=str.lower)]
+    if no_tag:
+        groups.append(('No tag', no_tag, False))
+
+    def ordered(rows):
+        with_value = [c for c in rows if _sort_value(sort, c) is not None]
+        without = [c for c in rows if _sort_value(sort, c) is None]
+        with_value.sort(key=lambda c: _sort_value(sort, c), reverse=(direction == 'desc'))
+        return with_value + without
+
+    taken, grids = set(), []
+    for title, rows, is_new in groups:
+        slug = _slug(title, taken)
+        param = 'page_' + slug
+        grids.append({
+            'title': title, 'slug': slug, 'is_new': is_new, 'count': len(rows), 'param': param,
+            'page': Paginator(ordered(rows), ROWS_PER_PAGE).get_page(request.GET.get(param)),
+        })
 
     headers = []
     for key, label in COLUMNS:
         active = key == sort
         next_dir = ('asc' if direction == 'desc' else 'desc') if active else (
-            'asc' if key == 'name' else 'desc')
-        headers.append({'label': label, 'active': active, 'arrow': ('\u25b2' if direction == 'asc' else '\u25bc') if active else '',
+            'asc' if key in ('name', 'quality') else 'desc')
+        headers.append({'label': label, 'active': active, 'title': QUALITY_HELP if key == 'quality' else '',
+                        'arrow': ('\u25b2' if direction == 'asc' else '\u25bc') if active else '',
                         'href': '?' + urlencode({'sort': key, 'dir': next_dir, 'q': query})})
-    page = Paginator(candidates, ROWS_PER_PAGE).get_page(request.GET.get('page'))
     context = {
-        'page': page,
-        'n_candidates': len(candidates),
+        'grids': grids,
+        'n_in_all': len(candidates),   # not n_candidates: the sidebar sets that name (new candidates)
+        'n_new': len(new),
         'headers': headers,
         'q': query,
         'sort': sort,
@@ -435,7 +502,20 @@ def candidate_detail(request, slug):
 
     candidate_kind = find_by_name(TagKind, 'Candidate')
     statuses = TransientStatus.objects
+    # the backlog, newest first, as on the Candidates page: where Mark triaged and Skip lead
+    new_slugs = list(dashboard_sets.new_candidates().order_by('-disc_date', 'id').values_list('slug', flat=True))
+    is_new = transient.slug in new_slugs
+    next_new = None
+    if is_new:
+        at = new_slugs.index(transient.slug)
+        following = new_slugs[at + 1:] + new_slugs[:at]
+        next_new = following[0] if following else None
+    quality = candidate_quality([transient.id])
     context.update({
+        'candidate_is_new': is_new,
+        'candidate_next_new': next_new,
+        'candidate_quality': quality.get(transient.id),
+        'candidate_quality_help': QUALITY_HELP,
         'transient': transient,
         'logs': Log.objects.filter(transient=transient).select_related('created_by').order_by('id'),
         'transient_comment_form': TransientCommentForm(),

@@ -151,13 +151,28 @@ def dashboard(request):
 @login_required
 def archived_dashboard(request):
     """Archived transients (#40): kept, out of the way; changing the status brings one back."""
-    transients = dashboard_sets.archived()
+    archived = dashboard_sets.archived()
     categories = []
-    if transients.exists():
-        transientfilter = TransientFilter(request.GET, queryset=transients, prefix='archived')
-        table = TransientTable(transientfilter.qs, prefix='archived')
+
+    def add(rows, title, anchor, prefix):
+        transientfilter = TransientFilter(request.GET, queryset=rows, prefix=prefix)
+        table = dashboard_sets.ArchivedTable(transientfilter.qs, prefix=prefix)
         RequestConfig(request, paginate={'per_page': 25}).configure(table)
-        categories = [(table, 'Archived', 'Archived', transientfilter)]
+        categories.append((table, title, anchor, transientfilter))
+
+    # split by tag, like the dashboard; candidates and transients are treated the same here, and a
+    # transient with no tag (the New call to action does not count) is in No tag, so none is lost
+    taken = set()
+    for tag in (dashboard_sets.archive_tags().filter(transient__in=archived)
+                .order_by('name').distinct()):
+        prefix = ''.join(ch for ch in tag.name.lower() if ch.isalnum()) or 'tag'
+        while prefix in taken:
+            prefix += '_'
+        taken.add(prefix)
+        add(archived.filter(tags=tag), tag.name, tag.name, prefix)
+    untagged = archived.exclude(tags__in=dashboard_sets.archive_tags())
+    if untagged.exists():
+        add(untagged, 'No tag', 'Archived', 'notag')
     context = {
         'transient_categories': categories,
         'all_transient_statuses': TransientStatus.objects.order_by('name'),
