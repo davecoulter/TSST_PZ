@@ -2,7 +2,16 @@ from rest_framework import serializers
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
+class HostCatalogSerializer(serializers.HyperlinkedModelSerializer):
+	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
+	modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
+
+	class Meta:
+		model = HostCatalog
+		fields = "__all__"
+
 class HostSerializer(serializers.HyperlinkedModelSerializer):
+	catalog = serializers.HyperlinkedRelatedField(queryset=HostCatalog.objects.all(), allow_null=True, required=False, view_name='hostcatalog-detail')
 	host_morphology = serializers.HyperlinkedRelatedField(queryset=HostMorphology.objects.all(), allow_null=True, required=False, view_name='hostmorphology-detail')
 	host_sed = serializers.HyperlinkedRelatedField(queryset=HostSED.objects.all(), allow_null=True, required=False, view_name='hostsed-detail')
 	band_sextract = serializers.HyperlinkedRelatedField(queryset=PhotometricBand.objects.all(), allow_null=True, required=False, view_name='photometricband-detail', lookup_field="id")
