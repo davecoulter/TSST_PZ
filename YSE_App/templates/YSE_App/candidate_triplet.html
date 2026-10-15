@@ -20,7 +20,7 @@
       {% for label, url, fits in triplet.cutouts %}
       <div class="cut">
         {% if url %}
-          <a href="{{ url|stamp_src }}" target="_blank" rel="noopener"><img class="cand-cutout" src="{{ url|stamp_src }}" alt="{{ label }} cutout"></a>
+          <a href="#cand_cutouts_tab" class="cand-goto" data-phot="{{ triplet.phot_id }}" title="show this point in All cutouts"><img class="cand-cutout" src="{{ url|stamp_src }}" alt="{{ label }} cutout"></a>
         {% else %}
           <div class="cand-cutout cand-missing">not provided</div>
         {% endif %}

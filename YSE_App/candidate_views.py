@@ -24,7 +24,7 @@ from .forms import TransientCommentForm
 from .common.utilities import angular_separation_arcsec
 from .models import (
     AlternateTransientNames, Log, TagKind, Transient, TransientDiffImage, TransientPhotData,
-    TransientStatus, TransientTag, TransientWebResource,
+    TransientStatus, TransientTag, TransientWebResource, WebAppColor,
 )
 
 # A point counts as a detection at or above this flux/flux_err.
@@ -273,7 +273,7 @@ def _triplet(item):
     pd = item['phot']
     (sci, sci_fits), (ref, ref_fits), (diff, diff_fits) = item['stamps']
     return {
-        'band': pd.band.name, 'date': pd.obs_date, 'flux': pd.flux, 'flux_err': pd.flux_err,
+        'phot_id': pd.id, 'band': pd.band.name, 'date': pd.obs_date, 'flux': pd.flux, 'flux_err': pd.flux_err,
         'mag': pd.mag, 'mag_err': pd.mag_err, 'snr': item['snr'], 'detection': item['detection'],
         'cutouts': [('SCI', sci, sci_fits), ('REF', ref, ref_fits), ('DIFF', diff, diff_fits)],
     }
@@ -294,15 +294,17 @@ def _links(transient):
 
 def _epoch_grid(images):
     """Every cutout laid out like the websniff card: for each epoch one column per filter and the
-    rows DIFF, SCI, REF. Superseded points get their own groups (hidden behind the toggle)."""
+    rows DIFF, SCI, REF. Current and superseded points are grouped separately (they interleave in
+    time), current epochs first; superseded ones are hidden behind the toggle."""
     groups = []
-    for item in images:  # newest first
-        date = item['phot'].obs_date
-        if (groups and groups[-1]['superseded'] == item['superseded']
-                and groups[-1]['date'] - date <= datetime.timedelta(days=EPOCH_GAP_DAYS)):
-            groups[-1]['items'].append(item)
-        else:
-            groups.append({'date': date, 'superseded': item['superseded'], 'items': [item]})
+    for superseded in (False, True):
+        for item in (i for i in images if i['superseded'] == superseded):  # newest first
+            date = item['phot'].obs_date
+            if groups and groups[-1]['superseded'] == superseded and \
+                    groups[-1]['date'] - date <= datetime.timedelta(days=EPOCH_GAP_DAYS):
+                groups[-1]['items'].append(item)
+            else:
+                groups.append({'date': date, 'superseded': superseded, 'items': [item]})
     grid = []
     for g in groups:
         by_band = {}
@@ -317,7 +319,7 @@ def _epoch_grid(images):
             for band in bands:
                 item = by_band[band]
                 stamp, fits = item['stamps'][index]
-                cell = {'url': stamp, 'fits': fits, 'band': band}
+                cell = {'url': stamp, 'fits': fits, 'band': band, 'phot_id': item['phot'].id}
                 if label == 'DIFF':
                     cell.update(mag=item['phot'].mag, mag_err=item['phot'].mag_err,
                                 limit=not item['detection'])
@@ -437,8 +439,9 @@ def candidate_detail(request, slug):
         'transient': transient,
         'logs': Log.objects.filter(transient=transient).select_related('created_by').order_by('id'),
         'transient_comment_form': TransientCommentForm(),
-        'candidate_tags_assigned': transient.tags.filter(kind=candidate_kind).order_by('name') if candidate_kind else [],
-        'candidate_tags_available': TransientTag.objects.filter(kind=candidate_kind).order_by('name') if candidate_kind else [],
+        'candidate_tags_assigned': transient.tags.filter(kind=candidate_kind).select_related('color').order_by('name') if candidate_kind else [],
+        'candidate_tags_available': TransientTag.objects.filter(kind=candidate_kind).select_related('color').order_by('name') if candidate_kind else [],
+        'all_colors': WebAppColor.objects.all(),
         'all_transient_statuses': statuses.order_by('name'),
         'transient_status_new': statuses.filter(name='New').first(),
         'transient_status_watch': statuses.filter(name='Watch').first(),
@@ -544,31 +547,53 @@ def candidate_sed(request, transient_id):
     return HttpResponse(html.replace('width: 90%', 'width: 100%'))
 
 
-# --- candidate tags: add or remove one, creating it when it is new ---------------------
+# --- candidate tags: add, create or remove one -----------------------------------------
+
+def _tag_json(tag):
+    return {'id': tag.id, 'name': tag.name, 'color': str(tag.color) if tag.color_id else ''}
+
+
+def _find_or_create_candidate_tag(name, user, kind, color=None):
+    """The candidate-kind tag with this name (ignoring case and whitespace), or a new one."""
+    wanted = name.strip().lower()
+    for tag in TransientTag.objects.filter(kind=kind).order_by('id'):
+        if (tag.name or '').strip().lower() == wanted:
+            return tag
+    return TransientTag.objects.create(name=name.strip(), kind=kind, color=color,
+                                       created_by=user, modified_by=user)
+
 
 @login_required
 @require_POST
 def candidate_tag(request, transient_id):
-    """POST action=add|remove and name=<tag>: the candidate-kind tags of one transient (#38)."""
+    """POST action=add|create|remove, name=<tag> and an optional color=<WebAppColor id> (#38).
+
+    add applies the tag to this transient (creating it if new); create makes it available without
+    applying it; remove takes it off. The reply lists this transient's candidate tags and every
+    candidate tag, which is what the page's widget shows."""
     transient = Transient.objects.filter(pk=transient_id).first()
     if transient is None:
         raise Http404('Candidate not found')
     action = request.POST.get('action')
     name = (request.POST.get('name') or '').strip()
-    if action not in ('add', 'remove') or not name or len(name) > 256:
-        return JsonResponse({'errors': 'action must be add or remove, and the name 1 to 256 characters'},
+    if action not in ('add', 'create', 'remove') or not name or len(name) > 256:
+        return JsonResponse({'errors': 'action must be add, create or remove, and the name 1 to 256 characters'},
                             status=400)
     kind = find_by_name(TagKind, 'Candidate')
     if kind is None:
         return JsonResponse({'errors': 'the Candidate tag kind is missing (run `manage.py migrate`)'},
                             status=500)
-    if action == 'add':
-        transient.tags.add(*_candidate_tags([name], request.user))
+    color = WebAppColor.objects.filter(pk=request.POST.get('color')).first() if request.POST.get('color') else None
+    if action in ('add', 'create'):
+        tag = _find_or_create_candidate_tag(name, request.user, kind, color)
+        if action == 'add':
+            transient.tags.add(tag)
     else:
         wanted = name.lower()
         for tag in transient.tags.filter(kind=kind):
             if (tag.name or '').strip().lower() == wanted:
                 transient.tags.remove(tag)
-    return JsonResponse({'tags': list(transient.tags.filter(kind=kind).order_by('name')
-                                      .values_list('name', flat=True))})
-
+    return JsonResponse({
+        'tags': [_tag_json(t) for t in transient.tags.filter(kind=kind).select_related('color').order_by('name')],
+        'available': [_tag_json(t) for t in TransientTag.objects.filter(kind=kind).select_related('color').order_by('name')],
+    })

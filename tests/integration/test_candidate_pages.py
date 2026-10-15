@@ -191,15 +191,18 @@ def test_candidate_tags_can_be_added_and_removed(browser, base_url, credentials,
     tid = _transient_id(base_url, credentials, candidate["candidate_id"])
     tag = unique_name("ctag")
     try:
+        def names(resp, key="tags"):
+            return [t["name"] for t in resp.json()[key]]
+
         added = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "add", "name": tag})
         assert added.status_code == 200, added.text[:300]
-        assert added.json()["tags"] == [tag]
+        assert names(added) == [tag] and tag in names(added, "available")
         # the same name in another case is the same tag
         again = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "add", "name": tag.lower()})
-        assert again.json()["tags"] == [tag]
+        assert names(again) == [tag]
         assert tag in _candidate_page(browser, base_url, candidate["candidate_id"])
         removed = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "remove", "name": tag})
-        assert removed.json()["tags"] == []
+        assert names(removed) == [] and tag in names(removed, "available")   # still available, just not applied
         bad = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "rename", "name": tag})
         assert bad.status_code == 400
     finally:
@@ -222,4 +225,40 @@ def test_the_sed_is_drawn_for_a_candidate(browser, base_url, credentials, candid
     assert resp.status_code == 200 and "Observed" in resp.text
     # the test candidate has no host, so there is no rest-frame panel
     assert "Rest frame" not in resp.text
+
+
+def test_creating_a_tag_with_a_colour_makes_it_available_without_applying_it(
+        browser, base_url, credentials, candidate):
+    tid = _transient_id(base_url, credentials, candidate["candidate_id"])
+    tag = unique_name("ctag")
+    colour = requests.get(base_url + "/api/webappcolors/?format=json", auth=HTTPBasicAuth(*credentials),
+                          timeout=30).json()["results"][0]
+    colour_id = colour["url"].split("?")[0].rstrip("/").split("/")[-1]
+    try:
+        made = _page_post(browser, base_url, f"/candidate_tag/{tid}/",
+                          {"action": "create", "name": tag, "color": colour_id})
+        assert made.status_code == 200, made.text[:300]
+        assert [t["name"] for t in made.json()["tags"]] == []                       # not applied
+        listed = [t for t in made.json()["available"] if t["name"] == tag]
+        assert len(listed) == 1 and listed[0]["color"]                               # available, coloured
+    finally:
+        rows = requests.get(base_url + "/api/transienttags/?format=json&limit=5000",
+                            auth=HTTPBasicAuth(*credentials), timeout=60).json()["results"]
+        for row in rows:
+            if row["name"] == tag:
+                _delete_quietly(base_url, credentials, row["url"].split("?")[0])
+
+
+def test_all_cutouts_puts_an_epochs_filters_in_one_grid_and_the_triplet_finds_its_cell(
+        browser, base_url, credentials, candidate):
+    import re
+    html = _candidate_page(browser, base_url, candidate["candidate_id"])
+    pane = html.split('id="cand_cutouts_tab"')[1].split('id="cand_runs_tab"')[0]
+    current = [g for g in re.findall(r'<div class="cand-gridwrap( candidate-superseded)?"[^>]*>(.*?)</table>', pane, re.S)
+               if not g[0]]
+    assert len(current) == 1                                                 # one epoch, one grid
+    assert re.findall(r"<th>([^<]+)</th>", current[0][1]) == ["F150W", "F200W"]   # both filters, side by side
+    # the Overview's triplet links to its own cells in the grid
+    ids = set(re.findall(r'class="cand-goto" data-phot="(\d+)"', html))
+    assert ids and all(f'data-phot="{i}"' in pane for i in ids)
 

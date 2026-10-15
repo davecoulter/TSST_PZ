@@ -30,21 +30,42 @@
   .cand-ref-gallery .item.active img { outline: 3px solid #f39c12; }
   .cand-ref-gallery a.item { color: inherit; text-decoration: none; cursor: pointer; }
   .cand-placeholder { color: #999; padding: 18px 0; text-align: center; }
-  /* All cutouts: a dense grid like the websniff card */
-  .cand-epoch { margin-bottom: 14px; }
-  .cand-epoch-title { font-weight: bold; margin: 0 0 2px; }
-  .cand-grid { border-collapse: separate; border-spacing: 3px; }
-  .cand-grid th { font-weight: normal; font-size: 12px; text-align: center; color: #555; vertical-align: middle; }
+  /* All cutouts: a dark, dense grid like the websniff card */
+  .cand-gridwrap { background: #0f1722; border-radius: 6px; padding: 10px 14px 8px; margin-bottom: 14px; color: #cfd8e3; }
+  .cand-epoch-title { font-weight: bold; color: #e6edf3; margin: 0 0 2px; font-family: monospace; }
+  .cand-super-tag { background: #444; color: #ddd; padding: 0 5px; border-radius: 3px; font-size: 11px; }
+  .cand-grid { border-collapse: separate; border-spacing: 6px; }
+  .cand-grid th { font-family: monospace; font-size: 14px; font-weight: bold; text-align: center; color: #e6edf3; }
   .cand-grid td { padding: 0; }
-  .cand-grid .cell { position: relative; width: 128px; height: 128px; background: #111; }
-  .cand-grid .cell img { display: block; width: 128px; height: 128px; object-fit: contain; }
+  .cand-grid .cell { position: relative; width: 132px; height: 132px; background: #05080d; border: 1px solid #1d2733; }
+  .cand-grid .cell img { display: block; width: 130px; height: 130px; object-fit: contain; }
   .cand-grid .cell .lab { position: absolute; left: 3px; top: 3px; padding: 0 4px; font-size: 11px;
                           background: rgba(0,0,0,.65); color: #7fe0ff; border-radius: 2px; }
-  .cand-grid .cell.none { display: flex; align-items: center; justify-content: center; color: #777; font-size: 11px; }
-  .cand-files { margin: 2px 0 0 4px; font-size: 12px; }
+  .cand-grid .cell .rl { position: absolute; left: 3px; bottom: 3px; padding: 0 4px; font-size: 11px;
+                         background: rgba(0,0,0,.65); color: #aab4c0; border-radius: 2px; }
+  .cand-grid .cell.none { display: flex; align-items: center; justify-content: center; color: #6b7785; font-size: 11px; }
+  .cand-grid .cell.hl { outline: 3px solid #f39c12; outline-offset: 1px; }
+  .cand-files { margin: 2px 0 0 2px; font-size: 12px; color: #aab4c0; }
+  .cand-files code { background: #1b2635; color: #9fd0ff; }
   .cand-fits { cursor: copy; }
-  .cand-tag { margin-right: 4px; font-size: 13px; display: inline-block; }
-  .cand-tag a { color: #fff; margin-left: 3px; text-decoration: none; }
+  /* the triplet cutouts on the Overview jump to the grid */
+  a.cand-goto { cursor: zoom-in; }
+  /* distinct shaded boxes */
+  .cand-flagged { border-top-color: #f39c12; }
+  .cand-flagged .box-header { background: #fdf3e3; }
+  .cand-flagged .box-body { background: #fffaf2; }
+  .cand-comments { border-top-color: #00c0ef; }
+  .cand-comments .box-header { background: #e4f6fc; }
+  .cand-comments .box-body { background: #f4fbfe; }
+  .cand-tagsbox { border-top-color: #00a65a; }
+  .cand-tagsbox .box-header { background: #e5f5ec; }
+  /* the tag widget, as on the transient page */
+  .cand-chip { cursor: move; margin-bottom: 4px; padding: 5px 10px; color: #fff; border-radius: 3px; }
+  .cand-chip.bg-gray { background-color: #777 !important; }
+  #cand-color-chooser { list-style: none; margin: 0 0 8px; padding: 0; }
+  #cand-color-chooser li { float: left; margin-right: 5px; font-size: 30px; line-height: 30px; }
+  #cand-color-chooser a.sel i { outline: 2px solid #333; outline-offset: 1px; }
+  #cand_assoc_box.over, #cand_remove_box.over { background: #fffbe0; }
 </style>
 {% endblock %}
 
@@ -183,7 +204,7 @@
               </div>
             </div>
 
-            {# right: SED, light curve, who flagged it and the comments, tags #}
+            {# right: the SED #}
             <div class="col-md-6">
               <div class="box box-default cand-box">
                 <div class="box-header with-border">
@@ -196,11 +217,78 @@
                 </div>
                 <div class="box-body" id="sedplot"><div class="cand-placeholder">loading</div></div>
               </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
               <div class="box box-default cand-box">
                 <div class="box-header with-border"><h3 class="box-title">Light curve</h3></div>
                 <div class="box-body" id="lcplot"></div>
               </div>
-              <div class="box box-default cand-box">
+            </div>
+
+            {# candidate tags: the same widget as on the transient page #}
+            <div class="col-md-6">
+              <div class="box box-default cand-box cand-tagsbox">
+                <div class="box-header with-border"><h3 class="box-title">Candidate tags</h3></div>
+                <div class="box-body">
+                  <div class="row">
+                    <div class="col-xs-6">
+                      <div class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Apply Tag</strong></div>
+                        <div class="box-body">
+                          <form id="cand_tag_form">
+                            <input type="text" list="cand_tag_list" id="cand_tag_name" class="form-control input-sm" autocomplete="off">
+                            <datalist id="cand_tag_list">{% for t in candidate_tags_available %}<option value="{{ t.name }}">{% endfor %}</datalist>
+                            <input type="submit" class="btn btn-block btn-primary btn-sm" style="margin-top:8px" value="Submit">
+                          </form>
+                        </div>
+                      </div>
+                      <div class="box box-default box-solid collapsed-box">
+                        <div class="box-header with-border" data-widget="collapse"><strong>Available Tags</strong>
+                          <div class="box-tools pull-right"><button type="button" class="btn btn-box-tool"><i class="fa fa-plus"></i></button></div>
+                        </div>
+                        <div class="box-body" id="cand_available">
+                          {% for t in candidate_tags_available %}<div class="external-event cand-chip cand-avail {% if t.color %}bg-{{ t.color }}{% else %}bg-gray{% endif %}" data-name="{{ t.name }}" data-tag_id="{{ t.id }}">{{ t.name }}</div>{% endfor %}
+                        </div>
+                      </div>
+                      <div class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Create Tag</strong></div>
+                        <div class="box-body">
+                          <ul id="cand-color-chooser" class="fc-color-picker">
+                            {% for c in all_colors %}<li><a href="#" data-color_id="{{ c.id }}" class="text-{{ c.color }}"><i class="fa fa-square"></i></a></li>{% endfor %}
+                          </ul>
+                          <div style="clear:both"></div>
+                          <div class="input-group">
+                            <input id="cand-new-tag" type="text" class="form-control input-sm" placeholder="Tag name">
+                            <div class="input-group-btn"><button id="cand-add-new" type="button" class="btn btn-primary btn-sm btn-flat">Add</button></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-xs-6">
+                      <div id="cand_assoc_box" class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Associated Tags</strong></div>
+                        <div class="box-body" id="cand_assoc">
+                          {% for t in candidate_tags_assigned %}<div class="external-event cand-chip cand-assoc {% if t.color %}bg-{{ t.color }}{% else %}bg-gray{% endif %}" data-name="{{ t.name }}" data-tag_id="{{ t.id }}">{{ t.name }}</div>{% endfor %}
+                        </div>
+                      </div>
+                      <div id="cand_remove_box" class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Remove Associated Tag</strong></div>
+                        <div class="box-body"><small class="text-muted">drag a tag here to remove it</small></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# who flagged it and the comments: distinct, shaded boxes #}
+          <div class="row">
+            <div class="col-md-5">
+              <div class="box box-default cand-box cand-flagged">
                 <div class="box-header with-border"><h3 class="box-title">Flagged by</h3></div>
                 <div class="box-body" style="padding:0">
                   <table class="table table-condensed" style="margin:0">
@@ -209,8 +297,8 @@
                     {% for u in candidate_flagged_by %}
                       <tr>
                         <td>{% if u.created_by__first_name or u.created_by__last_name %}{{ u.created_by__first_name }} {{ u.created_by__last_name }} ({{ u.created_by__username }}){% else %}{{ u.created_by__username }}{% endif %}</td>
-                        <td>{{ u.first|date:"Y-m-d H:i" }}</td>
-                        <td>{{ u.last|date:"Y-m-d H:i" }}</td>
+                        <td style="white-space:nowrap">{{ u.first|date:"Y-m-d H:i" }}</td>
+                        <td style="white-space:nowrap">{{ u.last|date:"Y-m-d H:i" }}</td>
                         <td>{{ u.n_points }}</td>
                       </tr>
                     {% empty %}
@@ -220,7 +308,9 @@
                   </table>
                 </div>
               </div>
-              <div class="box box-default cand-box">
+            </div>
+            <div class="col-md-7">
+              <div class="box box-default cand-box cand-comments">
                 <div class="box-header with-border"><h3 class="box-title">Comments</h3></div>
                 <div class="box-body">
                   <table class="table table-condensed" id="cand_comments">
@@ -240,19 +330,6 @@
                       <textarea name="comment" class="form-control" rows="2" placeholder="Add a comment (@name to notify someone)"></textarea>
                       <span class="input-group-btn"><button type="submit" class="btn btn-primary btn-flat">Add</button></span>
                     </div>
-                  </form>
-                </div>
-              </div>
-              <div class="box box-default cand-box">
-                <div class="box-header with-border"><h3 class="box-title">Candidate tags</h3></div>
-                <div class="box-body">
-                  <div id="cand_tags">
-                    {% for t in candidate_tags_assigned %}<span class="label label-info cand-tag" data-name="{{ t.name }}">{{ t.name }}<a href="#" class="cand-tag-x" title="remove">&times;</a></span>{% endfor %}
-                  </div>
-                  <form id="cand_tag_form" class="form-inline" style="margin-top:8px">
-                    <input list="cand_tag_list" id="cand_tag_name" class="form-control input-sm" placeholder="pick a tag, or type a new one" autocomplete="off">
-                    <datalist id="cand_tag_list">{% for t in candidate_tags_available %}<option value="{{ t.name }}">{% endfor %}</datalist>
-                    <button class="btn btn-primary btn-sm" type="submit">Add</button>
                   </form>
                 </div>
               </div>
@@ -385,21 +462,46 @@
             });
         });
 
-        // candidate tags: add (new names are created) or remove one
-        function showTags(names) {
+        // the Overview's triplets jump to the same point in All cutouts and highlight it
+        $(document).on('click', '.cand-goto', function(event){
+            event.preventDefault();
+            var id = $(this).attr('data-phot');
+            $('a[href="#cand_cutouts_tab"]').tab('show');
+            $('.cand-grid .cell.hl').removeClass('hl');
+            var cells = $('.cand-grid .cell[data-phot="' + id + '"]').addClass('hl');
+            if (cells.length) {
+                setTimeout(function(){ $('html, body').animate({ scrollTop: cells.first().offset().top - 140 }, 250); }, 60);
+            }
+        });
+
+        // candidate tags, as on the transient page: apply, available (drag or click), create, remove by drag
+        var tagColor = null;
+        function chips(tags, cls) {
             var html = '';
-            $.each(names, function(i, name){
-                html += '<span class="label label-info cand-tag" data-name="' + esc(name) + '">' + esc(name) +
-                        '<a href="#" class="cand-tag-x" title="remove">&times;</a></span>';
+            $.each(tags, function(i, t){
+                html += '<div class="external-event cand-chip ' + cls + ' bg-' + (t.color || 'gray') +
+                        '" data-name="' + esc(t.name) + '" data-tag_id="' + t.id + '">' + esc(t.name) + '</div>';
             });
-            $('#cand_tags').html(html);
+            return html;
         }
-        function changeTag(action, name) {
+        function initChips() {
+            $('.cand-chip').draggable({ zIndex: 1070, revert: true, revertDuration: 0 });
+        }
+        function showTags(json) {
+            $('#cand_assoc').html(chips(json.tags, 'cand-assoc'));
+            $('#cand_available').html(chips(json.available, 'cand-avail'));
+            var options = '';
+            $.each(json.available, function(i, t){ options += '<option value="' + esc(t.name) + '">'; });
+            $('#cand_tag_list').html(options);
+            initChips();
+        }
+        function changeTag(action, name, color) {
+            var data = { action: action, name: name };
+            if (color) { data.color = color; }
             $.ajax({
                 url: "{% url 'candidate_tag' transient.id %}", type: "POST",
-                headers: { "X-CSRFToken": "{{ csrf_token }}" },
-                data: { action: action, name: name },
-                success: function(json) { showTags(json.tags); },
+                headers: { "X-CSRFToken": "{{ csrf_token }}" }, data: data,
+                success: showTags,
                 error: function(xhr) { alert("The tag was not changed: " + xhr.status + " " + xhr.responseText); }
             });
         }
@@ -408,10 +510,25 @@
             var name = $.trim($('#cand_tag_name').val());
             if (name) { changeTag('add', name); $('#cand_tag_name').val(''); }
         });
-        $(document).on('click', '.cand-tag-x', function(event){
+        $(document).on('click', '.cand-avail', function(){ changeTag('add', $(this).attr('data-name')); });
+        $('#cand-color-chooser a').on('click', function(event){
             event.preventDefault();
-            changeTag('remove', $(this).closest('.cand-tag').attr('data-name'));
+            tagColor = $(this).attr('data-color_id');
+            $('#cand-color-chooser a').removeClass('sel');
+            $(this).addClass('sel');
+            var color = $(this).css('color');
+            $('#cand-add-new').css({ 'background-color': color, 'border-color': color });
         });
+        $('#cand-add-new').on('click', function(event){
+            event.preventDefault();
+            var name = $.trim($('#cand-new-tag').val());
+            if (name) { changeTag('create', name, tagColor); $('#cand-new-tag').val(''); }
+        });
+        $('#cand_assoc_box').droppable({ accept: '.cand-avail', hoverClass: 'over',
+            drop: function(event, ui){ changeTag('add', ui.draggable.attr('data-name')); } });
+        $('#cand_remove_box').droppable({ accept: '.cand-assoc', hoverClass: 'over',
+            drop: function(event, ui){ changeTag('remove', ui.draggable.attr('data-name')); } });
+        initChips();
 
         // status control: the same PATCH the transient page makes; changing it to New is the promotion
         $('.transientStatusChange').on('click', function(event){
