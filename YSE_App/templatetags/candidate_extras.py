@@ -34,6 +34,12 @@ def stamp_src(value):
     return static(LOCAL_STAMP_DIR + value)
 
 
+@register.filter(name='basename')
+def basename(value):
+    """The file name of a path or URL: the full path is not shown on the page."""
+    return (value or '').rstrip('/').rsplit('/', 1)[-1]
+
+
 @register.simple_tag
 def archived_count():
     """Number of archived transients, for the sidebar."""

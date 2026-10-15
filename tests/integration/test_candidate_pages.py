@@ -8,6 +8,7 @@ import pytest
 import requests
 from requests.auth import HTTPBasicAuth
 
+from conftest import _delete_quietly, unique_name
 from payloads import minimal_transient
 from test_add_candidate import candidate_payload
 
@@ -147,4 +148,78 @@ def test_default_light_curve_size_is_unchanged(browser, base_url, credentials, c
         return int(re.findall(r'"(?:width|height)":(\d+)', html)[1])   # height is listed first
 
     assert width("") == 400 and width("?compact=1") == 600
+
+
+def _transient_id(base_url, credentials, name):
+    row = requests.get(base_url + f"/api/transients/?name={name}&format=json",
+                       auth=HTTPBasicAuth(*credentials), timeout=30).json()["results"][0]
+    return row["url"].split("?")[0].rstrip("/").split("/")[-1]
+
+
+def _page_post(browser, base_url, path, data, ajax=False):
+    """A POST the way the page's JavaScript makes it: session cookie plus the CSRF token."""
+    headers = {"X-CSRFToken": browser.cookies.get("csrftoken", ""), "Referer": base_url + "/"}
+    if ajax:
+        headers["X-Requested-With"] = "XMLHttpRequest"
+    return browser.post(base_url + path, data=data, headers=headers, timeout=60)
+
+
+def test_candidates_table_searches_and_sorts(browser, base_url, candidate):
+    name = candidate["candidate_id"]
+    found = browser.get(base_url + "/candidates/", params={"q": name}, timeout=60).text
+    assert f"/candidate/{name.lower()}/" in found and "Reporters" in found
+    miss = browser.get(base_url + "/candidates/", params={"q": name + "_nope"}, timeout=60).text
+    assert "No candidates" in miss
+    for column in ("name", "snr", "z", "detections", "runs", "reporters", "last", "newest", "filters"):
+        for direction in ("asc", "desc"):
+            resp = browser.get(base_url + "/candidates/",
+                               params={"sort": column, "dir": direction, "q": name}, timeout=60)
+            assert resp.status_code == 200 and f"/candidate/{name.lower()}/" in resp.text, (column, direction)
+
+
+def test_a_comment_can_be_added_from_the_candidate_page(browser, base_url, credentials, candidate):
+    tid = _transient_id(base_url, credentials, candidate["candidate_id"])
+    text = f"looks real to me {unique_name('c')}"
+    resp = _page_post(browser, base_url, "/add_transient_comment/",
+                      {"comment": text, "transient": tid}, ajax=True)
+    assert resp.status_code == 200, resp.text[:300]
+    page = _candidate_page(browser, base_url, candidate["candidate_id"])
+    assert text in page and "cand_comments" in page
+
+
+def test_candidate_tags_can_be_added_and_removed(browser, base_url, credentials, candidate):
+    tid = _transient_id(base_url, credentials, candidate["candidate_id"])
+    tag = unique_name("ctag")
+    try:
+        added = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "add", "name": tag})
+        assert added.status_code == 200, added.text[:300]
+        assert added.json()["tags"] == [tag]
+        # the same name in another case is the same tag
+        again = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "add", "name": tag.lower()})
+        assert again.json()["tags"] == [tag]
+        assert tag in _candidate_page(browser, base_url, candidate["candidate_id"])
+        removed = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "remove", "name": tag})
+        assert removed.json()["tags"] == []
+        bad = _page_post(browser, base_url, f"/candidate_tag/{tid}/", {"action": "rename", "name": tag})
+        assert bad.status_code == 400
+    finally:
+        rows = requests.get(base_url + "/api/transienttags/?format=json&limit=5000",
+                            auth=HTTPBasicAuth(*credentials), timeout=60).json()["results"]
+        for row in rows:
+            if row["name"] == tag:
+                _delete_quietly(base_url, credentials, row["url"].split("?")[0])
+
+
+def test_candidate_tag_change_needs_the_csrf_token(browser, base_url, credentials, candidate):
+    tid = _transient_id(base_url, credentials, candidate["candidate_id"])
+    resp = browser.post(base_url + f"/candidate_tag/{tid}/", data={"action": "add", "name": "x"}, timeout=60)
+    assert resp.status_code == 403
+
+
+def test_the_sed_is_drawn_for_a_candidate(browser, base_url, credentials, candidate):
+    tid = _transient_id(base_url, credentials, candidate["candidate_id"])
+    resp = browser.get(base_url + f"/candidate_sed/{tid}/", timeout=120)
+    assert resp.status_code == 200 and "Observed" in resp.text
+    # the test candidate has no host, so there is no rest-frame panel
+    assert "Rest frame" not in resp.text
 

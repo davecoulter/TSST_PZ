@@ -27,7 +27,24 @@
   .cand-cross .b { left: -1px; top: 10px; width: 2px; height: 20px; }
   .cand-ref-gallery img { width: 78px; height: 78px; object-fit: contain; background: #222; display: block; }
   .cand-ref-gallery .item { display: inline-block; margin: 0 6px 6px 0; text-align: center; font-size: 12px; }
+  .cand-ref-gallery .item.active img { outline: 3px solid #f39c12; }
+  .cand-ref-gallery a.item { color: inherit; text-decoration: none; cursor: pointer; }
   .cand-placeholder { color: #999; padding: 18px 0; text-align: center; }
+  /* All cutouts: a dense grid like the websniff card */
+  .cand-epoch { margin-bottom: 14px; }
+  .cand-epoch-title { font-weight: bold; margin: 0 0 2px; }
+  .cand-grid { border-collapse: separate; border-spacing: 3px; }
+  .cand-grid th { font-weight: normal; font-size: 12px; text-align: center; color: #555; vertical-align: middle; }
+  .cand-grid td { padding: 0; }
+  .cand-grid .cell { position: relative; width: 128px; height: 128px; background: #111; }
+  .cand-grid .cell img { display: block; width: 128px; height: 128px; object-fit: contain; }
+  .cand-grid .cell .lab { position: absolute; left: 3px; top: 3px; padding: 0 4px; font-size: 11px;
+                          background: rgba(0,0,0,.65); color: #7fe0ff; border-radius: 2px; }
+  .cand-grid .cell.none { display: flex; align-items: center; justify-content: center; color: #777; font-size: 11px; }
+  .cand-files { margin: 2px 0 0 4px; font-size: 12px; }
+  .cand-fits { cursor: copy; }
+  .cand-tag { margin-right: 4px; font-size: 13px; display: inline-block; }
+  .cand-tag a { color: #fff; margin-left: 3px; text-decoration: none; }
 </style>
 {% endblock %}
 
@@ -127,10 +144,11 @@
                     <div class="col-sm-6 text-center">
                       {% if candidate_host_image %}
                         <div class="cand-marker-wrap">
-                          <a href="{{ candidate_host_image|stamp_src }}" target="_blank" rel="noopener"><img src="{{ candidate_host_image|stamp_src }}" alt="reference cutout"></a>
+                          <img id="cand_host_img" src="{{ candidate_host_image|stamp_src }}" alt="reference cutout">
                           <span class="cand-cross" title="the candidate"><i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i></span>
                         </div>
-                        <div><small class="text-muted">reference image; the crosshair centre is the candidate</small></div>
+                        <div><small class="text-muted">reference, <b id="cand_host_band">{{ candidate_host_image_band|default:"" }}</b>; the crosshair centre is the candidate.
+                          <a id="cand_host_link" target="_blank" rel="noopener" href="{{ candidate_host_image|stamp_src }}">full size</a></small></div>
                       {% else %}
                         <div class="cand-placeholder">no reference image</div>
                       {% endif %}
@@ -155,9 +173,9 @@
                   </div>
                   {% if candidate_ref_gallery %}
                   <div class="cand-ref-gallery" style="margin-top:8px">
-                    <small class="text-muted">Reference image in each filter</small><br>
+                    <small class="text-muted">Reference image in each filter (click to show it above)</small><br>
                     {% for r in candidate_ref_gallery %}
-                      <div class="item"><a href="{{ r.ref|stamp_src }}" target="_blank" rel="noopener"><img src="{{ r.ref|stamp_src }}" alt="{{ r.band }} reference" loading="lazy"></a>{{ r.band }}</div>
+                      <a href="#" class="item cand-ref-pick{% if r.band == candidate_host_image_band %} active{% endif %}" data-src="{{ r.ref|stamp_src }}" data-band="{{ r.band }}"><img src="{{ r.ref|stamp_src }}" alt="{{ r.band }} reference" loading="lazy">{{ r.band }}</a>
                     {% endfor %}
                   </div>
                   {% endif %}
@@ -165,23 +183,78 @@
               </div>
             </div>
 
-            {# right: SED and light curve, then comments and tags (the plots and widgets come in the next slice) #}
+            {# right: SED, light curve, who flagged it and the comments, tags #}
             <div class="col-md-6">
-              <div class="box box-default">
-                <div class="box-header with-border"><h3 class="box-title">SED</h3></div>
-                <div class="box-body"><div class="cand-placeholder">SED plot: next slice</div></div>
+              <div class="box box-default cand-box">
+                <div class="box-header with-border">
+                  <h3 class="box-title">SED</h3>
+                  {% if candidate_epoch_options|length > 1 %}
+                  <select id="cand_sed_epoch" class="input-sm" style="margin-left:8px">
+                    {% for i, d in candidate_epoch_options %}<option value="{{ i }}">{{ d|date:"Y-m-d" }}{% if i == 0 %} (latest){% endif %}</option>{% endfor %}
+                  </select>
+                  {% endif %}
+                </div>
+                <div class="box-body" id="sedplot"><div class="cand-placeholder">loading</div></div>
               </div>
-              <div class="box box-default">
+              <div class="box box-default cand-box">
                 <div class="box-header with-border"><h3 class="box-title">Light curve</h3></div>
                 <div class="box-body" id="lcplot"></div>
               </div>
-              <div class="box box-default">
-                <div class="box-header with-border"><h3 class="box-title">Comments</h3></div>
-                <div class="box-body"><div class="cand-placeholder">comments: next slice</div></div>
+              <div class="box box-default cand-box">
+                <div class="box-header with-border"><h3 class="box-title">Flagged by</h3></div>
+                <div class="box-body" style="padding:0">
+                  <table class="table table-condensed" style="margin:0">
+                    <thead><tr><th>User</th><th>First</th><th>Last</th><th>Points</th></tr></thead>
+                    <tbody>
+                    {% for u in candidate_flagged_by %}
+                      <tr>
+                        <td>{% if u.created_by__first_name or u.created_by__last_name %}{{ u.created_by__first_name }} {{ u.created_by__last_name }} ({{ u.created_by__username }}){% else %}{{ u.created_by__username }}{% endif %}</td>
+                        <td>{{ u.first|date:"Y-m-d H:i" }}</td>
+                        <td>{{ u.last|date:"Y-m-d H:i" }}</td>
+                        <td>{{ u.n_points }}</td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="4">&ndash;</td></tr>
+                    {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div class="box box-default">
+              <div class="box box-default cand-box">
+                <div class="box-header with-border"><h3 class="box-title">Comments</h3></div>
+                <div class="box-body">
+                  <table class="table table-condensed" id="cand_comments">
+                    <thead><tr><th>User</th><th>Time (UT)</th><th>Comment</th></tr></thead>
+                    <tbody>
+                    {% for l in logs %}
+                      <tr><td>{{ l.created_by }}</td><td style="white-space:nowrap">{{ l.created_date|date:"Y-m-d H:i" }}</td><td>{{ l.comment }}</td></tr>
+                    {% empty %}
+                      <tr class="cand-no-comments"><td colspan="3" class="text-muted">No comments yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                  </table>
+                  <form id="add_transient_comment" action="{% url 'add_transient_comment' %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="transient" value="{{ transient.id }}">
+                    <div class="input-group">
+                      <textarea name="comment" class="form-control" rows="2" placeholder="Add a comment (@name to notify someone)"></textarea>
+                      <span class="input-group-btn"><button type="submit" class="btn btn-primary btn-flat">Add</button></span>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <div class="box box-default cand-box">
                 <div class="box-header with-border"><h3 class="box-title">Candidate tags</h3></div>
-                <div class="box-body"><div class="cand-placeholder">candidate tags: next slice</div></div>
+                <div class="box-body">
+                  <div id="cand_tags">
+                    {% for t in candidate_tags_assigned %}<span class="label label-info cand-tag" data-name="{{ t.name }}">{{ t.name }}<a href="#" class="cand-tag-x" title="remove">&times;</a></span>{% endfor %}
+                  </div>
+                  <form id="cand_tag_form" class="form-inline" style="margin-top:8px">
+                    <input list="cand_tag_list" id="cand_tag_name" class="form-control input-sm" placeholder="pick a tag, or type a new one" autocomplete="off">
+                    <datalist id="cand_tag_list">{% for t in candidate_tags_available %}<option value="{{ t.name }}">{% endfor %}</datalist>
+                    <button class="btn btn-primary btn-sm" type="submit">Add</button>
+                  </form>
+                </div>
               </div>
             </div>
           </div>
@@ -245,24 +318,6 @@
                 </tbody>
               </table>
             </div>
-            <div class="col-md-5">
-              <h4>Flagged by</h4>
-              <table class="table table-condensed">
-                <thead><tr><th>User</th><th>First</th><th>Last</th><th>Points sent</th></tr></thead>
-                <tbody>
-                {% for u in candidate_flagged_by %}
-                  <tr>
-                    <td>{% if u.created_by__first_name or u.created_by__last_name %}{{ u.created_by__first_name }} {{ u.created_by__last_name }} ({{ u.created_by__username }}){% else %}{{ u.created_by__username }}{% endif %}</td>
-                    <td>{{ u.first|date:"Y-m-d H:i" }}</td>
-                    <td>{{ u.last|date:"Y-m-d H:i" }}</td>
-                    <td>{{ u.n_points }}</td>
-                  </tr>
-                {% empty %}
-                  <tr><td colspan="4">&ndash;</td></tr>
-                {% endfor %}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
 
@@ -279,6 +334,83 @@
         // the same light curve the transient page shows
         $.get("{% url 'lightcurveplot_detail' transient.id %}?compact=1").done(function(htmlresponse){
             $("#lcplot").html(htmlresponse);
+        });
+
+        // the SED, one epoch at a time
+        function loadSed(epoch) {
+            $.get("{% url 'candidate_sed' transient.id %}?epoch=" + epoch).done(function(htmlresponse){
+                $("#sedplot").html(htmlresponse);
+            }).fail(function(){ $("#sedplot").html('<div class="cand-placeholder">the SED could not be drawn</div>'); });
+        }
+        loadSed(0);
+        $('#cand_sed_epoch').on('change', function(){ loadSed($(this).val()); });
+
+        // host: clicking a filter shows its reference image in the big view
+        $('.cand-ref-pick').on('click', function(event){
+            event.preventDefault();
+            var src = $(this).attr('data-src');
+            $('#cand_host_img').attr('src', src);
+            $('#cand_host_link').attr('href', src);
+            $('#cand_host_band').text($(this).attr('data-band'));
+            $('.cand-ref-pick').removeClass('active');
+            $(this).addClass('active');
+        });
+
+        // FITS file names: click to copy the full path (for DS9 and the like)
+        $(document).on('click', '.cand-fits', function(){
+            var path = $(this).attr('data-path');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(path);
+            } else {
+                window.prompt('Copy the full path:', path);
+            }
+        });
+
+        function esc(text) { return $('<div>').text(text == null ? '' : text).html(); }
+
+        // comments: the same endpoint as the transient page
+        $('#add_transient_comment').on('submit', function(event){
+            event.preventDefault();
+            $.ajax({
+                url: "{% url 'add_transient_comment' %}", type: "POST", data: $(this).serialize(),
+                success: function(json) {
+                    if (json.data && json.data['comment']) {
+                        $('.cand-no-comments').remove();
+                        $('#cand_comments tbody').append('<tr><td>' + esc(json.data['created_by']) + '</td><td style="white-space:nowrap">' +
+                            esc(json.data['modified_date']) + '</td><td>' + esc(json.data['comment']) + '</td></tr>');
+                    }
+                    $('#add_transient_comment')[0].reset();
+                },
+                error: function(xhr) { alert(xhr.status + ": " + xhr.responseText); }
+            });
+        });
+
+        // candidate tags: add (new names are created) or remove one
+        function showTags(names) {
+            var html = '';
+            $.each(names, function(i, name){
+                html += '<span class="label label-info cand-tag" data-name="' + esc(name) + '">' + esc(name) +
+                        '<a href="#" class="cand-tag-x" title="remove">&times;</a></span>';
+            });
+            $('#cand_tags').html(html);
+        }
+        function changeTag(action, name) {
+            $.ajax({
+                url: "{% url 'candidate_tag' transient.id %}", type: "POST",
+                headers: { "X-CSRFToken": "{{ csrf_token }}" },
+                data: { action: action, name: name },
+                success: function(json) { showTags(json.tags); },
+                error: function(xhr) { alert("The tag was not changed: " + xhr.status + " " + xhr.responseText); }
+            });
+        }
+        $('#cand_tag_form').on('submit', function(event){
+            event.preventDefault();
+            var name = $.trim($('#cand_tag_name').val());
+            if (name) { changeTag('add', name); $('#cand_tag_name').val(''); }
+        });
+        $(document).on('click', '.cand-tag-x', function(event){
+            event.preventDefault();
+            changeTag('remove', $(this).closest('.cand-tag').attr('data-name'));
         });
 
         // status control: the same PATCH the transient page makes; changing it to New is the promotion

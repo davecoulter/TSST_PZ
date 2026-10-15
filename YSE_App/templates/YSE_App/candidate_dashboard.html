@@ -4,15 +4,13 @@
 
 {% block styles %}
 <style>
-  .candidate-card .box-body { padding: 8px; }
-  .candidate-thumb { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: contain;
-                     background: #222; margin-bottom: 6px; }
-  .candidate-nothumb { display: flex; align-items: center; justify-content: center; width: 100%;
-                       aspect-ratio: 1 / 1; background: #eee; color: #888; margin-bottom: 6px; }
-  .candidate-name { font-weight: bold; word-break: break-all; }
-  .candidate-card dl { margin: 4px 0 0; }
-  .candidate-card dt { float: left; clear: left; width: 80px; font-weight: normal; color: #777; }
-  .candidate-card dd { margin-left: 84px; }
+  .cand-table td, .cand-table th { vertical-align: middle !important; white-space: nowrap; }
+  .cand-table th a { color: inherit; }
+  .cand-thumb-sm { display: block; width: 40px; height: 40px; object-fit: contain; background: #222;
+                   transform-origin: left center; transition: transform .1s; }
+  .cand-thumb-sm:hover { transform: scale(4); position: relative; z-index: 20; box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  .cand-nothumb-sm { display: block; width: 40px; height: 40px; background: #eee; }
+  .cand-table .num { text-align: right; }
 </style>
 {% endblock %}
 
@@ -28,56 +26,57 @@
 {% endblock %}
 
 {% block content %}
-<div class="row">
-  <div class="col-xs-12" style="margin-bottom:10px">
-    Sort:
-    {% for key, label in sorts.items %}
-      {% if key == sort %}<b>{{ label }}</b>{% else %}<a href="?sort={{ key }}">{{ label }}</a>{% endif %}{% if not forloop.last %} &middot; {% endif %}
-    {% endfor %}
+<div class="box box-default">
+  <div class="box-header with-border">
+    <form method="get" class="form-inline">
+      <input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="dir" value="{{ dir }}">
+      <input type="text" name="q" value="{{ q }}" class="form-control input-sm" placeholder="Search by name">
+      <button type="submit" class="btn btn-default btn-sm">Search</button>
+      {% if q %}<a class="btn btn-link btn-sm" href="?sort={{ sort }}&dir={{ dir }}">clear</a>{% endif %}
+    </form>
   </div>
-</div>
-
-{% if not page.object_list %}
-<div class="box"><div class="box-body">No candidates. Candidates arrive through <code>/add_candidate/</code> or <code>scripts/ingest_candidates_cli.py</code>.</div></div>
-{% endif %}
-
-<div class="row">
-  {% for c in page.object_list %}
-  <div class="col-lg-2 col-md-3 col-sm-4 col-xs-6">
-    <div class="box box-default candidate-card">
-      <div class="box-body">
-        <a href="{% url 'candidate_detail' c.transient.slug %}" title="Open {{ c.transient.name }}">
-          {% if c.thumb %}
-            <img class="candidate-thumb" src="{{ c.thumb|stamp_src }}" alt="DIFF stamp of {{ c.transient.name }}" loading="lazy">
-          {% else %}
-            <span class="candidate-nothumb">no stamp</span>
-          {% endif %}
-          <span class="candidate-name">{{ c.transient.name }}</span>
-        </a>
-        <dl>
-          <dt>RA, Dec</dt><dd>{{ c.transient.ra|floatformat:5 }}, {{ c.transient.dec|floatformat:5 }}</dd>
-          <dt>Discovered</dt><dd>{% if c.transient.disc_date %}{{ c.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</dd>
-          <dt>Max S/N</dt><dd>{% if c.max_snr is not None %}{{ c.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</dd>
-          <dt>Filters &ge;3&sigma;</dt><dd>{% if c.filters %}{{ c.filters|join:", " }}{% else %}&ndash;{% endif %}</dd>
-          <dt>Host z</dt><dd>{% if c.host_z %}{{ c.host_z.0|floatformat:3 }} ({{ c.host_z.2 }}){% else %}&ndash;{% endif %}</dd>
-          <dt>Detections</dt><dd>{{ c.n_detections }}</dd>
-          <dt>Runs</dt><dd>{{ c.n_runs }}</dd>
-        </dl>
-      </div>
-    </div>
+  <div class="box-body table-responsive no-padding">
+    {% if not page.object_list %}
+      <p style="padding:12px">No candidates{% if q %} match &ldquo;{{ q }}&rdquo;{% endif %}. Candidates arrive through <code>/add_candidate/</code> or <code>scripts/ingest_candidates_cli.py</code>.</p>
+    {% else %}
+    <table class="table table-hover table-condensed cand-table">
+      <thead>
+        <tr>
+          <th></th>
+          {% for h in headers %}
+            <th{% if h.label != 'Name' and h.label != 'Discovered' and h.label != 'Last seen' and h.label != 'Filters ≥3σ' %} class="num"{% endif %}><a href="{{ h.href }}">{{ h.label }}{% if h.arrow %} {{ h.arrow }}{% endif %}</a></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in page.object_list %}
+        <tr>
+          <td style="width:48px">
+            {% if c.thumb %}<img class="cand-thumb-sm" src="{{ c.thumb|stamp_src }}" alt="" loading="lazy">{% else %}<span class="cand-nothumb-sm"></span>{% endif %}
+          </td>
+          <td><a href="{% url 'candidate_detail' c.transient.slug %}"><b>{{ c.transient.name }}</b></a></td>
+          <td>{% if c.transient.disc_date %}{{ c.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
+          <td>{% if c.last_date %}{{ c.last_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
+          <td class="num">{% if c.max_snr is not None %}{{ c.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</td>
+          <td>{% if c.filters %}{{ c.filters|join:", " }}{% else %}&ndash;{% endif %}</td>
+          <td class="num">{% if c.host_z %}{{ c.host_z.0|floatformat:3 }} <small class="text-muted">{{ c.host_z.2 }}</small>{% else %}&ndash;{% endif %}</td>
+          <td class="num">{{ c.n_detections }}</td>
+          <td class="num">{{ c.n_runs }}</td>
+          <td class="num">{{ c.n_reporters }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
   </div>
-  {% if forloop.counter|divisibleby:2 %}<div class="clearfix visible-xs-block"></div>{% endif %}
-  {% if forloop.counter|divisibleby:3 %}<div class="clearfix visible-sm-block"></div>{% endif %}
-  {% if forloop.counter|divisibleby:4 %}<div class="clearfix visible-md-block"></div>{% endif %}
-  {% if forloop.counter|divisibleby:6 %}<div class="clearfix visible-lg-block"></div>{% endif %}
-  {% endfor %}
+  {% if page.has_other_pages %}
+  <div class="box-footer">
+    <ul class="pagination pagination-sm" style="margin:0">
+      {% if page.has_previous %}<li><a href="?{{ query_base }}&page={{ page.previous_page_number }}">&laquo;</a></li>{% endif %}
+      <li class="active"><span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
+      {% if page.has_next %}<li><a href="?{{ query_base }}&page={{ page.next_page_number }}">&raquo;</a></li>{% endif %}
+    </ul>
+  </div>
+  {% endif %}
 </div>
-
-{% if page.has_other_pages %}
-<ul class="pagination">
-  {% if page.has_previous %}<li><a href="?sort={{ sort }}&page={{ page.previous_page_number }}">&laquo;</a></li>{% endif %}
-  <li class="active"><span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span></li>
-  {% if page.has_next %}<li><a href="?sort={{ sort }}&page={{ page.next_page_number }}">&raquo;</a></li>{% endif %}
-</ul>
-{% endif %}
 {% endblock %}

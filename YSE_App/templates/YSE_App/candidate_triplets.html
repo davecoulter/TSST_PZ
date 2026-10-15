@@ -1,5 +1,6 @@
 {% load candidate_extras %}
-{# "All cutouts": every registered triplet, one row per epoch and filter; superseded rows hidden behind a toggle. #}
+{# "All cutouts": every registered cutout, packed like the websniff card: for each epoch, one column per
+   filter and the rows DIFF, SCI, REF. Superseded epochs are hidden behind a toggle. #}
 <h4>
   Every cutout
   {% if candidate_n_superseded %}
@@ -10,34 +11,39 @@
     </label></small>
   {% endif %}
 </h4>
-{% if candidate_images %}
-<table class="table table-bordered table-striped">
-  <thead>
+{% for ep in candidate_epochs %}
+<div class="cand-epoch{% if ep.superseded %} candidate-superseded{% endif %}"{% if ep.superseded %} style="display:none;opacity:0.65"{% endif %}>
+  <div class="cand-epoch-title">{{ ep.date|date:"Y-m-d H:i" }} UTC{% if ep.superseded %} <span class="label label-default">superseded</span>{% endif %}</div>
+  <table class="cand-grid">
+    <tr><th></th>{% for band in ep.bands %}<th>{{ band }}</th>{% endfor %}</tr>
+    {% for row in ep.rows %}
     <tr>
-      <th>Date (UTC)</th><th>Filter</th><th>Flux</th><th>S/N</th><th>Mag</th>
-      <th>SCI</th><th>REF</th><th>DIFF</th>
-    </tr>
-  </thead>
-  <tbody>
-  {% for row in candidate_images %}
-    <tr{% if row.superseded %} class="candidate-superseded" style="display:none;opacity:0.6"{% endif %}>
-      <td>{{ row.phot.obs_date|date:"Y-m-d H:i:s" }}{% if row.superseded %}<br><span class="label label-default">superseded</span>{% endif %}</td>
-      <td>{{ row.phot.band.name }}<br><small>{{ row.phot.band.instrument.name }}</small></td>
-      <td>{% if row.phot.flux is not None %}{{ row.phot.flux|floatformat:4 }}{% if row.phot.flux_err is not None %} &plusmn; {{ row.phot.flux_err|floatformat:4 }}{% endif %}{% else %}&ndash;{% endif %}</td>
-      <td>{% if row.snr is not None %}{{ row.snr|floatformat:1 }}{% else %}&ndash;{% endif %}{% if not row.detection %}<br><span class="label label-default">limit</span>{% endif %}</td>
-      <td>{% if row.phot.mag is not None %}{{ row.phot.mag|floatformat:2 }}{% if row.phot.mag_err is not None %} &plusmn; {{ row.phot.mag_err|floatformat:2 }}{% endif %}{% else %}&ndash;{% endif %}</td>
-      {% for stamp, fits in row.stamps %}
-      <td style="text-align:center">
-        {% if stamp %}
-          <a href="{{ stamp|stamp_src }}" target="_blank" rel="noopener"><img src="{{ stamp|stamp_src }}" style="width:150px" alt="" loading="lazy"></a>
-        {% else %}&ndash;{% endif %}
-        {% if fits %}<br><small style="word-break:break-all">{{ fits }}</small>{% endif %}
+      <th>{{ row.label }}</th>
+      {% for cell in row.cells %}
+      <td>
+        {% if cell.url %}
+        <div class="cell">
+          <a href="{{ cell.url|stamp_src }}" target="_blank" rel="noopener"><img src="{{ cell.url|stamp_src }}" alt="{{ cell.band }} {{ row.label }}" loading="lazy"></a>
+          {% if row.label == 'DIFF' %}
+            {% if cell.limit %}<span class="lab">limit</span>
+            {% elif cell.mag is not None %}<span class="lab">{{ cell.mag|floatformat:2 }}{% if cell.mag_err is not None %} &plusmn; {{ cell.mag_err|floatformat:2 }}{% endif %}</span>{% endif %}
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="cell none">not provided</div>
+        {% endif %}
       </td>
       {% endfor %}
     </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% else %}
+    {% endfor %}
+  </table>
+  <details class="cand-files">
+    <summary>FITS files</summary>
+    {% for row in ep.rows %}{% for cell in row.cells %}{% if cell.fits %}
+      <div><small>{{ cell.band }} {{ row.label }}: <code class="cand-fits" data-path="{{ cell.fits }}" title="click to copy the full path">{{ cell.fits|basename }}</code></small></div>
+    {% endif %}{% endfor %}{% endfor %}
+  </details>
+</div>
+{% empty %}
 <p>No images registered.</p>
-{% endif %}
+{% endfor %}

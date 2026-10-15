@@ -8,30 +8,36 @@ agentic_planning/027-candidate-pages/plan.md.
 """
 import datetime
 from collections import defaultdict
+from urllib.parse import urlencode
 
 from django.db.models import Count, Max, Min
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.views.decorators.http import require_POST
 
 from . import view_utils
-from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, find_by_name
+from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, _candidate_tags, find_by_name
+from .forms import TransientCommentForm
 from .common.utilities import angular_separation_arcsec
 from .models import (
-    AlternateTransientNames, Transient, TransientDiffImage, TransientPhotData,
-    TransientStatus, TransientWebResource,
+    AlternateTransientNames, Log, TagKind, Transient, TransientDiffImage, TransientPhotData,
+    TransientStatus, TransientTag, TransientWebResource,
 )
 
 # A point counts as a detection at or above this flux/flux_err.
 DETECTION_SNR = 3.0
-CARDS_PER_PAGE = 24
-SORTS = {
-    'newest': 'Newest first',
-    'snr': 'Max S/N',
-    'name': 'Name',
-}
+ROWS_PER_PAGE = 50
+# the Candidates table: (sort key, heading); a numeric or date column sorts high to low first
+COLUMNS = [
+    ('name', 'Name'), ('newest', 'Discovered'), ('last', 'Last seen'), ('snr', 'Max S/N'),
+    ('filters', 'Filters \u22653\u03c3'), ('z', 'Host z'), ('detections', 'Detections'),
+    ('runs', 'Runs'), ('reporters', 'Reporters'),
+]
+SORTS = dict(COLUMNS)
+_EARLIEST = datetime.datetime(1, 1, 1, tzinfo=datetime.timezone.utc)
 
 
 def _snr(flux, flux_err):
@@ -71,15 +77,19 @@ def candidate_stats(transient_ids):
     has any.
     """
     stats = defaultdict(lambda: {'max_snr': None, 'filters': set(), 'n_detections': 0,
-                                 'best_diff': None, 'best_sci': None, '_best_stamp_snr': None})
+                                 'best_diff': None, 'best_sci': None, '_best_stamp_snr': None,
+                                 'last_date': None})
     points = (TransientPhotData.objects
               .filter(photometry__transient_id__in=transient_ids)
               .exclude(data_quality__name=SUPERSEDED)
-              .values('id', 'photometry__transient_id', 'band__name', 'flux', 'flux_err', 'mag'))
+              .values('id', 'photometry__transient_id', 'band__name', 'flux', 'flux_err', 'mag', 'obs_date'))
     stamps = {d['phot_data_id']: d for d in TransientDiffImage.objects
               .filter(phot_data__photometry__transient_id__in=transient_ids)
               .values('phot_data_id', 'postage_stamp_diff', 'postage_stamp_file')}
     for p in points:
+        last = stats[p['photometry__transient_id']]
+        if last['last_date'] is None or p['obs_date'] > last['last_date']:
+            last['last_date'] = p['obs_date']  # any current point, detection or limit
         if not _is_detection(p['flux'], p['flux_err'], p['mag']):
             continue
         s = stats[p['photometry__transient_id']]
@@ -98,22 +108,49 @@ def candidate_stats(transient_ids):
     return stats
 
 
+def _sort_value(column, c):
+    """The value a table column sorts by, or None when the row has none (those go last)."""
+    return {
+        'name': lambda: c['transient'].name.lower(),
+        'newest': lambda: c['transient'].disc_date,
+        'last': lambda: c['last_date'],
+        'snr': lambda: c['max_snr'],
+        'filters': lambda: len(c['filters']) or None,
+        'z': lambda: c['host_z'][0] if c['host_z'] else None,
+        'detections': lambda: c['n_detections'],
+        'runs': lambda: c['n_runs'],
+        'reporters': lambda: c['n_reporters'],
+    }[column]()
+
+
 @login_required
 def candidate_dashboard(request):
     status = find_by_name(TransientStatus, CANDIDATE)
     sort = request.GET.get('sort', 'newest')
     if sort not in SORTS:
         sort = 'newest'
+    direction = request.GET.get('dir')
+    if direction not in ('asc', 'desc'):
+        direction = 'asc' if sort == 'name' else 'desc'
+    query = (request.GET.get('q') or '').strip()
 
     candidates = []
     if status is not None:
-        transients = list(Transient.objects.filter(status=status).select_related('host'))
+        found = Transient.objects.filter(status=status)
+        if query:
+            found = found.filter(name__icontains=query)
+        transients = list(found.select_related('host'))
         ids = [t.id for t in transients]
         stats = candidate_stats(ids)
         alias_counts = defaultdict(int)
         for transient_id in AlternateTransientNames.objects.filter(
                 transient_id__in=ids).values_list('transient_id', flat=True):
             alias_counts[transient_id] += 1
+        reporters = defaultdict(set)  # who sent each candidate in: the rows' creators
+        for transient_id, user_id in (TransientPhotData.objects
+                                      .filter(photometry__transient_id__in=ids)
+                                      .values_list('photometry__transient_id', 'created_by_id').distinct()):
+            reporters[transient_id].add(user_id)
         for t in transients:
             s = stats.get(t.id, {})
             candidates.append({
@@ -122,28 +159,35 @@ def candidate_dashboard(request):
                 'filters': sorted(s.get('filters', ())),
                 'n_detections': s.get('n_detections', 0),
                 'n_runs': 1 + alias_counts[t.id],
+                'n_reporters': len(reporters[t.id]),
+                'last_date': s.get('last_date'),
                 'host_z': _host_z(t.host),
                 # the stored headline stamps (#23) are only set on the first post
                 'thumb': (s.get('best_diff') or t.postage_stamp_diff
                           or s.get('best_sci') or t.postage_stamp_file),
-                'thumb_sci': s.get('best_sci') or t.postage_stamp_file,
             })
 
-    if sort == 'snr':
-        candidates.sort(key=lambda c: (c['max_snr'] is None, -(c['max_snr'] or 0)))
-    elif sort == 'name':
-        candidates.sort(key=lambda c: c['transient'].name.lower())
-    else:
-        candidates.sort(key=lambda c: (c['transient'].disc_date is None,
-                                       -(c['transient'].disc_date.timestamp()
-                                         if c['transient'].disc_date else 0)))
+    with_value = [c for c in candidates if _sort_value(sort, c) is not None]
+    without = [c for c in candidates if _sort_value(sort, c) is None]
+    with_value.sort(key=lambda c: _sort_value(sort, c), reverse=(direction == 'desc'))
+    candidates = with_value + without
 
-    page = Paginator(candidates, CARDS_PER_PAGE).get_page(request.GET.get('page'))
+    headers = []
+    for key, label in COLUMNS:
+        active = key == sort
+        next_dir = ('asc' if direction == 'desc' else 'desc') if active else (
+            'asc' if key == 'name' else 'desc')
+        headers.append({'label': label, 'active': active, 'arrow': ('\u25b2' if direction == 'asc' else '\u25bc') if active else '',
+                        'href': '?' + urlencode({'sort': key, 'dir': next_dir, 'q': query})})
+    page = Paginator(candidates, ROWS_PER_PAGE).get_page(request.GET.get('page'))
     context = {
         'page': page,
         'n_candidates': len(candidates),
+        'headers': headers,
+        'q': query,
         'sort': sort,
-        'sorts': SORTS,
+        'dir': direction,
+        'query_base': urlencode({'sort': sort, 'dir': direction, 'q': query}),
     }
     return render(request, 'YSE_App/candidate_dashboard.html', context)
 
@@ -248,6 +292,55 @@ def _links(transient):
     return {'permalink': permalink, 'fitsmap': fitsmap}
 
 
+def _epoch_grid(images):
+    """Every cutout laid out like the websniff card: for each epoch one column per filter and the
+    rows DIFF, SCI, REF. Superseded points get their own groups (hidden behind the toggle)."""
+    groups = []
+    for item in images:  # newest first
+        date = item['phot'].obs_date
+        if (groups and groups[-1]['superseded'] == item['superseded']
+                and groups[-1]['date'] - date <= datetime.timedelta(days=EPOCH_GAP_DAYS)):
+            groups[-1]['items'].append(item)
+        else:
+            groups.append({'date': date, 'superseded': item['superseded'], 'items': [item]})
+    grid = []
+    for g in groups:
+        by_band = {}
+        for item in g['items']:
+            band = item['phot'].band.name
+            if band not in by_band or (item['snr'] or float('-inf')) > (by_band[band]['snr'] or float('-inf')):
+                by_band[band] = item
+        bands = sorted(by_band)
+        rows = []
+        for label, index in (('DIFF', 2), ('SCI', 0), ('REF', 1)):
+            cells = []
+            for band in bands:
+                item = by_band[band]
+                stamp, fits = item['stamps'][index]
+                cell = {'url': stamp, 'fits': fits, 'band': band}
+                if label == 'DIFF':
+                    cell.update(mag=item['phot'].mag, mag_err=item['phot'].mag_err,
+                                limit=not item['detection'])
+                cells.append(cell)
+            rows.append({'label': label, 'cells': cells})
+        grid.append({'date': g['date'], 'superseded': g['superseded'], 'bands': bands, 'rows': rows})
+    return grid
+
+
+def photometry_epochs(transient):
+    """Current (not superseded) photometry grouped into epochs, points within EPOCH_GAP_DAYS of the
+    epoch's first point, newest epoch first."""
+    points = (TransientPhotData.objects.filter(photometry__transient=transient)
+              .exclude(data_quality__name=SUPERSEDED).select_related('band').order_by('obs_date'))
+    epochs = []
+    for p in points:
+        if epochs and p.obs_date - epochs[-1][0].obs_date <= datetime.timedelta(days=EPOCH_GAP_DAYS):
+            epochs[-1].append(p)
+        else:
+            epochs.append([p])
+    return list(reversed(epochs))
+
+
 def candidate_pointer_context(transient):
     """What the transient page needs to point at the candidate page: {} when the
     object has no candidate-pipeline data and is not a candidate."""
@@ -297,7 +390,15 @@ def candidate_page_context(transient):
     snrs = [i['snr'] for i in current if i['detection'] and i['snr'] is not None]
 
     host = transient.host
+    host_band = None
+    if host_image and best and best['stamps'][1][0] == host_image:
+        host_band = best['phot'].band.name
+    elif host_image:
+        host_band = next((r['band'] for r in refs.values() if r['ref'] == host_image), None)
     ctx.update({
+        'candidate_epochs': _epoch_grid(images),
+        'candidate_epoch_options': [(i, ep[0].obs_date) for i, ep in enumerate(photometry_epochs(transient))],
+        'candidate_host_image_band': host_band,
         'candidate_best': _triplet(best),
         'candidate_best_is_latest': bool(best and latest and best['phot'].id == latest['phot'].id),
         'candidate_latest': _triplet(latest),
@@ -330,9 +431,14 @@ def candidate_detail(request, slug):
         # nothing from the candidate pipeline: the regular page is the page for this object
         return redirect('transient_detail', slug=transient.slug or transient.name)
 
+    candidate_kind = find_by_name(TagKind, 'Candidate')
     statuses = TransientStatus.objects
     context.update({
         'transient': transient,
+        'logs': Log.objects.filter(transient=transient).select_related('created_by').order_by('id'),
+        'transient_comment_form': TransientCommentForm(),
+        'candidate_tags_assigned': transient.tags.filter(kind=candidate_kind).order_by('name') if candidate_kind else [],
+        'candidate_tags_available': TransientTag.objects.filter(kind=candidate_kind).order_by('name') if candidate_kind else [],
         'all_transient_statuses': statuses.order_by('name'),
         'transient_status_new': statuses.filter(name='New').first(),
         'transient_status_watch': statuses.filter(name='Watch').first(),
@@ -348,4 +454,121 @@ def candidate_detail(request, slug):
             'first_mag': first.mag, 'first_filter': first.band, 'first_magdate': first.obs_date,
         })
     return render(request, 'YSE_App/candidate_detail.html', context)
+
+
+# --- the SED (observed and rest frame), one epoch at a time ---------------------------
+
+def _transient_host_z(transient):
+    """The host's redshift as a number (spec-z, else photo-z), for the rest-frame SED."""
+    host = transient.host
+    if host is None:
+        return None
+    if host.redshift is not None:
+        return host.redshift
+    return host.photo_z
+
+
+@login_required
+def candidate_sed(request, transient_id):
+    """Observed and rest-frame SED of one epoch (?epoch=N, 0 is the latest) as Bokeh HTML, like the
+    light curve: magnitude against wavelength, limits drawn at the 3-sigma limiting magnitude."""
+    import math
+    from astropy.cosmology import FlatLambdaCDM
+    from bokeh.embed import file_html
+    from bokeh.layouts import column
+    from bokeh.models import ColumnDataSource, HoverTool
+    from bokeh.palettes import Category10
+    from bokeh.plotting import figure
+    from bokeh.resources import CDN
+
+    transient = Transient.objects.filter(pk=transient_id).select_related('host').first()
+    if transient is None:
+        raise Http404('Candidate not found')
+    epochs = photometry_epochs(transient)
+    if not epochs:
+        return HttpResponse('<p class="text-muted">No photometry.</p>')
+    try:
+        index = min(max(int(request.GET.get('epoch', 0)), 0), len(epochs) - 1)
+    except ValueError:
+        index = 0
+
+    points = []
+    for p in epochs[index]:
+        try:
+            wavelength = float(p.band.lambda_eff) / 1e4  # Angstrom text -> micron
+        except (TypeError, ValueError):
+            continue
+        zero_point = p.flux_zero_point if p.flux_zero_point is not None else 23.9
+        if _is_detection(p.flux, p.flux_err, p.mag) and p.mag is not None:
+            points.append({'band': p.band.name, 'lam': wavelength, 'mag': p.mag,
+                           'err': p.mag_err or 0.0, 'limit': False})
+        elif p.flux_err and p.flux_err > 0:
+            points.append({'band': p.band.name, 'lam': wavelength,
+                           'mag': zero_point - 2.5 * math.log10(DETECTION_SNR * p.flux_err),
+                           'err': 0.0, 'limit': True})
+    if not points:
+        return HttpResponse('<p class="text-muted">No bands with a known wavelength in this epoch.</p>')
+
+    colors = {b: Category10[10][i % 10] for i, b in enumerate(sorted({q['band'] for q in points}))}
+    z = _transient_host_z(transient)
+    cosmo = FlatLambdaCDM(H0=70, Om0=0.3)
+
+    def panel(title, xlabel, ylabel, xs, ys):
+        fig = figure(width=600, height=280, sizing_mode='scale_width', title=title,
+                     x_axis_label=xlabel, y_axis_label=ylabel, tools='pan,wheel_zoom,box_zoom,reset,save')
+        fig.y_range.flipped = True  # brighter at the top
+        for limit, marker in ((False, 'circle'), (True, 'inverted_triangle')):
+            subset = [i for i, q in enumerate(points) if q['limit'] == limit]
+            if not subset:
+                continue
+            source = ColumnDataSource(dict(
+                x=[xs[i] for i in subset], y=[ys[i] for i in subset],
+                band=[points[i]['band'] for i in subset],
+                color=[colors[points[i]['band']] for i in subset]))
+            renderer = getattr(fig, marker)('x', 'y', source=source, size=12, color='color', alpha=0.9)
+            fig.add_tools(HoverTool(renderers=[renderer], tooltips=[('band', '@band'), (ylabel, '@y{0.00}')]))
+        for i, q in enumerate(points):
+            if q['err'] and not q['limit']:
+                fig.line([xs[i], xs[i]], [ys[i] - q['err'], ys[i] + q['err']], color=colors[q['band']])
+        return fig
+
+    figures = [panel('Observed', 'Observed wavelength (\u03bcm)', 'Observed AB mag',
+                     [q['lam'] for q in points], [q['mag'] for q in points])]
+    if z is not None and z > 0:
+        dm = float(cosmo.distmod(z).value)
+        shift = 2.5 * math.log10(1 + z)
+        figures.append(panel('Rest frame, z = %.3f' % z, 'Rest wavelength (\u03bcm)', 'Absolute AB mag',
+                             [q['lam'] / (1 + z) for q in points],
+                             [q['mag'] - dm + shift for q in points]))
+    html = file_html(column(*figures, sizing_mode='scale_width'), CDN, 'SED')
+    return HttpResponse(html.replace('width: 90%', 'width: 100%'))
+
+
+# --- candidate tags: add or remove one, creating it when it is new ---------------------
+
+@login_required
+@require_POST
+def candidate_tag(request, transient_id):
+    """POST action=add|remove and name=<tag>: the candidate-kind tags of one transient (#38)."""
+    transient = Transient.objects.filter(pk=transient_id).first()
+    if transient is None:
+        raise Http404('Candidate not found')
+    action = request.POST.get('action')
+    name = (request.POST.get('name') or '').strip()
+    if action not in ('add', 'remove') or not name or len(name) > 256:
+        return JsonResponse({'errors': 'action must be add or remove, and the name 1 to 256 characters'},
+                            status=400)
+    kind = find_by_name(TagKind, 'Candidate')
+    if kind is None:
+        return JsonResponse({'errors': 'the Candidate tag kind is missing (run `manage.py migrate`)'},
+                            status=500)
+    if action == 'add':
+        transient.tags.add(*_candidate_tags([name], request.user))
+    else:
+        wanted = name.lower()
+        for tag in transient.tags.filter(kind=kind):
+            if (tag.name or '').strip().lower() == wanted:
+                transient.tags.remove(tag)
+    return JsonResponse({'tags': list(transient.tags.filter(kind=kind).order_by('name')
+                                      .values_list('name', flat=True))})
 

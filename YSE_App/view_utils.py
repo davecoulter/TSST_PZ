@@ -1022,7 +1022,7 @@ def lightcurveplot_detail(request, transient_id, salt2=False):
     ax.add_layout(LinearAxis(x_range_name="dateax"), 'above')
 
     if compact:
-        ax.plot_height = 230+22*len(bandunq)
+        ax.plot_height = 2*(230+22*len(bandunq))   # twice as tall as it was: it read squashed
         ax.plot_width = 600
     else:
         ax.plot_height = 400+20*len(bandunq)
