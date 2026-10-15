@@ -40,7 +40,7 @@ The contract follows what the pipeline's page actually emits; the field names be
 | `host` | `null`, or `{host_id, host_ra, host_dec, host_z, host_z2, host_sep, host_catalog}`. See below. |
 | `fits` values | URLs preferred (files go to the central store, linked from the web). A plain path is still stored as given. |
 
-`host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` names the catalog (e.g. `"JADES"`); until the pipeline sends it, the server assumes **JADES** and says so in `warnings`. `host_z` is stored as the host's photo-z. `host_z2` and `host_sep` are accepted and not stored, and produce no warning (the separation is worked out from the positions). A host is matched by catalog and ID, then by position, else created.
+`host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` is the catalog's **file name**, as the pipeline knows it (agreed with Justin 2026-10-15; a nickname such as "JADES" is set on the server side, not sent); until the pipeline sends it, the server assumes the **JADES** catalog and says so in `warnings`. `host_z` is the median of the photo-z PDF and is stored as the host's photo-z. No error or PDF is sent yet. `host_z2` (the maximum likelihood estimate) and `host_sep` are accepted and not stored, and produce no warning (the separation is worked out from the positions). A host is matched by catalog and ID, then by position, else created.
 
 Reply additions: `host` (`{"result": "created" | "matched" | "kept", ...}`; `kept` means the object already had a different host, which was **not** replaced, with the separation of the one that was offered) and `warnings` (list of strings; also per result in the array form).
 
