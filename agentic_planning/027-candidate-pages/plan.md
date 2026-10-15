@@ -111,6 +111,28 @@ A separate page for the same object, per Dave: `/candidate/<slug>/` (name `candi
 4. **Promotion:** the transient page does not show candidate-kind tags; each page links to the other.
 5. **SED:** one per epoch; see Part 3.
 
+### Part 3 layout (from Dave's sketch, 2026-10-15)
+
+The purpose of the candidate page is to **verify the point source**, not to say where it is numerically. Two columns above the fold, a synoptic block and tabs below.
+
+**Header.** Name; badges ("n/N filters >= 3 sigma", "max S/N"); the **status control** (the existing Following / Watch / Interesting / Ignore buttons and the drop-down for the rest), moved above the fold so that **changing the status to New is the promotion**; links: Permalink, "View in field" (FitsMap), and "Transient page" when it exists.
+
+**Above the fold, left column**
+1. **Highest-S/N triplet:** SCI, REF and DIFF of the best detection, with its filter, date and magnitude.
+2. **Most recent triplet:** the latest epoch's best filter.
+3. **Host card:** reuses the existing host HTML: host name, catalog (nickname, else file name), RA/Dec, **photo-z and/or spec-z, whichever are present**, separation (computed from positions). External links dropped (these hosts are rarely in ground-based catalogs). Its image is the **highest-S/N reference cutout** (no supernova light in it), with a marker where the candidate is: cutouts are centred on the candidate, so with no WCS the marker goes at the centre of the image. Below it, a small gallery of **every filter's reference image**.
+
+**Above the fold, right column**
+4. **SED** (observed; a rest-frame view when the host has a redshift) with an epoch selector, and the **light curve** (the existing plot), side by side.
+5. **Comments:** User, **time submitted** and Comment, with the add-comment form; the Save-dialog notes appear here.
+6. **Candidate tags:** chips with the drop-down and create-a-tag widget (candidate kind).
+
+**Below the fold: synoptic information**, the existing "Transient Detail" box, trimmed: R.A./Dec (sexagesimal and degrees), discovery date, Galactic l/b, and later Real/Bogus score, MW E(B-V) and best distance (host redshift plus a cosmology); plus the Photometric Summary (discovery magnitude, last non-detection, recent magnitude). **Dropped for candidates:** best and TNS spectral class, photometric class, YSE field.
+
+**Tabs:** *Overview* (the above), *All cutouts* (every image triplet, one row per epoch and filter, superseded behind the toggle), and the runs and who flagged it.
+
+The existing `/transient_detail/` page is unchanged apart from the "Candidate page" link; the Part 1 section on it becomes a pointer.
+
 ### Issues for the revision (filed 2026-10-15)
 
 In this branch: #36 payload v1.3, #37 `HostCatalog` and `catalog_id`, #38 candidate-kind tags (`TagKind`), #39 the candidate triage page, #40 the Needs review grid and Archived state, #41 NIRCam band wavelengths. Future: #42 real filter curves, #43 host catalog loader and overlapping catalogs, #44 probabilistic host association, #45 point-to-cutout links, #46 remove the assumed JADES default. Also related: #31 (TESS), #35 (labels and rejection reasons), #28 (promotion), #29 (TNS), #26 (Save button, CORS, login), #17 (security).
@@ -158,4 +180,4 @@ Dave's decision on the main dashboard (replaces the "Untagged" box, 2.7): a **Ne
 - **2026-10-15:** Dave relayed Justin's answers: `quality_flag` 1 definite, 2 probable, 3 possible, one per candidate; each reviewer posts their own choices with their own login (so the posting user is the reviewer); tags are strings from a drop-down mapped to or created as candidate tags; run IDs are salted and runs don't know each other (hence the spatial clustering); `flux` and `mag` are measurements at the position, and the limit is an interpretation (the 3-sigma limit would be about 28.99 where the measured value is 30.95, so plot a limit at the limiting magnitude); `mjd` is mid-exposure UTC; null is no image. FITS files cannot be served yet, so paths are shown as copyable text, or as links through a server-side path-prefix map (2.9). Dave also shared Justin's static card as the reference design for the first-look page (see Part 3).
 - **2026-10-15:** `mag` is the difference-image magnitude; one magnitude per filter is enough for now (reference depth is a later ticket). `www.stsci.edu/~tsst` is **world-reachable**, so anything symlinked there (FITS included) is public: keep FITS as copyable paths unless a specific cutout is cleared to be public.
 - **2026-10-15:** Dave clarified the data is public; the concern with FITS paths on the pages is revealing internal network paths. Fine for internal use now; noted on #17 so the raw paths are hidden or mapped to URLs before STZ-PZ is opened up.
-
+- **2026-10-15:** Dave's sketch (`collab_scratch/CandidateDetailPageSketch.jpg`, not committed) and answers: the host image is the highest-S/N reference cutout with a centre marker, plus a gallery of each filter's reference image; the page is for verifying the point source, so the synoptic block is the trimmed Transient Detail box (RA/Dec, discovery date, Galactic l/b, later Real/Bogus, MW E(B-V), best distance) plus the Photometric Summary, without spectral classes or YSE field; the status control moves above the fold (changing it to New is the promotion); comments show the submission time; an *All cutouts* tab holds every triplet. Written into Part 3 above.
