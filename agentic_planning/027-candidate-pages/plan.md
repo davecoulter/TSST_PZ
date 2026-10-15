@@ -83,7 +83,7 @@ Contract: `agentic_planning/023-add-candidate-endpoint/contract.md` (v1.3).
 | 2.4 | Host schema (**model change, migration**) | A `HostCatalog` lookup table, and on `Host` a nullable `catalog` foreign key and a nullable integer `catalog_id`, with a unique pair. One catalog per host. Rows for new catalogs are created on demand. |
 | 2.5 | Candidate tags (**model change, migration**) | A small `TagKind` lookup (Transient, Candidate) and a foreign key on `TransientTag`; existing tags become kind Transient (data migration). Payload `tags` match or create **candidate** tags (names trimmed, case-insensitive; stray tags are fine for now). The automatic "Candidate" tag is **no longer added** at ingest: status is the lifecycle (Candidate -> New once promoted), tags are annotations (see decisions). |
 | 2.6 | `warnings` | The reply lists anything ignored or assumed (unknown top-level fields, the assumed catalog, `host_z2`, a host that was kept). |
-| 2.7 | Untagged box | The main dashboard gets an **Untagged** box (transients with no tag, status not Candidate), so a promoted candidate without a tag still appears somewhere. |
+| 2.7 | Needs review and Archived (#40) | The main dashboard gets a **Needs review** grid (transients in no tag box, not archived) and an explicit archive action; an **Archived** dashboard lists archived ones (proposed as a status `Archived`; open: reuse `Ignore`?). Nothing is deleted. |
 | 2.8 | Files as URLs | `fits` values are stored as given; http(s) values render as links. |
 
 Not in Part 2: the catalog loader and the overlapping-catalog entry table, probabilistic host association, per-person labels (#35), anything on `DataQuality`.
@@ -107,11 +107,17 @@ A separate page for the same object, per Dave: `/candidate/<slug>/` (name `candi
 4. **Promotion:** the transient page does not show candidate-kind tags; each page links to the other.
 5. **SED:** one per epoch; see Part 3.
 
+### Issues for the revision (filed 2026-10-15)
+
+In this branch: #36 payload v1.3, #37 `HostCatalog` and `catalog_id`, #38 candidate-kind tags (`TagKind`), #39 the candidate triage page, #40 the Needs review grid and Archived state, #41 NIRCam band wavelengths. Future: #42 real filter curves, #43 host catalog loader and overlapping catalogs, #44 probabilistic host association, #45 point-to-cutout links, #46 remove the assumed JADES default. Also related: #31 (TESS), #35 (labels and rejection reasons), #28 (promotion), #29 (TNS), #26 (Save button, CORS, login), #17 (security).
+
+Dave's decision on the main dashboard (replaces the "Untagged" box, 2.7): a **Needs review** grid for transients in no tag box and not archived, an explicit archive action, and an **Archived** dashboard. Nothing is deleted; state is managed explicitly (#40).
+
 ### Open questions (Revision)
 
-1. Untagged box (2.7): confirm.
-2. SED epochs: how to group points into an epoch (the same visit, or within about a day)?
-3. What the NIRCam pivot wavelengths should be taken from (the official filter table; values to be added with their source).
+1. Archived as a new status, or reuse `Ignore` (#40)?
+2. SED epochs: points within a day form one epoch (Dave); tune on edge cases.
+3. NIRCam pivot wavelengths: from the official filter table, with the source recorded (#41); real filter curves later (#42).
 
 ### Acceptance criteria (Revision)
 
@@ -143,3 +149,4 @@ A separate page for the same object, per Dave: `/candidate/<slug>/` (name `candi
 - **2026-10-14:** Dave asked for two more review features. (1) "Flagged by" on the detail page: added as item 2b, since it only reads existing rows. (2) Rejection reasons (cosmic ray, snowball, proper-motion star, alignment artifact, ...) for later CNN training: needs per-user labels stored in a new table, so it is a model change with its own issue (#35) and plan, not part of #27.
 - **2026-10-15:** Verified Part 1 on Dave's local stack (see the verification entries above and the test results). Dave related a conversation with Justin about the workflow and sent Justin's newer JSON; with the server's validator it was rejected (host block) and three fields (`fitsmap_url`, `quality_flag`, `notes`) were silently ignored. Decisions with Dave: adapt the endpoint to Justin's shape now (v1.3, Part 2); notes and confidence as a comment; `host_z` becomes the host photo-z, `host_z2` dropped, `host_sep` computed not stored; assume catalog JADES when not sent (interim); one catalog per host with `catalog` and an integer `catalog_id` on `Host`; first host wins and a different one is reported; candidate tags as a separate kind of tag (a `TagKind` table and a foreign key); a separate candidate page with links both ways (Part 3); fitsmap URL as a second web resource; run and field recorded in the web resource text. Written up in `agentic_planning/016-candidate-workflow/workflow.md`; contract v1.3 drafted. Waiting for Dave's drawing, an updated JSON, and approval of this revision.
 - **2026-10-15:** Dave answered the revision's open questions: stop adding the "Candidate" tag (status is the lifecycle, tags are annotations); comment text `quality_flag: 3; notes: test`; ignore `host_z2`; no candidate-kind tags on the transient page after promotion; one SED per epoch. Looked up the SED question: `HostSED` is a host-fit result model (empty), a candidate SED is photometry vs wavelength, and `PhotometricBand.lambda_eff` (Angstroms, text) is empty for all NIRCam bands, so a data step must fill it. Added an Untagged dashboard box (2.7) so a promoted candidate without a transient tag still shows somewhere.
+- **2026-10-15:** Dave settled the loose items: the dashboard gets a Needs review grid and an explicit Archived state (replacing the Untagged box), SED epochs are grouped daily, band wavelengths come from approximate tables for now. Filed the issues #36-#46 (see above). Next: a high-level game plan review with Dave before building, and questions for Justin on the payload.
