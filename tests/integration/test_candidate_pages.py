@@ -80,8 +80,8 @@ def test_candidate_page_shows_the_candidate(browser, base_url, candidate):
     for point in candidate["photometry"]:
         for url in point["stamps"].values():
             assert url in html
-    assert "Highest S/N" in html and "Most recent" in html
-    assert "All cutouts" in html and "cand-marker" in html
+    assert "Highest S/N" in html and "most recent" in html.lower()
+    assert "All cutouts" in html
 
 
 def test_candidate_and_transient_pages_link_to_each_other(browser, base_url, candidate):
@@ -123,3 +123,26 @@ def test_candidate_not_on_main_dashboard(browser, base_url, candidate):
 def test_candidates_page_needs_login(base_url):
     resp = requests.get(base_url + "/candidates/", allow_redirects=False, timeout=30)
     assert resp.status_code in (301, 302)
+
+
+def test_status_buttons_start_with_new(browser, base_url, candidate):
+    import re
+    html = _candidate_page(browser, base_url, candidate["candidate_id"])
+    names = re.findall(r'data-status_name="([^"]+)" class="transientStatusChange btn', html)
+    assert names == ["New", "Watch", "Archived", "Ignore"]
+
+
+def test_default_light_curve_size_is_unchanged(browser, base_url, credentials, candidate):
+    """The compact switch is for the candidate page only; the transient page's plot keeps its size."""
+    import re
+    auth = HTTPBasicAuth(*credentials)
+    row = requests.get(base_url + f"/api/transients/?name={candidate['candidate_id']}&format=json",
+                       auth=auth, timeout=30).json()["results"][0]
+    transient_id = row["url"].split("?")[0].rstrip("/").split("/")[-1]
+
+    def width(query):
+        html = browser.get(base_url + f"/lightcurveplot_detail/{transient_id}/{query}", timeout=120).text
+        return int(re.findall(r'"(?:width|height)":(\d+)', html)[1])   # height is listed first
+
+    assert width("") == 400 and width("?compact=1") == 600
+

@@ -299,6 +299,7 @@ def candidate_page_context(transient):
     host = transient.host
     ctx.update({
         'candidate_best': _triplet(best),
+        'candidate_best_is_latest': bool(best and latest and best['phot'].id == latest['phot'].id),
         'candidate_latest': _triplet(latest),
         'candidate_ref_gallery': sorted(({k: v for k, v in r.items() if k != 'item'}
                                          for r in refs.values()), key=lambda r: r['band']),
@@ -333,9 +334,9 @@ def candidate_detail(request, slug):
     context.update({
         'transient': transient,
         'all_transient_statuses': statuses.order_by('name'),
-        'transient_status_follow': statuses.filter(name='Following').first(),
+        'transient_status_new': statuses.filter(name='New').first(),
         'transient_status_watch': statuses.filter(name='Watch').first(),
-        'transient_status_interesting': statuses.filter(name='Interesting').first(),
+        'transient_status_archived': statuses.filter(name='Archived').first(),
         'transient_status_ignore': statuses.filter(name='Ignore').first(),
     })
     # the existing Photometric Summary, as the transient page builds it

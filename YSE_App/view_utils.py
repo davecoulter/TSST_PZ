@@ -851,6 +851,8 @@ def lightcurveplot_summary(request, transient_id, salt2=False):
 
 def lightcurveplot_detail(request, transient_id, salt2=False):
     import time
+    # ?compact=1 (the candidate page): wider than tall, bigger points; the default is unchanged
+    compact = request.GET.get('compact') == '1'
     tstart = time.time()
 
     transient = Transient.objects.get(pk=transient_id)
@@ -919,8 +921,8 @@ def lightcurveplot_detail(request, transient_id, salt2=False):
                 plotmethod = getattr(ax, 'triangle')
         else:
             plotmethod = getattr(ax, 'triangle')
-        if bsym != 'asterisk': size=7
-        else: size=20
+        if bsym != 'asterisk': size = 11 if compact else 7
+        else: size = 24 if compact else 20
 
         if salt2:
             bandkey = 'Band: %s - %s'%(inn,bn)
@@ -968,7 +970,7 @@ def lightcurveplot_detail(request, transient_id, salt2=False):
                                             band=['%s - %s'%(inn,bn)]*len(mjds[iPlotUlimFlux][iPlotUlimFlux2].tolist())))
 
         p = ax.inverted_triangle('x','y',source=source,
-                                 color=color,size=5,muted_alpha=0.2)
+                                 color=color,size=9 if compact else 5,muted_alpha=0.2)
         g1_hover = HoverTool(renderers=[p],
                              tooltips=TOOLTIPS,toggleable=False)
         ax.add_tools(g1_hover)
@@ -1011,10 +1013,20 @@ def lightcurveplot_detail(request, transient_id, salt2=False):
         ax.y_range=Range1d(np.max(np.append(mags[mags != None],upperlimmag))+0.25,np.min(mags[mags != None])-0.5)
         
     #ax.y_range=Range1d(np.max(mags[mags != None])+0.25,np.min(mags[mags != None])-0.5)
+    if compact:
+        # hug the data: a few days either side, not the months the default window allows
+        lo, hi = np.min(mjds), np.max(mjds)
+        pad = max(3.0, 0.12*(hi-lo))
+        ax.x_range = Range1d(lo-pad, hi+pad)
+        ax.extra_x_ranges = {"dateax": Range1d(lo-pad, hi+pad)}
     ax.add_layout(LinearAxis(x_range_name="dateax"), 'above')
 
-    ax.plot_height = 400+20*len(bandunq)
-    ax.plot_width = 400
+    if compact:
+        ax.plot_height = 230+22*len(bandunq)
+        ax.plot_width = 600
+    else:
+        ax.plot_height = 400+20*len(bandunq)
+        ax.plot_width = 400
 
     majorticks = []; overridedict = {}
     mjdrange = range(int(np.min(mjds)-100),int(np.max(mjds)+100))

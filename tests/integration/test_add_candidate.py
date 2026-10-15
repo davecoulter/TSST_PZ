@@ -33,6 +33,7 @@ def candidate_payload(name, ra, dec, mjd=61102.41532):
         "photometry": [
             {
                 "band": band, "mjd": mjd, "flux": flux, "flux_err": err,
+                "mag": 23.9 - 2.5 * math.log10(flux), "mag_err": 1.0857 * err / flux,
                 "flux_unit": "uJy", "upper_limit": False, "limit_sigma": None,
                 "stamps": {"sci": f"https://example.org/{name}_{band}_sci.png",
                            "ref": f"https://example.org/{name}_{band}_ref.png",

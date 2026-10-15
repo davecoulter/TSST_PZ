@@ -5,17 +5,26 @@
 
 {% block styles %}
 <style>
-  .cand-cutout { display: block; width: 100%; max-width: 190px; aspect-ratio: 1 / 1; object-fit: contain;
-                 background: #222; margin: 0 auto 2px; }
-  .cand-missing { display: flex; align-items: center; justify-content: center; background: #eee; color: #888;
-                  font-size: 12px; }
+  /* triplets: a tight row, 20% smaller than before (152px cutouts) */
+  .cand-box { margin-bottom: 8px; }
+  .cand-box .box-header { padding: 6px 10px; }
+  .cand-box .box-header .box-title { font-size: 16px; }
+  .cand-box .box-body { padding: 8px 10px; }
+  .cand-trip { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cand-trip .cut { width: 152px; text-align: center; line-height: 1.2; }
+  .cand-cutout { display: block; width: 152px; height: 152px; object-fit: contain; background: #222; margin: 0 0 2px; }
+  .cand-missing { display: flex; align-items: center; justify-content: center; background: #eee; color: #888; font-size: 12px; }
   .cand-badges .label { font-size: 13px; margin-right: 6px; }
-  /* where the candidate is: bright ring with a dark outline, readable on light and dark cutouts */
-  .cand-marker-wrap { position: relative; display: inline-block; max-width: 100%; }
-  .cand-marker-wrap img { display: block; max-width: 100%; background: #222; }
-  .cand-marker { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px;
-                 border: 3px solid #ffeb3b; border-radius: 50%; pointer-events: none;
-                 box-shadow: 0 0 0 2px #000, inset 0 0 0 2px #000; }
+  /* where the candidate is: a crosshair with a gap in the middle, so the source stays visible;
+     bright with a dark outline, readable on light and dark cutouts */
+  .cand-marker-wrap { position: relative; display: block; width: 100%; max-width: 300px; margin: 0 auto; }
+  .cand-marker-wrap img { display: block; width: 100%; background: #222; }
+  .cand-cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+  .cand-cross i { position: absolute; background: #ffeb3b; box-shadow: 0 0 0 1px #000; }
+  .cand-cross .l { left: -30px; top: -1px; width: 20px; height: 2px; }
+  .cand-cross .r { left: 10px; top: -1px; width: 20px; height: 2px; }
+  .cand-cross .t { left: -1px; top: -30px; width: 2px; height: 20px; }
+  .cand-cross .b { left: -1px; top: 10px; width: 2px; height: 20px; }
   .cand-ref-gallery img { width: 78px; height: 78px; object-fit: contain; background: #222; display: block; }
   .cand-ref-gallery .item { display: inline-block; margin: 0 6px 6px 0; text-align: center; font-size: 12px; }
   .cand-placeholder { color: #999; padding: 18px 0; text-align: center; }
@@ -65,9 +74,10 @@
               </div>
               <div class="box-body">
                 <div class="btn-group-horizontal">
-                  {% if transient_status_follow %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_follow.id }}" data-status_name="{{ transient_status_follow.name }}" class="transientStatusChange btn btn-primary">{{ transient_status_follow.name }}</button>{% endif %}
+                  {% comment %}New first: changing the status to New is the promotion{% endcomment %}
+                  {% if transient_status_new %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_new.id }}" data-status_name="{{ transient_status_new.name }}" class="transientStatusChange btn btn-success" title="Promote to a transient">{{ transient_status_new.name }}</button>{% endif %}
                   {% if transient_status_watch %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_watch.id }}" data-status_name="{{ transient_status_watch.name }}" class="transientStatusChange btn btn-warning">{{ transient_status_watch.name }}</button>{% endif %}
-                  {% if transient_status_interesting %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_interesting.id }}" data-status_name="{{ transient_status_interesting.name }}" class="transientStatusChange btn btn-success">{{ transient_status_interesting.name }}</button>{% endif %}
+                  {% if transient_status_archived %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_archived.id }}" data-status_name="{{ transient_status_archived.name }}" class="transientStatusChange btn btn-default">{{ transient_status_archived.name }}</button>{% endif %}
                   {% if transient_status_ignore %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_ignore.id }}" data-status_name="{{ transient_status_ignore.name }}" class="transientStatusChange btn btn-danger">{{ transient_status_ignore.name }}</button>{% endif %}
                   <div class="btn-group">
                     <button style="margin-bottom:5px;" type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
@@ -103,25 +113,29 @@
           <div class="row">
             {# left: the cutouts and the host #}
             <div class="col-md-6">
-              {% include "YSE_App/candidate_triplet.html" with triplet=candidate_best title="Highest S/N" %}
-              {% include "YSE_App/candidate_triplet.html" with triplet=candidate_latest title="Most recent" %}
+              {% if candidate_best_is_latest %}
+                {% include "YSE_App/candidate_triplet.html" with triplet=candidate_best title="Highest S/N, most recent" %}
+              {% else %}
+                {% include "YSE_App/candidate_triplet.html" with triplet=candidate_best title="Highest S/N" %}
+                {% include "YSE_App/candidate_triplet.html" with triplet=candidate_latest title="Most recent" %}
+              {% endif %}
 
               <div class="box box-default">
                 <div class="box-header with-border"><h3 class="box-title">Host</h3></div>
                 <div class="box-body">
                   <div class="row">
-                    <div class="col-sm-5 text-center">
+                    <div class="col-sm-6 text-center">
                       {% if candidate_host_image %}
                         <div class="cand-marker-wrap">
                           <a href="{{ candidate_host_image|stamp_src }}" target="_blank" rel="noopener"><img src="{{ candidate_host_image|stamp_src }}" alt="reference cutout"></a>
-                          <span class="cand-marker" title="the candidate"></span>
+                          <span class="cand-cross" title="the candidate"><i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i></span>
                         </div>
-                        <div><small class="text-muted">reference image, ring marks the candidate</small></div>
+                        <div><small class="text-muted">reference image; the crosshair centre is the candidate</small></div>
                       {% else %}
                         <div class="cand-placeholder">no reference image</div>
                       {% endif %}
                     </div>
-                    <div class="col-sm-7">
+                    <div class="col-sm-6">
                       {% if transient.host %}
                       <table class="table table-condensed" style="margin-bottom:6px">
                         <tbody>
@@ -263,7 +277,7 @@
     <script type="text/javascript">
     $(document).ready(function(){
         // the same light curve the transient page shows
-        $.get("{% url 'lightcurveplot_detail' transient.id %}").done(function(htmlresponse){
+        $.get("{% url 'lightcurveplot_detail' transient.id %}?compact=1").done(function(htmlresponse){
             $("#lcplot").html(htmlresponse);
         });
 
