@@ -1,4 +1,4 @@
-# STZ-PZ `/add_candidate/` payload (v1.2)
+# STZ-PZ `/add_candidate/` payload (v1.3)
 
 This is what the websniff **Save candidate** button (or a notebook or script) POSTs to STZ-PZ for one candidate. It is one JSON object per candidate. A full example is in `add_candidate_example.json`; it uses the real candidate `jwst_5324_trig2_jw05324-o017_t014_nircam_clear_1`, with its diff-image magnitudes from the page. The MJD, stamp URLs and FITS paths are placeholders.
 
@@ -26,6 +26,25 @@ Each result carries the HTTP status that a single POST of that candidate would h
 ## Dry run (v1.2)
 
 Add `?dry_run=1` to the URL (`POST /add_candidate/?dry_run=1`, single object or array). The server runs the whole request, including the match and the create-or-append logic, and then rolls it back. The reply is exactly what a real run would return, plus `"dry_run": true` (and in the array form, `"dry_run": true` in `summary`), but **nothing is saved**: no transient, photometry, tags or aliases. Use it to find out whether a file would be accepted, and what it would create or append to.
+
+## v1.3 (2026-10-15): what the websniff page sends
+
+The contract follows what the pipeline's page actually emits; the field names below are Justin's. Nothing is accepted silently: the reply carries a `warnings` list for anything ignored or assumed.
+
+| Field | Meaning and handling |
+|---|---|
+| `quality_flag` | The reviewer's confidence (e.g. 1 real, 2 maybe, 3 not real). Stored as **text in a comment**; not an enum. |
+| `notes` | Free text from the Save dialog. Becomes a **comment by the posting user**; an identical comment by that user on that object is not added twice. |
+| `fitsmap_url` | URL of the FitsMap view. Stored as a second web resource (source "FitsMap"). |
+| `tags` | Strings from the Save dialog. Matched (ignoring case and whitespace) to existing **candidate tags**, or created. |
+| `host` | `null`, or `{host_id, host_ra, host_dec, host_z, host_z2, host_sep, host_catalog}`. See below. |
+| `fits` values | URLs preferred (files go to the central store, linked from the web). A plain path is still stored as given. |
+
+`host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` names the catalog (e.g. `"JADES"`); until the pipeline sends it, the server assumes **JADES** and says so in `warnings`. `host_z` is stored as the host's photo-z. `host_z2` and `host_sep` are accepted and not stored (the separation is worked out from the positions; `host_z2` is noted in `warnings`). A host is matched by catalog and ID, then by position, else created.
+
+Reply additions: `host` (`{"result": "created" | "matched" | "kept", ...}`; `kept` means the object already had a different host, which was **not** replaced, with the separation of the one that was offered) and `warnings` (list of strings; also per result in the array form).
+
+The v1.0 to v1.2 host fields (`name`, `ra`, `dec`, `photo_z`, ...) are replaced; no client used them.
 
 ## Top level
 

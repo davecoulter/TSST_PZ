@@ -3,7 +3,7 @@
 - **Issue:** #27 (part of #16)
 - **Branch:** `27-candidate-pages`
 - **Depends on:** #23 (merged, PR #32), #25 (merged, PR #33)
-- **Status:** Approved; implemented, awaiting verification against the stack
+- **Status:** Part 1 (pages) built and verified on the local stack; revised 2026-10-15 to add Part 2 (payload v1.3, schema) and Part 3 (the candidate page); awaiting Dave's approval of the revision
 
 ## Why
 
@@ -66,6 +66,56 @@ Local Claude, on Dave's local stack, after loading the pipeline's real file (`jw
 - Open a regular transient: unchanged.
 - Integration tests in `tests/integration/test_candidate_pages.py`: status codes for the pages, and that a non-candidate never appears on `/candidates/`.
 
+
+## Revision 2026-10-15: v1.3, schema, and a candidate page
+
+After verifying Part 1, Dave related his conversation with Justin (workflow in `agentic_planning/016-candidate-workflow/workflow.md`). Because the payload, the schema and the display are strongly coupled, Dave chose to roll them into this branch as three parts. Part 1 is what is described above and is verified.
+
+### Part 2: payload v1.3 and schema
+
+Contract: `agentic_planning/023-add-candidate-endpoint/contract.md` (v1.3).
+
+| # | Deliverable | Notes |
+|---|---|---|
+| 2.1 | Notes and confidence as a comment | `notes` and `quality_flag` become one comment by the posting user, reusing the existing comment model; skipped when that user already left an identical one. Exact text format to settle. |
+| 2.2 | `fitsmap_url` | A `TransientWebResource` from source "FitsMap" (created when missing). |
+| 2.3 | Host reshape | New fields (`host_id`, `host_ra`, `host_dec`, `host_z`, `host_z2`, `host_sep`, `host_catalog`). `host_z` becomes the photo-z; `host_z2` is dropped with a warning; `host_sep` is not stored (computed from positions). Missing `host_catalog` assumes JADES, via a setting, with a warning (interim). Matched by catalog and ID, then by position. The first host stays: a different later host is **not** applied and is reported in the reply (`kept`). A match to an existing host is reported (`matched`). |
+| 2.4 | Host schema (**model change, migration**) | A `HostCatalog` lookup table, and on `Host` a nullable `catalog` foreign key and a nullable integer `catalog_id`, with a unique pair. One catalog per host. Rows for new catalogs are created on demand. |
+| 2.5 | Candidate tags (**model change, migration**) | A small `TagKind` lookup (Transient, Candidate) and a foreign key on `TransientTag`; existing tags become kind Transient (data migration). Payload `tags` match or create **candidate** tags (names trimmed, case-insensitive; stray tags are fine for now). The existing "Candidate" tag and the main dashboard's box for it: see open question 1. |
+| 2.6 | `warnings` | The reply lists anything ignored or assumed (unknown top-level fields, the assumed catalog, `host_z2`, a host that was kept). |
+| 2.7 | Files as URLs | `fits` values are stored as given; http(s) values render as links. |
+
+Not in Part 2: the catalog loader and the overlapping-catalog entry table, probabilistic host association, per-person labels (#35), anything on `DataQuality`.
+
+### Part 3: the candidate page
+
+A separate page for the same object, per Dave: `/candidate/<slug>/` (name `candidate_detail`), not a replacement for `/transient_detail/<slug>/`.
+
+- **Links both ways.** The candidate page links to the transient page, and the transient page shows "Candidate page" whenever the object has candidate data. Promotion changes only the status, so the candidate page and its history stay reachable. A transient with no candidate data (e.g. from TNS) gets no link.
+- **Where links go.** Cards on `/candidates/` open the candidate page. The main dashboard's boxes and other lists keep opening the transient page.
+- **Quick-look layout** (to be fixed from Dave's drawing in `collab_scratch/`): above the fold, the highest-S/N detection with its cutouts, the latest detection, the light curve, an SED, the host (catalog, ID, separation computed from positions, photo-z), candidate tags with the create-a-tag widget, and the comment thread; links out to the websniff page, FitsMap and the FITS URLs. Below: runs, flagged by, and all image triplets (what Part 1 added), with superseded hidden behind the toggle.
+- **The Part 1 section** on the transient page becomes a short pointer to the candidate page.
+- An SED needs each band's wavelength; to confirm what the DB holds for bands.
+- Later: click a light-curve point to see its cutouts.
+
+### Open questions (Revision)
+
+1. The "Candidate" tag: with candidate-kind tags, stop adding it at ingest (status already says candidate)? Then a promoted candidate appears in a main-dashboard box only if a transient-kind tag is added. Or keep adding it, as a candidate-kind tag.
+2. Comment text format for notes plus confidence (waiting on the updated JSON).
+3. What `host_z2` is (Justin).
+4. On promotion, should candidate-kind tags still show on the transient page (read-only)?
+5. SED: band wavelengths, and one SED per epoch or the latest?
+
+### Acceptance criteria (Revision)
+
+- [ ] A payload shaped like Justin's current file (host block, `notes`, `quality_flag`, `fitsmap_url`, a limit point) is accepted, and the reply lists what was ignored or assumed.
+- [ ] `notes`/`quality_flag` appear as a comment by the posting user; posting twice adds no duplicate.
+- [ ] The host is created or matched by catalog and ID, then position; a second post with a different host leaves the first and reports `kept`.
+- [ ] The migrations apply on the existing local DB and on a fresh seeded DB; `makemigrations --check` is clean for `YSE_App`.
+- [ ] Candidate-kind tags can be created and applied on the candidate page and do not show as main-dashboard boxes.
+- [ ] `/candidate/<slug>/` shows the first-look items above the fold and links to the transient page, and back.
+- [ ] Promoting a candidate keeps its candidate page reachable.
+
 ## Log
 
 - **2026-10-14:** Plan drafted after #23 and #25 merged. Surveyed `views.dashboard`, `transient_detail` and its template, `TransientTable` and `base.html`; found the stamp-URL, `valid_pixels` and superseded-stamps problems listed under "Why".
@@ -84,3 +134,4 @@ Local Claude, on Dave's local stack, after loading the pipeline's real file (`jw
   - FITS paths are shown as text in the new section. In the old "Image Stamps" box a FITS path starting with `/` becomes a link on STZ-PZ's host that won't resolve, as non-local FITS links didn't before either.
   - Checked offline: `ruff check .`; the new templates render with Django 4.0 and fake data (URL and local stamps, limits, superseded toggle, paging), and the edited `transient_detail.html` and `base.html` parse. Nothing has run against a DB yet.
 - **2026-10-14:** Dave asked for two more review features. (1) "Flagged by" on the detail page: added as item 2b, since it only reads existing rows. (2) Rejection reasons (cosmic ray, snowball, proper-motion star, alignment artifact, ...) for later CNN training: needs per-user labels stored in a new table, so it is a model change with its own issue (#35) and plan, not part of #27.
+- **2026-10-15:** Verified Part 1 on Dave's local stack (see the verification entries above and the test results). Dave related a conversation with Justin about the workflow and sent Justin's newer JSON; with the server's validator it was rejected (host block) and three fields (`fitsmap_url`, `quality_flag`, `notes`) were silently ignored. Decisions with Dave: adapt the endpoint to Justin's shape now (v1.3, Part 2); notes and confidence as a comment; `host_z` becomes the host photo-z, `host_z2` dropped, `host_sep` computed not stored; assume catalog JADES when not sent (interim); one catalog per host with `catalog` and an integer `catalog_id` on `Host`; first host wins and a different one is reported; candidate tags as a separate kind of tag (a `TagKind` table and a foreign key); a separate candidate page with links both ways (Part 3); fitsmap URL as a second web resource; run and field recorded in the web resource text. Written up in `agentic_planning/016-candidate-workflow/workflow.md`; contract v1.3 drafted. Waiting for Dave's drawing, an updated JSON, and approval of this revision.
