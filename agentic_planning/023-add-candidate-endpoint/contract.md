@@ -33,12 +33,12 @@ The contract follows what the pipeline's page actually emits; the field names be
 
 | Field | Meaning and handling |
 |---|---|
-| `quality_flag` | The reviewer's confidence (e.g. 1 real, 2 maybe, 3 not real). Stored as **text in a comment**, `quality_flag: 3; notes: <notes>` (a part is left out when empty); not an enum. |
+| `quality_flag` | The reviewer's confidence: **1 definite, 2 probable, 3 possible**, one per candidate (the page shows it as "Saved · Q1"). Who posts is the reviewer: each user posts their own choices with their own login, so the posting user is the reviewer. Stored as **text in a comment**, `quality_flag: 3; notes: <notes>` (a part is left out when empty); not an enum. |
 | `notes` | Free text from the Save dialog. Becomes a **comment by the posting user**; an identical comment by that user on that object is not added twice. |
 | `fitsmap_url` | URL of the FitsMap view. Stored as a second web resource (source "FitsMap"). |
-| `tags` | Strings from the Save dialog. Matched (ignoring case and whitespace) to existing **candidate tags**, or created. |
+| `tags` | Strings from the Save dialog (a drop-down or radio choice for consistent names). Matched (ignoring case and whitespace) to existing **candidate tags**, or created. |
 | `host` | `null`, or `{host_id, host_ra, host_dec, host_z, host_z2, host_sep, host_catalog}`. See below. |
-| `fits` values | URLs preferred (files go to the central store, linked from the web). A plain path is still stored as given. |
+| `fits` values | Stored as given. A URL is shown as a link. A plain path (the pipeline's `/astro/...` paths, meaningful only on the network) is shown as **copyable text** (for DS9 and the like) unless it falls under a configured path-to-URL prefix map on the server (`path prefix -> URL prefix`), in which case it is shown as a link too. PNG stamps are already URLs. |
 
 `host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` is the catalog's **file name**, as the pipeline knows it (agreed with Justin 2026-10-15; a nickname such as "JADES" is set on the server side, not sent); until the pipeline sends it, the server assumes the **JADES** catalog and says so in `warnings`. `host_z` is the median of the photo-z PDF and is stored as the host's photo-z. No error or PDF is sent yet. `host_z2` (the maximum likelihood estimate) and `host_sep` are accepted and not stored, and produce no warning (the separation is worked out from the positions). A host is matched by catalog and ID, then by position, else created.
 
@@ -106,3 +106,10 @@ The v1.0 to v1.2 host fields (`name`, `ra`, `dec`, `photo_z`, ...) are replaced;
 - Re-sending the same `band` and `mjd` for an object replaces the earlier point. The old one is kept but flagged "Superseded".
 - Never send `created_by`, `status` or a `name`; STZ-PZ sets these.
 - v1.0 was frozen 2026-10-14 so diff_pype and STZ-PZ could be built in parallel. v1.1 (2026-10-14, Dave) adds the array form, and v1.2 (2026-10-14, Dave) adds `?dry_run=1`; nothing else changed, and single objects work as before. Any further change is a new version, agreed by both sides and noted here.
+
+## Notes on the photometry (v1.3)
+
+- `flux`, `flux_err`, `mag` and `mag_err` are **measurements at the candidate's position**. `upper_limit: true` is the pipeline's interpretation. STZ-PZ also treats a point with S/N < 3 as a limit, and shows the limit as the 3-sigma limiting magnitude worked out from `flux_err` (`flux_zero_point - 2.5 log10(3 flux_err)`), not as the measured magnitude.
+- `mjd` is the mid-exposure time in UTC. A `null` stamp or FITS entry means no such image exists (the page shows "NOT PROVIDED").
+- Candidate IDs are salted per run and runs know nothing of each other; STZ-PZ links them by position (0.2 arcsec).
+
