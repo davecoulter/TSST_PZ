@@ -141,6 +141,18 @@ In this branch: #36 payload v1.3, #37 `HostCatalog` and `catalog_id`, #38 candid
 
 Dave's decision on the main dashboard (replaces the "Untagged" box, 2.7): a **Needs review** grid for transients in no tag box and not archived, an explicit archive action, and an **Archived** dashboard. Nothing is deleted; state is managed explicitly (#40).
 
+### Part 4: the New tag and the candidate dashboard as sub-grids (Dave, 2026-10-15)
+
+`New` is a **call to action**, not the absence of tags: work through a backlog. (A websniff import can bring tags, so "no tags" cannot mean "not yet looked at".)
+
+- **Every created candidate gets a candidate-kind tag `New`** (created on demand, orange, so it stands out). A later post that appends to an existing candidate does not re-add it, so triage sticks. Triage means removing `New`.
+- **`/candidates/` is a set of sub-grids**, like the main dashboard, and they are **exclusive**: a candidate tagged `New` is only in the **New** grid (always listed first and always shown, in its own coloured box; empty means the inbox is clear); once `New` is removed it moves to one grid per candidate tag it has, and a candidate with no tag at all is in **No tag**, so nothing disappears. Sorting, search and the table are shared; each grid pages on its own.
+- **The yellow sidebar badge counts new candidates** (tagged `New`), so classifying them clears it.
+- **`/archived/` is split by tag too**, with a **No tag** grid; candidates and transients share it (a candidate row gets a small badge linking to its candidate page). The `New` tag does not make an archive grid.
+- Status moves things between pages: Candidate (the candidate pages), New and the working statuses (the main dashboard), Archived (the archive).
+- **Migration 0008** backfills `New` onto the candidates that exist and have no candidate tag.
+- Not now: a single grid with a tag picker (Dave: wait). Ideas offered: a Mark triaged button and a Next new link on the candidate page; oldest-first sorting with the waiting time in the New grid.
+
 ### Open questions (Revision)
 
 1. Archived as a new status, or reuse `Ignore` (#40)?
