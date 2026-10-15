@@ -35,6 +35,7 @@ from .forms import *
 from .common import utilities
 from . import view_utils
 from .candidate_ingest import find_by_name
+from . import dashboard_sets
 from . import candidate_views
 import datetime
 from datetime import timedelta
@@ -113,12 +114,18 @@ def dashboard(request):
     # candidates (#16) have their own dashboard (/candidates/), never the main
     # one. The "Candidate" tag stays on promoted candidates as a label, so its
     # box lists those (#27).
-    candidate_status = find_by_name(TransientStatus, 'Candidate')
-    for tagname in TransientTag.objects.order_by('name').values_list('name', flat=True):
+    # A transient is always somewhere (#40): a tag box, the Needs review grid (no tag yet), the
+    # candidate list, or the Archived page. Needs review comes first; candidate-kind tags get no box.
+    hidden = dashboard_sets.hidden_statuses()
+    review = dashboard_sets.needs_review()
+    if review.exists():
+        review_filter = TransientFilter(request.GET, queryset=review, prefix='needsreview')
+        review_table = TransientTable(review_filter.qs, prefix='needsreview')
+        RequestConfig(request, paginate={'per_page': 10}).configure(review_table)
+        transient_categories += [(review_table, 'Needs review', 'needsreview', review_filter),]
+    for tagname in dashboard_sets.transient_tags().order_by('name').values_list('name', flat=True).distinct():
         prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
-        transients = Transient.objects.filter(tags__name=tagname)
-        if candidate_status is not None:
-            transients = transients.exclude(status=candidate_status)
+        transients = Transient.objects.filter(tags__name=tagname).exclude(status__in=hidden)
         transients = transients.order_by('-disc_date')
         # omit tags with no matching transients from the dashboard grid
         if not transients.exists():
@@ -139,6 +146,25 @@ def dashboard(request):
         'anchor':anchor,
     }
 
+    return render(request, 'YSE_App/dashboard.html', context)
+
+@login_required
+def archived_dashboard(request):
+    """Archived transients (#40): kept, out of the way; changing the status brings one back."""
+    transients = dashboard_sets.archived()
+    categories = []
+    if transients.exists():
+        transientfilter = TransientFilter(request.GET, queryset=transients, prefix='archived')
+        table = TransientTable(transientfilter.qs, prefix='archived')
+        RequestConfig(request, paginate={'per_page': 25}).configure(table)
+        categories = [(table, 'Archived', 'Archived', transientfilter)]
+    context = {
+        'transient_categories': categories,
+        'all_transient_statuses': TransientStatus.objects.order_by('name'),
+        'anchor': '',
+        'dashboard_title': 'Archived',
+        'empty_message': 'Nothing is archived. Set a transient\'s status to Archived to keep it here, out of the way.',
+    }
     return render(request, 'YSE_App/dashboard.html', context)
 
 @login_required
@@ -224,10 +250,10 @@ def transient_summary(request,status_or_query_name,
         transients = Transient.objects.filter(status=status[0]).order_by('-disc_date')
     elif TransientTag.objects.filter(name=unquote(status_or_query_name)).exists():
         transients = Transient.objects.filter(tags__name=unquote(status_or_query_name)).order_by('-disc_date')
-        # like the main dashboard's tag boxes, leave out candidates (#27)
-        candidate_status = find_by_name(TransientStatus, 'Candidate')
-        if candidate_status is not None:
-            transients = transients.exclude(status=candidate_status)
+        # like the main dashboard's tag boxes, leave out candidates and archived (#27, #40)
+        transients = transients.exclude(status__in=dashboard_sets.hidden_statuses())
+    elif status_or_query_name == 'needsreview':
+        transients = dashboard_sets.needs_review()
     else:
         query = Query.objects.filter(title=unquote(status_or_query_name))
         if len(query):

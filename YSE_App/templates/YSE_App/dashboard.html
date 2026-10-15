@@ -8,7 +8,7 @@
 {% block content_header %}
     <h1>
         Transient Science at Space Telescope
-        <small>Dashboard</small>
+        <small>{{ dashboard_title|default:"Dashboard" }}</small>
     </h1>
     <ol class="breadcrumb">
         <li><i class="fa fa-dashboard"></i> Home</li>
@@ -22,6 +22,9 @@
 
 {% block content %}
     
+  {% if empty_message and not transient_categories %}
+  <div class="box"><div class="box-body">{{ empty_message }}</div></div>
+  {% endif %}
   <!-- Default box -->
   {% for transient_cat in transient_categories %}
 

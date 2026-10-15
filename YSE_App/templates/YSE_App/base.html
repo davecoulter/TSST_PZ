@@ -85,6 +85,8 @@
 				<li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> <span>Main Dashboard</span></a></li>
 				{% candidate_count as n_candidates %}
 				<li><a href="{% url 'candidate_dashboard' %}"><i class="fa fa-star-o"></i> <span>Candidates</span>{% if n_candidates %}<span class="pull-right-container"><small class="label pull-right bg-yellow">{{ n_candidates }}</small></span>{% endif %}</a></li>
+				{% archived_count as n_archived %}
+				<li><a href="{% url 'archived_dashboard' %}"><i class="fa fa-archive"></i> <span>Archived</span>{% if n_archived %}<span class="pull-right-container"><small class="label pull-right bg-gray">{{ n_archived }}</small></span>{% endif %}</a></li>
 				<li><a href="{% url 'personaldashboard' %}"><i class="fa fa-id-card"></i> <span>{{ user.first_name }}'s Dashboard</span></a></li>
 {#				<li><a href="{% url 'followup' %}"><i class="fa fa-binoculars"></i> <span>Follow Requests</span></a></li>#}
 {#				<li><a href="{% url 'calendar' %}"><i class="fa fa-calendar"></i> <span>On-Call Calendar</span></a></li>#}

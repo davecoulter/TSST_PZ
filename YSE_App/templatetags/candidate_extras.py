@@ -35,6 +35,13 @@ def stamp_src(value):
 
 
 @register.simple_tag
+def archived_count():
+    """Number of archived transients, for the sidebar."""
+    from ..dashboard_sets import archived_count as _count
+    return _count()
+
+
+@register.simple_tag
 def candidate_count():
     """Number of transients with status Candidate, for the sidebar."""
     status = find_by_name(TransientStatus, CANDIDATE)

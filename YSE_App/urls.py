@@ -26,6 +26,7 @@ urlpatterns = [
     re_path(r'^dashboard/$', views.dashboard, name='dashboard'),
     re_path(r'^yse_home/$', views.yse_home, name='yse_home'),
     re_path(r'^candidates/$', candidate_views.candidate_dashboard, name='candidate_dashboard'),
+    re_path(r'^archived/$', views.archived_dashboard, name='archived_dashboard'),
     re_path(r'^candidate/(?P<slug>[^/]+)/$', candidate_views.candidate_detail, name='candidate_detail'),
     re_path(r'^personaldashboard/$', views.personaldashboard, name='personaldashboard'),
     re_path(r'^calendar/$', views.calendar, name='calendar'),
