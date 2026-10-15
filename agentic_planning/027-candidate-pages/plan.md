@@ -131,6 +131,8 @@ The purpose of the candidate page is to **verify the point source**, not to say 
 
 **Tabs:** *Overview* (the above), *All cutouts* (every image triplet, one row per epoch and filter, superseded behind the toggle), and the runs and who flagged it.
 
+**Conventions (Dave).** Every external link opens in a **new tab** (`target="_blank" rel="noopener"`). The host-image marker is **high contrast** (a bright ring or crosshair with a dark outline, visible on light and dark cutouts), at the image centre, because the cutouts are centred on the source.
+
 The existing `/transient_detail/` page is unchanged apart from the "Candidate page" link; the Part 1 section on it becomes a pointer.
 
 ### Issues for the revision (filed 2026-10-15)
@@ -181,3 +183,4 @@ Dave's decision on the main dashboard (replaces the "Untagged" box, 2.7): a **Ne
 - **2026-10-15:** `mag` is the difference-image magnitude; one magnitude per filter is enough for now (reference depth is a later ticket). `www.stsci.edu/~tsst` is **world-reachable**, so anything symlinked there (FITS included) is public: keep FITS as copyable paths unless a specific cutout is cleared to be public.
 - **2026-10-15:** Dave clarified the data is public; the concern with FITS paths on the pages is revealing internal network paths. Fine for internal use now; noted on #17 so the raw paths are hidden or mapped to URLs before STZ-PZ is opened up.
 - **2026-10-15:** Dave's sketch (`collab_scratch/CandidateDetailPageSketch.jpg`, not committed) and answers: the host image is the highest-S/N reference cutout with a centre marker, plus a gallery of each filter's reference image; the page is for verifying the point source, so the synoptic block is the trimmed Transient Detail box (RA/Dec, discovery date, Galactic l/b, later Real/Bogus, MW E(B-V), best distance) plus the Photometric Summary, without spectral classes or YSE field; the status control moves above the fold (changing it to New is the promotion); comments show the submission time; an *All cutouts* tab holds every triplet. Written into Part 3 above.
+- **2026-10-15:** Dave approved the revision and the slice order (schema; endpoint; page skeleton; plots and widgets; dashboards; verify and ship). External links open in a new tab; the centre marker is high contrast; cutouts are centred on the source. Starting slice 1.
