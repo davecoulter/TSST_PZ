@@ -55,3 +55,6 @@ Below the fold: the runs that found it, who flagged it, and every image triplet.
 - Hosts: one catalog per host for now. Overlapping catalogs (the same galaxy in two) need a catalog-entry table, planned with the catalog loader.
 - The TESS and Thacher checks are switched off (#31).
 - Security: HTTP basic auth over HTTP on the private network until tokens and TLS (#17).
+- The static pages' host (`www.stsci.edu/~tsst`) is **reachable from the internet**. The PNG cutouts are already there; anything else symlinked into it (FITS files especially) is public too, so FITS stay copyable paths until a specific file is cleared.
+- The payload's `mag` is the difference-image magnitude. One magnitude per filter is shown; the reference depth and the SCI and REF magnitudes are a later enhancement.
+
