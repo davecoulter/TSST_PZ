@@ -130,6 +130,8 @@ def test_status_buttons_start_with_new(browser, base_url, candidate):
     html = _candidate_page(browser, base_url, candidate["candidate_id"])
     names = re.findall(r'data-status_name="([^"]+)" class="transientStatusChange btn', html)
     assert names == ["New", "Watch", "Archived", "Ignore"]
+    # a session-authenticated PATCH is rejected without the CSRF header, so the page must send it
+    assert "X-CSRFToken" in html
 
 
 def test_default_light_curve_size_is_unchanged(browser, base_url, credentials, candidate):

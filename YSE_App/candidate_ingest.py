@@ -201,6 +201,15 @@ def validate_payload(data):
         point['upper_limit'] = bool(upper_limit)
         if point['flux_zero_point'] is None and point['flux_unit']:
             point['flux_zero_point'] = ZERO_POINTS.get(point['flux_unit'].lower())
+        # Only flux sent: work out the magnitude the way the pipeline does (AB from the zero point,
+        # error 2.5 log10(1 + err/flux)), so the plots, which need magnitudes, still work.
+        # Limits keep no magnitude.
+        if (not upper_limit and point['mag'] is None and point['flux'] is not None
+                and point['flux'] > 0 and point['flux_zero_point'] is not None):
+            point['mag'] = point['flux_zero_point'] - 2.5 * math.log10(point['flux'])
+            if point['mag_err'] is None and point['flux_err'] is not None:
+                point['mag_err'] = 2.5 * math.log10(1 + point['flux_err'] / point['flux'])
+            p['warnings'].append('mag worked out from flux for photometry[%d]' % i)
         if point['upper_limit']:
             if point['limit_sigma'] is None:
                 errors[path + 'limit_sigma'] = 'required when upper_limit is true'

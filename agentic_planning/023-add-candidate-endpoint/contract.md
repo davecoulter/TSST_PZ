@@ -112,4 +112,5 @@ The v1.0 to v1.2 host fields (`name`, `ra`, `dec`, `photo_z`, ...) are replaced;
 - `flux`, `flux_err`, `mag` and `mag_err` are **measurements at the candidate's position**. `upper_limit: true` is the pipeline's interpretation. STZ-PZ also treats a point with S/N < 3 as a limit, and shows the limit as the 3-sigma limiting magnitude worked out from `flux_err` (`flux_zero_point - 2.5 log10(3 flux_err)`), not as the measured magnitude.
 - `mjd` is the mid-exposure time in UTC. A `null` stamp or FITS entry means no such image exists (the page shows "NOT PROVIDED").
 - Candidate IDs are salted per run and runs know nothing of each other; STZ-PZ links them by position (0.2 arcsec).
+- If a detection has `flux` but no `mag`, STZ-PZ works the magnitude out the way the pipeline does: AB from the zero point (`flux_zero_point - 2.5 log10(flux)`, flux in uJy with zero point 23.9) and `mag_err = 2.5 log10(1 + flux_err/flux)`, and says so in `warnings`. Limits are never given a magnitude. (Checked against the pipeline's own numbers: they match to the last digit.)
 

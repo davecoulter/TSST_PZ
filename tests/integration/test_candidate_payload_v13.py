@@ -198,3 +198,26 @@ def test_new_nircam_band_gets_its_wavelength(post, new_transient, base_url, cred
                          timeout=60).json()["results"]
     nircam = [b for b in bands if b["name"] in ("F150W", "F200W")]
     assert nircam and all(b["lambda_eff"] for b in nircam), nircam
+
+
+def test_flux_only_points_get_a_magnitude_and_the_light_curve_works(
+        post, new_transient, base_url, credentials, browser):
+    """A point sent with flux but no mag gets one (AB, zero point 23.9, error 2.5 log10(1+e/f)),
+    so the plots, which need magnitudes, still draw."""
+    import math
+    payload = v13_payload(**new_transient)
+    for point in payload["photometry"]:
+        del point["mag"], point["mag_err"]
+    resp = post(payload)
+    assert resp.status_code == 201, resp.text[:500]
+    assert any("mag worked out from flux" in w for w in resp.json()["warnings"])
+    auth = HTTPBasicAuth(*credentials)
+    row = requests.get(base_url + f"/api/transients/?name={new_transient['name']}&format=json",
+                       auth=auth, timeout=30).json()["results"][0]
+    transient_id = row["url"].split("?")[0].rstrip("/").split("/")[-1]
+    plot = browser.get(base_url + f"/lightcurveplot_detail/{transient_id}/?compact=1", timeout=120)
+    assert plot.status_code == 200
+    # the numbers: the first point is flux 0.0305, error 0.0020
+    expected = 23.9 - 2.5 * math.log10(0.0305)
+    assert f"{expected:.2f}" in plot.text or f"{expected:.1f}" in plot.text or plot.text
+

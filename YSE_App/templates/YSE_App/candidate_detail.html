@@ -301,7 +301,8 @@
             $.ajax({
               type: "PATCH",
               url: api_url,
-              csrfmiddlewaretoken: "{{ csrf_token }}",
+              // a session-authenticated PATCH needs the CSRF token as a header (jQuery ignores it as an option)
+              headers: { "X-CSRFToken": "{{ csrf_token }}" },
               data: { "status": status_url },
               success: function(data, textStatus, jqXHR) {
                   var tokens = data.status.split("/")
