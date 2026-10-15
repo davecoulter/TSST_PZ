@@ -33,14 +33,14 @@ The contract follows what the pipeline's page actually emits; the field names be
 
 | Field | Meaning and handling |
 |---|---|
-| `quality_flag` | The reviewer's confidence (e.g. 1 real, 2 maybe, 3 not real). Stored as **text in a comment**; not an enum. |
+| `quality_flag` | The reviewer's confidence (e.g. 1 real, 2 maybe, 3 not real). Stored as **text in a comment**, `quality_flag: 3; notes: <notes>` (a part is left out when empty); not an enum. |
 | `notes` | Free text from the Save dialog. Becomes a **comment by the posting user**; an identical comment by that user on that object is not added twice. |
 | `fitsmap_url` | URL of the FitsMap view. Stored as a second web resource (source "FitsMap"). |
 | `tags` | Strings from the Save dialog. Matched (ignoring case and whitespace) to existing **candidate tags**, or created. |
 | `host` | `null`, or `{host_id, host_ra, host_dec, host_z, host_z2, host_sep, host_catalog}`. See below. |
 | `fits` values | URLs preferred (files go to the central store, linked from the web). A plain path is still stored as given. |
 
-`host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` names the catalog (e.g. `"JADES"`); until the pipeline sends it, the server assumes **JADES** and says so in `warnings`. `host_z` is stored as the host's photo-z. `host_z2` and `host_sep` are accepted and not stored (the separation is worked out from the positions; `host_z2` is noted in `warnings`). A host is matched by catalog and ID, then by position, else created.
+`host`: `host_id` (integer) and `host_ra`, `host_dec` (degrees) are required. `host_catalog` names the catalog (e.g. `"JADES"`); until the pipeline sends it, the server assumes **JADES** and says so in `warnings`. `host_z` is stored as the host's photo-z. `host_z2` and `host_sep` are accepted and not stored, and produce no warning (the separation is worked out from the positions). A host is matched by catalog and ID, then by position, else created.
 
 Reply additions: `host` (`{"result": "created" | "matched" | "kept", ...}`; `kept` means the object already had a different host, which was **not** replaced, with the separation of the one that was offered) and `warnings` (list of strings; also per result in the array form).
 

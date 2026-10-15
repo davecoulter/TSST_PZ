@@ -77,13 +77,14 @@ Contract: `agentic_planning/023-add-candidate-endpoint/contract.md` (v1.3).
 
 | # | Deliverable | Notes |
 |---|---|---|
-| 2.1 | Notes and confidence as a comment | `notes` and `quality_flag` become one comment by the posting user, reusing the existing comment model; skipped when that user already left an identical one. Exact text format to settle. |
+| 2.1 | Notes and confidence as a comment | `notes` and `quality_flag` become one comment by the posting user, reusing the existing comment model, in the form `quality_flag: 3; notes: test` (a part is left out when empty); skipped when that user already left an identical one. |
 | 2.2 | `fitsmap_url` | A `TransientWebResource` from source "FitsMap" (created when missing). |
-| 2.3 | Host reshape | New fields (`host_id`, `host_ra`, `host_dec`, `host_z`, `host_z2`, `host_sep`, `host_catalog`). `host_z` becomes the photo-z; `host_z2` is dropped with a warning; `host_sep` is not stored (computed from positions). Missing `host_catalog` assumes JADES, via a setting, with a warning (interim). Matched by catalog and ID, then by position. The first host stays: a different later host is **not** applied and is reported in the reply (`kept`). A match to an existing host is reported (`matched`). |
+| 2.3 | Host reshape | New fields (`host_id`, `host_ra`, `host_dec`, `host_z`, `host_z2`, `host_sep`, `host_catalog`). `host_z` becomes the photo-z; `host_z2` is accepted and dropped (no warning); `host_sep` is not stored (computed from positions). Missing `host_catalog` assumes JADES, via a setting, with a warning (interim). Matched by catalog and ID, then by position. The first host stays: a different later host is **not** applied and is reported in the reply (`kept`). A match to an existing host is reported (`matched`). |
 | 2.4 | Host schema (**model change, migration**) | A `HostCatalog` lookup table, and on `Host` a nullable `catalog` foreign key and a nullable integer `catalog_id`, with a unique pair. One catalog per host. Rows for new catalogs are created on demand. |
-| 2.5 | Candidate tags (**model change, migration**) | A small `TagKind` lookup (Transient, Candidate) and a foreign key on `TransientTag`; existing tags become kind Transient (data migration). Payload `tags` match or create **candidate** tags (names trimmed, case-insensitive; stray tags are fine for now). The existing "Candidate" tag and the main dashboard's box for it: see open question 1. |
+| 2.5 | Candidate tags (**model change, migration**) | A small `TagKind` lookup (Transient, Candidate) and a foreign key on `TransientTag`; existing tags become kind Transient (data migration). Payload `tags` match or create **candidate** tags (names trimmed, case-insensitive; stray tags are fine for now). The automatic "Candidate" tag is **no longer added** at ingest: status is the lifecycle (Candidate -> New once promoted), tags are annotations (see decisions). |
 | 2.6 | `warnings` | The reply lists anything ignored or assumed (unknown top-level fields, the assumed catalog, `host_z2`, a host that was kept). |
-| 2.7 | Files as URLs | `fits` values are stored as given; http(s) values render as links. |
+| 2.7 | Untagged box | The main dashboard gets an **Untagged** box (transients with no tag, status not Candidate), so a promoted candidate without a tag still appears somewhere. |
+| 2.8 | Files as URLs | `fits` values are stored as given; http(s) values render as links. |
 
 Not in Part 2: the catalog loader and the overlapping-catalog entry table, probabilistic host association, per-person labels (#35), anything on `DataQuality`.
 
@@ -95,16 +96,22 @@ A separate page for the same object, per Dave: `/candidate/<slug>/` (name `candi
 - **Where links go.** Cards on `/candidates/` open the candidate page. The main dashboard's boxes and other lists keep opening the transient page.
 - **Quick-look layout** (to be fixed from Dave's drawing in `collab_scratch/`): above the fold, the highest-S/N detection with its cutouts, the latest detection, the light curve, an SED, the host (catalog, ID, separation computed from positions, photo-z), candidate tags with the create-a-tag widget, and the comment thread; links out to the websniff page, FitsMap and the FITS URLs. Below: runs, flagged by, and all image triplets (what Part 1 added), with superseded hidden behind the toggle.
 - **The Part 1 section** on the transient page becomes a short pointer to the candidate page.
-- An SED needs each band's wavelength; to confirm what the DB holds for bands.
+- **SED:** one per epoch (default the latest, with a selector): the epoch's photometry with wavelength on the x-axis, from `PhotometricBand.lambda_eff` (text, in Angstroms). Only 85 of 224 bands have one and **no NIRCam band does** (the endpoint creates bands lazily), so a data step fills in the NIRCam pivot wavelengths from the official filter table first. `HostSED` in the schema is a different thing: a host galaxy's SED-fit result (type, mass, SFR, metallicity, E(B-V), age, redshift, chi2, plot file); it is empty and is not used here.
 - Later: click a light-curve point to see its cutouts.
+
+### Decisions (Revision, 2026-10-15)
+
+1. **Status is the lifecycle, tags are annotations.** The "Candidate" tag is no longer added. A candidate is promoted by changing its status (Candidate -> New). Embellishments ("Young?", "Candidate Watch") are candidate-kind tags; how the application treats the object stays with the status. (There is already a `Watch` status; "Candidate Watch" may just be that.)
+2. **Comment text:** `quality_flag: 3; notes: test`.
+3. **`host_z2`:** ignored.
+4. **Promotion:** the transient page does not show candidate-kind tags; each page links to the other.
+5. **SED:** one per epoch; see Part 3.
 
 ### Open questions (Revision)
 
-1. The "Candidate" tag: with candidate-kind tags, stop adding it at ingest (status already says candidate)? Then a promoted candidate appears in a main-dashboard box only if a transient-kind tag is added. Or keep adding it, as a candidate-kind tag.
-2. Comment text format for notes plus confidence (waiting on the updated JSON).
-3. What `host_z2` is (Justin).
-4. On promotion, should candidate-kind tags still show on the transient page (read-only)?
-5. SED: band wavelengths, and one SED per epoch or the latest?
+1. Untagged box (2.7): confirm.
+2. SED epochs: how to group points into an epoch (the same visit, or within about a day)?
+3. What the NIRCam pivot wavelengths should be taken from (the official filter table; values to be added with their source).
 
 ### Acceptance criteria (Revision)
 
@@ -135,3 +142,4 @@ A separate page for the same object, per Dave: `/candidate/<slug>/` (name `candi
   - Checked offline: `ruff check .`; the new templates render with Django 4.0 and fake data (URL and local stamps, limits, superseded toggle, paging), and the edited `transient_detail.html` and `base.html` parse. Nothing has run against a DB yet.
 - **2026-10-14:** Dave asked for two more review features. (1) "Flagged by" on the detail page: added as item 2b, since it only reads existing rows. (2) Rejection reasons (cosmic ray, snowball, proper-motion star, alignment artifact, ...) for later CNN training: needs per-user labels stored in a new table, so it is a model change with its own issue (#35) and plan, not part of #27.
 - **2026-10-15:** Verified Part 1 on Dave's local stack (see the verification entries above and the test results). Dave related a conversation with Justin about the workflow and sent Justin's newer JSON; with the server's validator it was rejected (host block) and three fields (`fitsmap_url`, `quality_flag`, `notes`) were silently ignored. Decisions with Dave: adapt the endpoint to Justin's shape now (v1.3, Part 2); notes and confidence as a comment; `host_z` becomes the host photo-z, `host_z2` dropped, `host_sep` computed not stored; assume catalog JADES when not sent (interim); one catalog per host with `catalog` and an integer `catalog_id` on `Host`; first host wins and a different one is reported; candidate tags as a separate kind of tag (a `TagKind` table and a foreign key); a separate candidate page with links both ways (Part 3); fitsmap URL as a second web resource; run and field recorded in the web resource text. Written up in `agentic_planning/016-candidate-workflow/workflow.md`; contract v1.3 drafted. Waiting for Dave's drawing, an updated JSON, and approval of this revision.
+- **2026-10-15:** Dave answered the revision's open questions: stop adding the "Candidate" tag (status is the lifecycle, tags are annotations); comment text `quality_flag: 3; notes: test`; ignore `host_z2`; no candidate-kind tags on the transient page after promotion; one SED per epoch. Looked up the SED question: `HostSED` is a host-fit result model (empty), a candidate SED is photometry vs wavelength, and `PhotometricBand.lambda_eff` (Angstroms, text) is empty for all NIRCam bands, so a data step must fill it. Added an Untagged dashboard box (2.7) so a promoted candidate without a transient tag still shows somewhere.
