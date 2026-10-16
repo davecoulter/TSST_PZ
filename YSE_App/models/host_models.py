@@ -40,6 +40,19 @@ class HostSED(BaseModel):
 	def natural_key(self):
 		return self.__str__
 
+class HostCatalog(BaseModel):
+	"""A catalog that hosts come from (JADES, COSMOS, ...), identified by its file name.
+
+	A catalog object ID is only unique within its catalog, so a host from a catalog is
+	found by (catalog, catalog_object_id). `nickname` is the short name people use
+	(set on the server; the pipeline sends the file name).
+	"""
+	filename = models.CharField(max_length=255, unique=True)
+	nickname = models.CharField(max_length=64, null=True, blank=True)
+
+	def __str__(self):
+		return self.nickname or self.filename
+
 class Host(BaseModel):
 	### Entity relationships ###
 	# Optional
@@ -68,6 +81,17 @@ class Host(BaseModel):
 	photo_z_PSCNN = models.FloatField(null=True, blank=True)
 	photo_z_err_PSCNN = models.FloatField(null=True, blank=True)
 	photo_z_source = models.CharField(max_length=64, null=True, blank=True)
+	# Catalog identity (one catalog per host for now). The integer column is not called
+	# `catalog_id` because Django already uses that name for the foreign key's column.
+	catalog = models.ForeignKey(HostCatalog, null=True, blank=True, on_delete=models.PROTECT)
+	catalog_object_id = models.BigIntegerField(null=True, blank=True)
+
+	class Meta:
+		constraints = [
+			# catalog_object_id first, so the foreign key on `catalog` keeps its own index (MySQL would
+			# otherwise adopt this one for the foreign key, and the migration could not be reversed)
+			models.UniqueConstraint(fields=['catalog_object_id', 'catalog'], name='unique_host_catalog_object'),
+		]
 	transient_host_rank = models.IntegerField(null=True, blank=True)
 	panstarrs_objid = models.BigIntegerField(null=True, blank=True)
 

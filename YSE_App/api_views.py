@@ -25,6 +25,15 @@ class HostWebResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = HostWebResourceSerializer
     permission_classes = (permissions.IsAuthenticated,)
 
+### `HostCatalog` and `TagKind` ViewSets (read-only lookups) ###
+class HostCatalogViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = HostCatalog.objects.all()
+    serializer_class = HostCatalogSerializer
+
+class TagKindViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = TagKind.objects.all()
+    serializer_class = TagKindSerializer
+
 ### `Enum` ViewSets ###
 # Only exposing GET
 class TransientStatusViewSet(viewsets.ReadOnlyModelViewSet):

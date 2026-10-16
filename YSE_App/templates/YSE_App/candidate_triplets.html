@@ -1,0 +1,53 @@
+{% load candidate_extras %}
+{% comment %}
+"All cutouts": every registered cutout, packed like the websniff card (a dark panel): for each epoch,
+one column per filter and the rows DIFF, SCI, REF, with the magnitude on the DIFF cutout. Superseded
+epochs are hidden behind a toggle. Each cell carries data-phot so the Overview's triplets can jump here
+and highlight their point.
+{% endcomment %}
+<h4>
+  Every cutout
+  {% if candidate_n_superseded %}
+    <small><label style="font-weight:normal;margin-left:8px">
+      <input type="checkbox" id="candidate_show_superseded"
+             onchange="$('.candidate-superseded').toggle(this.checked)">
+      show superseded ({{ candidate_n_superseded }})
+    </label></small>
+  {% endif %}
+</h4>
+{% for ep in candidate_epochs %}
+<div class="cand-gridwrap{% if ep.superseded %} candidate-superseded{% endif %}"{% if ep.superseded %} style="display:none"{% endif %}>
+  <div class="cand-epoch-title">{{ ep.date|date:"Y-m-d H:i" }} UTC{% if ep.superseded %} <span class="cand-super-tag">superseded</span>{% endif %}</div>
+  <table class="cand-grid">
+    <tr>{% for band in ep.bands %}<th>{{ band }}</th>{% endfor %}</tr>
+    {% for row in ep.rows %}
+    <tr>
+      {% for cell in row.cells %}
+      <td>
+        {% if cell.url %}
+        <div class="cell" data-phot="{{ cell.phot_id }}">
+          <a href="{{ cell.url|stamp_src }}" target="_blank" rel="noopener"><img src="{{ cell.url|stamp_src }}" alt="{{ cell.band }} {{ row.label }}" loading="lazy"></a>
+          {% if row.label == 'DIFF' %}
+            {% if cell.limit %}<span class="lab">limit</span>
+            {% elif cell.mag is not None %}<span class="lab">{{ cell.mag|floatformat:2 }}{% if cell.mag_err is not None %} &plusmn; {{ cell.mag_err|floatformat:2 }}{% endif %}</span>{% endif %}
+          {% endif %}
+          <span class="rl">{{ row.label }}</span>
+        </div>
+        {% else %}
+        <div class="cell none" data-phot="{{ cell.phot_id }}">not provided<span class="rl">{{ row.label }}</span></div>
+        {% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  <details class="cand-files">
+    <summary>FITS files</summary>
+    {% for row in ep.rows %}{% for cell in row.cells %}{% if cell.fits %}
+      <div>{{ cell.band }} {{ row.label }}: <code class="cand-fits" data-path="{{ cell.fits }}" title="click to copy the full path">{{ cell.fits|basename }}</code></div>
+    {% endif %}{% endfor %}{% endfor %}
+  </details>
+</div>
+{% empty %}
+<p>No images registered.</p>
+{% endfor %}

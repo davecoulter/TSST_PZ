@@ -1,6 +1,7 @@
 {% load static %}
 {% load admin_urls %}
 {% load user_extras %}
+{% load candidate_extras %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -82,6 +83,10 @@
 			<ul class="sidebar-menu" data-widget="tree">
 				<li class="header">MAIN NAVIGATION</li>
 				<li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> <span>Main Dashboard</span></a></li>
+				{% candidate_count as n_new_candidates %}
+				<li><a href="{% url 'candidate_dashboard' %}"><i class="fa fa-star-o"></i> <span>Candidates</span>{% if n_new_candidates %}<span class="pull-right-container"><small class="label pull-right bg-yellow" title="{{ n_new_candidates }} new candidate{{ n_new_candidates|pluralize }} to review">{{ n_new_candidates }}</small></span>{% endif %}</a></li>
+				{% archived_count as n_archived %}
+				<li><a href="{% url 'archived_dashboard' %}"><i class="fa fa-archive"></i> <span>Archived</span>{% if n_archived %}<span class="pull-right-container"><small class="label pull-right bg-gray">{{ n_archived }}</small></span>{% endif %}</a></li>
 				<li><a href="{% url 'personaldashboard' %}"><i class="fa fa-id-card"></i> <span>{{ user.first_name }}'s Dashboard</span></a></li>
 {#				<li><a href="{% url 'followup' %}"><i class="fa fa-binoculars"></i> <span>Follow Requests</span></a></li>#}
 {#				<li><a href="{% url 'calendar' %}"><i class="fa fa-calendar"></i> <span>On-Call Calendar</span></a></li>#}
@@ -143,6 +148,17 @@
 <!-- Resolve conflict in jQuery UI tooltip with Bootstrap tooltip -->
 <script>
 	$.widget.bridge('uibutton', $.ui.button);
+</script>
+<script>
+	// Django wants the CSRF token as a header on any same-origin request that changes data (POST, PATCH,
+	// DELETE). Pages that built their own AJAX calls passed it in an option jQuery ignores, so the
+	// server refused them (a 403). Sent here once, never to another site.
+	$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
+		var method = (options.type || 'GET').toUpperCase();
+		if (!options.crossDomain && !/^(GET|HEAD|OPTIONS|TRACE)$/.test(method)) {
+			jqXHR.setRequestHeader('X-CSRFToken', '{{ csrf_token }}');
+		}
+	});
 </script>
 <!-- Bootstrap 3.3.7 -->
 <script src="{% static 'YSE_App/bower_components/datatables.net/js/jquery.dataTables.min.js' %}"></script>

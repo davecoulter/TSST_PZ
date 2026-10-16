@@ -1,0 +1,590 @@
+{% extends 'YSE_App/base.html' %}
+{% load static %}
+{% load transient_detail_extras %}
+{% load candidate_extras %}
+
+{% block styles %}
+<style>
+  /* triplets: a tight row, 20% smaller than before (152px cutouts) */
+  .cand-box { margin-bottom: 8px; }
+  .cand-box .box-header { padding: 6px 10px; }
+  .cand-box .box-header .box-title { font-size: 16px; }
+  .cand-box .box-body { padding: 8px 10px; }
+  .cand-trip { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cand-trip .cut { width: 152px; text-align: center; line-height: 1.2; }
+  .cand-cutout { display: block; width: 152px; height: 152px; object-fit: contain; background: #222; margin: 0 0 2px; }
+  .cand-missing { display: flex; align-items: center; justify-content: center; background: #eee; color: #888; font-size: 12px; }
+  .cand-badges .label { font-size: 13px; margin-right: 6px; }
+  /* where the candidate is: a crosshair with a gap in the middle, so the source stays visible;
+     bright with a dark outline, readable on light and dark cutouts */
+  .cand-marker-wrap { position: relative; display: block; width: 100%; max-width: 300px; margin: 0 auto; }
+  .cand-marker-wrap img { display: block; width: 100%; background: #222; }
+  .cand-cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+  .cand-cross i { position: absolute; background: #ffeb3b; box-shadow: 0 0 0 1px #000; }
+  .cand-cross .l { left: -30px; top: -1px; width: 20px; height: 2px; }
+  .cand-cross .r { left: 10px; top: -1px; width: 20px; height: 2px; }
+  .cand-cross .t { left: -1px; top: -30px; width: 2px; height: 20px; }
+  .cand-cross .b { left: -1px; top: 10px; width: 2px; height: 20px; }
+  .cand-ref-gallery img { width: 78px; height: 78px; object-fit: contain; background: #222; display: block; }
+  .cand-ref-gallery .item { display: inline-block; margin: 0 6px 6px 0; text-align: center; font-size: 12px; }
+  .cand-ref-gallery .item.active img { outline: 3px solid #f39c12; }
+  .cand-ref-gallery a.item { color: inherit; text-decoration: none; cursor: pointer; }
+  .cand-placeholder { color: #999; padding: 18px 0; text-align: center; }
+  /* All cutouts: a dark, dense grid like the websniff card */
+  .cand-gridwrap { background: #0f1722; border-radius: 6px; padding: 10px 14px 8px; margin-bottom: 14px; color: #cfd8e3; }
+  .cand-epoch-title { font-weight: bold; color: #e6edf3; margin: 0 0 2px; font-family: monospace; }
+  .cand-super-tag { background: #444; color: #ddd; padding: 0 5px; border-radius: 3px; font-size: 11px; }
+  .cand-grid { border-collapse: separate; border-spacing: 6px; }
+  .cand-grid th { font-family: monospace; font-size: 14px; font-weight: bold; text-align: center; color: #e6edf3; }
+  .cand-grid td { padding: 0; }
+  .cand-grid .cell { position: relative; width: 132px; height: 132px; background: #05080d; border: 1px solid #1d2733; }
+  .cand-grid .cell img { display: block; width: 130px; height: 130px; object-fit: contain; }
+  .cand-grid .cell .lab { position: absolute; left: 3px; top: 3px; padding: 0 4px; font-size: 11px;
+                          background: rgba(0,0,0,.65); color: #7fe0ff; border-radius: 2px; }
+  .cand-grid .cell .rl { position: absolute; left: 3px; bottom: 3px; padding: 0 4px; font-size: 11px;
+                         background: rgba(0,0,0,.65); color: #aab4c0; border-radius: 2px; }
+  .cand-grid .cell.none { display: flex; align-items: center; justify-content: center; color: #6b7785; font-size: 11px; }
+  .cand-grid .cell.hl { outline: 3px solid #f39c12; outline-offset: 1px; }
+  .cand-files { margin: 2px 0 0 2px; font-size: 12px; color: #aab4c0; }
+  .cand-files code { background: #1b2635; color: #9fd0ff; }
+  .cand-fits { cursor: copy; }
+  /* the triplet cutouts on the Overview jump to the grid */
+  a.cand-goto { cursor: zoom-in; }
+  /* distinct shaded boxes */
+  .cand-flagged { border-top-color: #f39c12; }
+  .cand-flagged .box-header { background: #fdf3e3; }
+  .cand-flagged .box-body { background: #fffaf2; }
+  .cand-comments { border-top-color: #00c0ef; }
+  .cand-comments .box-header { background: #e4f6fc; }
+  .cand-comments .box-body { background: #f4fbfe; }
+  .cand-tagsbox { border-top-color: #00a65a; }
+  .cand-tagsbox .box-header { background: #e5f5ec; }
+  /* the tag widget, as on the transient page */
+  .cand-chip { cursor: move; margin-bottom: 4px; padding: 5px 10px; color: #fff; border-radius: 3px; }
+  .cand-chip.bg-gray { background-color: #777 !important; }
+  #cand-color-chooser { list-style: none; margin: 0 0 8px; padding: 0; }
+  #cand-color-chooser li { float: left; margin-right: 5px; font-size: 30px; line-height: 30px; }
+  #cand-color-chooser a.sel i { outline: 2px solid #333; outline-offset: 1px; }
+  #cand_assoc_box.over, #cand_remove_box.over { background: #fffbe0; }
+</style>
+{% endblock %}
+
+{% block content_header %}
+    <h1>
+        {{ transient.name }}
+        <small>candidate</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li><a href="{% url 'candidate_dashboard' %}">Candidates</a></li>
+        <li class="active">{{ transient.name }}</li>
+    </ol>
+{% endblock %}
+
+{% block content %}
+
+{# Header: what it is, its status (changing it to New is the promotion), and where to go next. #}
+<div class="row">
+  <div class="col-xs-12">
+    <div class="box box-warning">
+      <div class="box-body">
+        <div class="row">
+          <div class="col-md-5">
+            <p class="cand-badges">
+              <span class="label label-primary">{{ candidate_filters_detected }}/{{ candidate_filters_seen }} filters &ge;3&sigma;</span>
+              <span class="label label-primary">max S/N {% if candidate_max_snr is not None %}{{ candidate_max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</span>
+              {% if candidate_quality %}<span class="label label-info" title="{{ candidate_quality_help }}">score {{ candidate_quality.0|floatformat:1 }} ({{ candidate_quality.1 }})</span>{% endif %}
+            </p>
+            {% if candidate_is_new %}
+            <p style="margin-bottom:6px">
+              <button id="cand_triaged" type="button" class="btn btn-success btn-sm" data-next="{% if candidate_next_new %}{% url 'candidate_detail' candidate_next_new %}{% else %}{% url 'candidate_dashboard' %}{% endif %}"><i class="fa fa-check"></i> Mark triaged{% if candidate_next_new %} &amp; next{% endif %}</button>
+              {% if candidate_next_new %}<a id="cand_skip" class="btn btn-default btn-sm" href="{% url 'candidate_detail' candidate_next_new %}">Skip, next new &rarr;</a>{% endif %}
+            </p>
+            {% endif %}
+            <p style="margin-bottom:4px">
+              <a class="btn btn-default btn-sm" href="{% url 'transient_detail' transient.slug %}">Transient page</a>
+              {% if candidate_links.fitsmap %}<a class="btn btn-warning btn-sm" target="_blank" rel="noopener" href="{{ candidate_links.fitsmap }}"><i class="fa fa-map-o"></i> View in field</a>{% endif %}
+              {% if candidate_links.permalink %}<a class="btn btn-default btn-sm" target="_blank" rel="noopener" href="{{ candidate_links.permalink }}">Permalink</a>{% endif %}
+              <a class="btn btn-link btn-sm" href="{% url 'candidate_dashboard' %}">All candidates</a>
+            </p>
+          </div>
+          <div class="col-md-7">
+            <div class="box box-default box-solid" style="margin-bottom:0">
+              <div class="box-header with-border">
+                <strong style="float:left;margin-right:10px;">Status:</strong>
+                <p style="float:left;margin:0" id="transient_status_name">{{ transient.status }}</p>
+                <span id="cand_promoted_note" class="text-muted" style="margin-left:12px;{% if transient.status.name|lower == 'candidate' %}display:none{% endif %}">
+                  promoted; this page keeps the candidate history
+                </span>
+              </div>
+              <div class="box-body">
+                <div class="btn-group-horizontal">
+                  {% comment %}New first: changing the status to New is the promotion{% endcomment %}
+                  {% if transient_status_new %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_new.id }}" data-status_name="{{ transient_status_new.name }}" class="transientStatusChange btn btn-success" title="Promote to a transient">{{ transient_status_new.name }}</button>{% endif %}
+                  {% if transient_status_watch %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_watch.id }}" data-status_name="{{ transient_status_watch.name }}" class="transientStatusChange btn btn-warning">{{ transient_status_watch.name }}</button>{% endif %}
+                  {% if transient_status_archived %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_archived.id }}" data-status_name="{{ transient_status_archived.name }}" class="transientStatusChange btn btn-default">{{ transient_status_archived.name }}</button>{% endif %}
+                  {% if transient_status_ignore %}<button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_ignore.id }}" data-status_name="{{ transient_status_ignore.name }}" class="transientStatusChange btn btn-danger">{{ transient_status_ignore.name }}</button>{% endif %}
+                  <div class="btn-group">
+                    <button style="margin-bottom:5px;" type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+                      Other <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu">
+                      {% for status in all_transient_statuses %}
+                        <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-xs-12">
+    <div class="nav-tabs-custom">
+      <ul class="nav nav-tabs">
+        <li class="active"><a href="#cand_overview_tab" data-toggle="tab">Overview</a></li>
+        <li><a href="#cand_cutouts_tab" data-toggle="tab">All cutouts</a></li>
+        <li><a href="#cand_runs_tab" data-toggle="tab">Runs</a></li>
+      </ul>
+      <div class="tab-content">
+
+        <div class="active tab-pane" id="cand_overview_tab">
+          <div class="row">
+            {# left: the cutouts and the host #}
+            <div class="col-md-6">
+              {% if candidate_best_is_latest %}
+                {% include "YSE_App/candidate_triplet.html" with triplet=candidate_best title="Highest S/N, most recent" %}
+              {% else %}
+                {% include "YSE_App/candidate_triplet.html" with triplet=candidate_best title="Highest S/N" %}
+                {% include "YSE_App/candidate_triplet.html" with triplet=candidate_latest title="Most recent" %}
+              {% endif %}
+
+              <div class="box box-default">
+                <div class="box-header with-border"><h3 class="box-title">Host</h3></div>
+                <div class="box-body">
+                  <div class="row">
+                    <div class="col-sm-6 text-center">
+                      {% if candidate_host_image %}
+                        <div class="cand-marker-wrap">
+                          <img id="cand_host_img" src="{{ candidate_host_image|stamp_src }}" alt="reference cutout">
+                          <span class="cand-cross" title="the candidate"><i class="l"></i><i class="r"></i><i class="t"></i><i class="b"></i></span>
+                        </div>
+                        <div><small class="text-muted">reference, <b id="cand_host_band">{{ candidate_host_image_band|default:"" }}</b>; the crosshair centre is the candidate.
+                          <a id="cand_host_link" target="_blank" rel="noopener" href="{{ candidate_host_image|stamp_src }}">full size</a></small></div>
+                      {% else %}
+                        <div class="cand-placeholder">no reference image</div>
+                      {% endif %}
+                    </div>
+                    <div class="col-sm-6">
+                      {% if transient.host %}
+                      <table class="table table-condensed" style="margin-bottom:6px">
+                        <tbody>
+                          <tr><td>Name</td><td>{{ transient.host.name|default:"&ndash;" }}</td></tr>
+                          <tr><td>Catalog</td><td>{% if candidate_host_catalog %}{{ candidate_host_catalog }}{% if transient.host.catalog_object_id is not None %} #{{ transient.host.catalog_object_id }}{% endif %}{% else %}&ndash;{% endif %}</td></tr>
+                          <tr><td>R.A./Dec</td><td>{{ transient.host.CoordString.0 }} &nbsp; {{ transient.host.CoordString.1 }}<br><small class="text-muted">{{ transient.host.RADecimalString }} &nbsp; {{ transient.host.DecDecimalString }}</small></td></tr>
+                          {% if transient.host.redshift is not None %}<tr><td>Spec-z</td><td>{{ transient.host.redshift|floatformat:4 }}{% if transient.host.redshift_err is not None %} &plusmn; {{ transient.host.redshift_err|floatformat:4 }}{% endif %}</td></tr>{% endif %}
+                          {% if transient.host.photo_z is not None %}<tr><td>Photo-z</td><td>{{ transient.host.photo_z|floatformat:3 }}{% if transient.host.photo_z_err is not None %} &plusmn; {{ transient.host.photo_z_err|floatformat:3 }}{% endif %}{% if transient.host.photo_z_source %} <small class="text-muted">({{ transient.host.photo_z_source }})</small>{% endif %}</td></tr>{% endif %}
+                          {% if transient.host.redshift is None and transient.host.photo_z is None %}<tr><td>Redshift</td><td>&ndash;</td></tr>{% endif %}
+                          <tr><td>Separation</td><td>{% if candidate_host_sep is not None %}{{ candidate_host_sep|floatformat:2 }}&Prime;{% else %}&ndash;{% endif %}</td></tr>
+                        </tbody>
+                      </table>
+                      {% else %}
+                        <p class="text-muted">No host recorded.</p>
+                      {% endif %}
+                    </div>
+                  </div>
+                  {% if candidate_ref_gallery %}
+                  <div class="cand-ref-gallery" style="margin-top:8px">
+                    <small class="text-muted">Reference image in each filter (click to show it above)</small><br>
+                    {% for r in candidate_ref_gallery %}
+                      <a href="#" class="item cand-ref-pick{% if r.band == candidate_host_image_band %} active{% endif %}" data-src="{{ r.ref|stamp_src }}" data-band="{{ r.band }}"><img src="{{ r.ref|stamp_src }}" alt="{{ r.band }} reference" loading="lazy">{{ r.band }}</a>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            {# right: the SED #}
+            <div class="col-md-6">
+              <div class="box box-default cand-box">
+                <div class="box-header with-border">
+                  <h3 class="box-title">SED</h3>
+                  {% if candidate_epoch_options|length > 1 %}
+                  <select id="cand_sed_epoch" class="input-sm" style="margin-left:8px">
+                    {% for i, d in candidate_epoch_options %}<option value="{{ i }}">{{ d|date:"Y-m-d" }}{% if i == 0 %} (latest){% endif %}</option>{% endfor %}
+                  </select>
+                  {% endif %}
+                </div>
+                <div class="box-body" id="sedplot"><div class="cand-placeholder">loading</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
+              <div class="box box-default cand-box">
+                <div class="box-header with-border"><h3 class="box-title">Light curve</h3></div>
+                <div class="box-body" id="lcplot"></div>
+              </div>
+            </div>
+
+            {# candidate tags: the same widget as on the transient page #}
+            <div class="col-md-6">
+              <div class="box box-default cand-box cand-tagsbox">
+                <div class="box-header with-border"><h3 class="box-title">Candidate tags</h3></div>
+                <div class="box-body">
+                  <div class="row">
+                    <div class="col-xs-6">
+                      <div class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Apply Tag</strong></div>
+                        <div class="box-body">
+                          <form id="cand_tag_form">
+                            <input type="text" list="cand_tag_list" id="cand_tag_name" class="form-control input-sm" autocomplete="off">
+                            <datalist id="cand_tag_list">{% for t in candidate_tags_available %}<option value="{{ t.name }}">{% endfor %}</datalist>
+                            <input type="submit" class="btn btn-block btn-primary btn-sm" style="margin-top:8px" value="Submit">
+                          </form>
+                        </div>
+                      </div>
+                      <div class="box box-default box-solid collapsed-box">
+                        <div class="box-header with-border" data-widget="collapse"><strong>Available Tags</strong>
+                          <div class="box-tools pull-right"><button type="button" class="btn btn-box-tool"><i class="fa fa-plus"></i></button></div>
+                        </div>
+                        <div class="box-body" id="cand_available">
+                          {% for t in candidate_tags_available %}<div class="external-event cand-chip cand-avail {% if t.color %}bg-{{ t.color }}{% else %}bg-gray{% endif %}" data-name="{{ t.name }}" data-tag_id="{{ t.id }}">{{ t.name }}</div>{% endfor %}
+                        </div>
+                      </div>
+                      <div class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Create Tag</strong></div>
+                        <div class="box-body">
+                          <ul id="cand-color-chooser" class="fc-color-picker">
+                            {% for c in all_colors %}<li><a href="#" data-color_id="{{ c.id }}" class="text-{{ c.color }}"><i class="fa fa-square"></i></a></li>{% endfor %}
+                          </ul>
+                          <div style="clear:both"></div>
+                          <div class="input-group">
+                            <input id="cand-new-tag" type="text" class="form-control input-sm" placeholder="Tag name">
+                            <div class="input-group-btn"><button id="cand-add-new" type="button" class="btn btn-primary btn-sm btn-flat">Add</button></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-xs-6">
+                      <div id="cand_assoc_box" class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Associated Tags</strong></div>
+                        <div class="box-body" id="cand_assoc">
+                          {% for t in candidate_tags_assigned %}<div class="external-event cand-chip cand-assoc {% if t.color %}bg-{{ t.color }}{% else %}bg-gray{% endif %}" data-name="{{ t.name }}" data-tag_id="{{ t.id }}">{{ t.name }}</div>{% endfor %}
+                        </div>
+                      </div>
+                      <div id="cand_remove_box" class="box box-default box-solid">
+                        <div class="box-header with-border"><strong>Remove Associated Tag</strong></div>
+                        <div class="box-body"><small class="text-muted">drag a tag here to remove it</small></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# who flagged it and the comments: distinct, shaded boxes #}
+          <div class="row">
+            <div class="col-md-5">
+              <div class="box box-default cand-box cand-flagged">
+                <div class="box-header with-border"><h3 class="box-title">Flagged by</h3></div>
+                <div class="box-body" style="padding:0">
+                  <table class="table table-condensed" style="margin:0">
+                    <thead><tr><th>User</th><th>First</th><th>Last</th><th>Points</th></tr></thead>
+                    <tbody>
+                    {% for u in candidate_flagged_by %}
+                      <tr>
+                        <td>{% if u.created_by__first_name or u.created_by__last_name %}{{ u.created_by__first_name }} {{ u.created_by__last_name }} ({{ u.created_by__username }}){% else %}{{ u.created_by__username }}{% endif %}</td>
+                        <td style="white-space:nowrap">{{ u.first|date:"Y-m-d H:i" }}</td>
+                        <td style="white-space:nowrap">{{ u.last|date:"Y-m-d H:i" }}</td>
+                        <td>{{ u.n_points }}</td>
+                      </tr>
+                    {% empty %}
+                      <tr><td colspan="4">&ndash;</td></tr>
+                    {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-7">
+              <div class="box box-default cand-box cand-comments">
+                <div class="box-header with-border"><h3 class="box-title">Comments</h3></div>
+                <div class="box-body">
+                  <table class="table table-condensed" id="cand_comments">
+                    <thead><tr><th>User</th><th>Time (UT)</th><th>Comment</th></tr></thead>
+                    <tbody>
+                    {% for l in logs %}
+                      <tr><td>{{ l.created_by }}</td><td style="white-space:nowrap">{{ l.created_date|date:"Y-m-d H:i" }}</td><td>{{ l.comment }}</td></tr>
+                    {% empty %}
+                      <tr class="cand-no-comments"><td colspan="3" class="text-muted">No comments yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                  </table>
+                  <form id="add_transient_comment" action="{% url 'add_transient_comment' %}" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="transient" value="{{ transient.id }}">
+                    <div class="input-group">
+                      <textarea name="comment" class="form-control" rows="2" placeholder="Add a comment (@name to notify someone)"></textarea>
+                      <span class="input-group-btn"><button type="submit" class="btn btn-primary btn-flat">Add</button></span>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {# below the fold: synoptic information, as on the transient page, trimmed #}
+          <div class="row">
+            <div class="col-xs-12">
+              <div class="box box-primary">
+                <div class="box-header"><h3 class="box-title">Synoptic information</h3>
+                  <a target="_blank" rel="noopener" href="{% url 'admin:YSE_App_transient_change' transient.id %}">(Edit)</a></div>
+                <div class="box-body">
+                  <div class="row">
+                    <div class="col-sm-4"><strong>R.A./Dec (2000)</strong>
+                      <p class="text-muted">{{ transient.CoordString.0 }} &nbsp; {{ transient.CoordString.1 }}<br><small>{{ transient.RADecimalString }} &nbsp; {{ transient.DecDecimalString }}</small></p></div>
+                    <div class="col-sm-4"><strong>Disc. Date (UTC)</strong>
+                      <p class="text-muted">{% if transient.disc_date %}{{ transient.disc_date }}{% else %}Unknown{% endif %}</p></div>
+                    <div class="col-sm-4"><strong>Galactic <i>l/b</i></strong>
+                      <p class="text-muted">{{ transient.CoordString|galcoordsl }} &nbsp; {{ transient.CoordString|galcoordsb }}</p></div>
+                  </div>
+                  {% if transient.mw_ebv %}
+                  <div class="row"><div class="col-sm-4"><strong>MW E(B-V)</strong>
+                    <p class="text-muted">{{ transient.mw_ebv }}{% if transient.mw_ebv >= 0.2 %} <b class="text-red">(warning!)</b>{% endif %}</p></div></div>
+                  {% endif %}
+                  <hr>
+                  <h4>Photometric Summary</h4>
+                  <table class="table table-bordered table-striped">
+                    <thead><tr><th></th><th>Date</th><th>Mag</th><th>Mag Lim</th><th>Filter</th></tr></thead>
+                    <tbody>
+                      <tr><td>Disc Mag</td><td>{{ first_magdate }}</td><td>{{ first_mag }}</td><td></td><td>{{ first_filter }}</td></tr>
+                      <tr><td>Last Non-detection</td><td>{{ transient.non_detect_date }}</td><td></td><td>{{ transient.non_detect_limit }}</td><td>{{ transient.non_detect_band }}</td></tr>
+                      <tr><td>Recent Mag</td><td>{{ recent_magdate }}</td><td>{{ recent_mag }}</td><td></td><td>{{ recent_filter }}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-pane" id="cand_cutouts_tab">
+          {% include "YSE_App/candidate_triplets.html" %}
+        </div>
+
+        <div class="tab-pane" id="cand_runs_tab">
+          <div class="row">
+            <div class="col-md-7">
+              <h4>Runs</h4>
+              <table class="table table-condensed">
+                <thead><tr><th>Candidate ID</th><th>websniff page</th></tr></thead>
+                <tbody>
+                {% for run in candidate_runs %}
+                  <tr>
+                    <td>{{ run.name }}{% if run.detail %}<br><small>{{ run.detail }}</small>{% endif %}</td>
+                    <td>
+                      {% for url in run.permalinks %}
+                        {% if url|is_url %}<a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>{% else %}{{ url }}{% endif %}{% if not forloop.last %}<br>{% endif %}
+                      {% empty %}&ndash;{% endfor %}
+                    </td>
+                  </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <script type="text/javascript" src="{% static 'YSE_App/bokeh-2.4.2.min.js' %}"></script>
+    <script type="text/javascript">
+    $(document).ready(function(){
+        // the same light curve the transient page shows
+        $.get("{% url 'lightcurveplot_detail' transient.id %}?compact=1").done(function(htmlresponse){
+            $("#lcplot").html(htmlresponse);
+        });
+
+        // the SED, one epoch at a time
+        function loadSed(epoch) {
+            $.get("{% url 'candidate_sed' transient.id %}?epoch=" + epoch).done(function(htmlresponse){
+                $("#sedplot").html(htmlresponse);
+            }).fail(function(){ $("#sedplot").html('<div class="cand-placeholder">the SED could not be drawn</div>'); });
+        }
+        loadSed(0);
+        $('#cand_sed_epoch').on('change', function(){ loadSed($(this).val()); });
+
+        // host: clicking a filter shows its reference image in the big view
+        $('.cand-ref-pick').on('click', function(event){
+            event.preventDefault();
+            var src = $(this).attr('data-src');
+            $('#cand_host_img').attr('src', src);
+            $('#cand_host_link').attr('href', src);
+            $('#cand_host_band').text($(this).attr('data-band'));
+            $('.cand-ref-pick').removeClass('active');
+            $(this).addClass('active');
+        });
+
+        // FITS file names: click to copy the full path (for DS9 and the like)
+        $(document).on('click', '.cand-fits', function(){
+            var path = $(this).attr('data-path');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(path);
+            } else {
+                window.prompt('Copy the full path:', path);
+            }
+        });
+
+        function esc(text) { return $('<div>').text(text == null ? '' : text).html(); }
+
+        // comments: the same endpoint as the transient page
+        $('#add_transient_comment').on('submit', function(event){
+            event.preventDefault();
+            $.ajax({
+                url: "{% url 'add_transient_comment' %}", type: "POST", data: $(this).serialize(),
+                success: function(json) {
+                    if (json.data && json.data['comment']) {
+                        $('.cand-no-comments').remove();
+                        $('#cand_comments tbody').append('<tr><td>' + esc(json.data['created_by']) + '</td><td style="white-space:nowrap">' +
+                            esc(json.data['modified_date']) + '</td><td>' + esc(json.data['comment']) + '</td></tr>');
+                    }
+                    $('#add_transient_comment')[0].reset();
+                },
+                error: function(xhr) { alert(xhr.status + ": " + xhr.responseText); }
+            });
+        });
+
+        // Mark triaged: take the New tag off, then go on to the next new candidate (or back to the list)
+        $('#cand_triaged').on('click', function(){
+            var next = $(this).attr('data-next');
+            $.ajax({
+                url: "{% url 'candidate_tag' transient.id %}", type: "POST",
+                headers: { "X-CSRFToken": "{{ csrf_token }}" }, data: { action: 'remove', name: 'New' },
+                success: function() { window.location = next; },
+                error: function(xhr) { alert("Could not mark it triaged: " + xhr.status + " " + xhr.responseText); }
+            });
+        });
+
+        // the Overview's triplets jump to the same point in All cutouts and highlight it
+        $(document).on('click', '.cand-goto', function(event){
+            event.preventDefault();
+            var id = $(this).attr('data-phot');
+            $('a[href="#cand_cutouts_tab"]').tab('show');
+            $('.cand-grid .cell.hl').removeClass('hl');
+            var cells = $('.cand-grid .cell[data-phot="' + id + '"]').addClass('hl');
+            if (cells.length) {
+                setTimeout(function(){ $('html, body').animate({ scrollTop: cells.first().offset().top - 140 }, 250); }, 60);
+            }
+        });
+
+        // candidate tags, as on the transient page: apply, available (drag or click), create, remove by drag
+        var tagColor = null;
+        function chips(tags, cls) {
+            var html = '';
+            $.each(tags, function(i, t){
+                html += '<div class="external-event cand-chip ' + cls + ' bg-' + (t.color || 'gray') +
+                        '" data-name="' + esc(t.name) + '" data-tag_id="' + t.id + '">' + esc(t.name) + '</div>';
+            });
+            return html;
+        }
+        function initChips() {
+            $('.cand-chip').draggable({ zIndex: 1070, revert: true, revertDuration: 0 });
+        }
+        function showTags(json) {
+            $('#cand_assoc').html(chips(json.tags, 'cand-assoc'));
+            $('#cand_available').html(chips(json.available, 'cand-avail'));
+            var options = '';
+            $.each(json.available, function(i, t){ options += '<option value="' + esc(t.name) + '">'; });
+            $('#cand_tag_list').html(options);
+            initChips();
+        }
+        function changeTag(action, name, color) {
+            var data = { action: action, name: name };
+            if (color) { data.color = color; }
+            $.ajax({
+                url: "{% url 'candidate_tag' transient.id %}", type: "POST",
+                headers: { "X-CSRFToken": "{{ csrf_token }}" }, data: data,
+                success: showTags,
+                error: function(xhr) { alert("The tag was not changed: " + xhr.status + " " + xhr.responseText); }
+            });
+        }
+        $('#cand_tag_form').on('submit', function(event){
+            event.preventDefault();
+            var name = $.trim($('#cand_tag_name').val());
+            if (name) { changeTag('add', name); $('#cand_tag_name').val(''); }
+        });
+        $(document).on('click', '.cand-avail', function(){ changeTag('add', $(this).attr('data-name')); });
+        $('#cand-color-chooser a').on('click', function(event){
+            event.preventDefault();
+            tagColor = $(this).attr('data-color_id');
+            $('#cand-color-chooser a').removeClass('sel');
+            $(this).addClass('sel');
+            var color = $(this).css('color');
+            $('#cand-add-new').css({ 'background-color': color, 'border-color': color });
+        });
+        $('#cand-add-new').on('click', function(event){
+            event.preventDefault();
+            var name = $.trim($('#cand-new-tag').val());
+            if (name) { changeTag('create', name, tagColor); $('#cand-new-tag').val(''); }
+        });
+        $('#cand_assoc_box').droppable({ accept: '.cand-avail', hoverClass: 'over',
+            drop: function(event, ui){ changeTag('add', ui.draggable.attr('data-name')); } });
+        $('#cand_remove_box').droppable({ accept: '.cand-assoc', hoverClass: 'over',
+            drop: function(event, ui){ changeTag('remove', ui.draggable.attr('data-name')); } });
+        initChips();
+
+        // status control: the same PATCH the transient page makes; changing it to New is the promotion
+        $('.transientStatusChange').on('click', function(event){
+            event.preventDefault();
+            var status_id = $(this).attr('data-status_id')
+            var status_name = $(this).attr('data-status_name')
+            var url_target = "{% url 'transient-detail' transient.id %}"
+            var status_target = "{% url 'transientstatus-list' %}" + status_id + "/"
+
+            var base_url = window.location.protocol + "//" + window.location.hostname
+            var port = window.location.port
+            var api_url = base_url + url_target
+            var status_url = base_url + status_target
+            if (port != "") {
+                api_url = base_url + ":" + port + url_target
+                status_url = base_url + ":" + port + status_target
+            }
+
+            $.ajax({
+              type: "PATCH",
+              url: api_url,
+              // a session-authenticated PATCH needs the CSRF token as a header (jQuery ignores it as an option)
+              headers: { "X-CSRFToken": "{{ csrf_token }}" },
+              data: { "status": status_url },
+              success: function(data, textStatus, jqXHR) {
+                  var tokens = data.status.split("/")
+                  if (jqXHR.status == 200 && tokens[tokens.length-2] == status_id) {
+                      $('#transient_status_name').text(status_name)
+                      $('#cand_promoted_note').toggle(status_name.toLowerCase() != 'candidate')
+                  } else {
+                      alert("Transient Status may not have changed -- please check the transient page.")
+                  }
+              },
+              error: function() {
+                  alert("Transient Status may not have changed -- please check the transient page.")
+              }
+            });
+        });
+    });
+    </script>
+{% endblock %}

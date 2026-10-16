@@ -1,6 +1,7 @@
 {% extends 'YSE_App/base.html' %}
 {% load static %}
 {% load transient_detail_extras %}
+{% load candidate_extras %}
 {% load widget_tweaks %}
 
 {% block styles %}
@@ -51,6 +52,7 @@
                 </ul>
                 <div class="tab-content">
                     <div class="active tab-pane" id="summary_tab">
+                        {% if candidate_pointer %}{% include "YSE_App/candidate_pointer.html" %}{% endif %}
                         <div class="row">
                             <div class="col-xs-6">
                                 <div class="box box-primary">
@@ -546,7 +548,7 @@
                                                     <a class="btn btn-block btn-primary" href="https://ztf.snad.space/search/{{transient.ra}}%20{{transient.dec}}/5" target="_blank">SNAD ZTF DR</a>
                                                 </div>
                                             </div>
-                                            {% if transient.postage_stamp_file %}
+                                            {% if transient.postage_stamp_file and not transient.postage_stamp_file|is_url %}
                                             <div class="col-xs-6">
                                                 <div class="form-group">
                                                     <a class="btn btn-block btn-primary" href="https://star.pst.qub.ac.uk/sne/ps1yse/psdb/candidate/{{qub_candidate}}/" target="_blank">QUB</a>
@@ -617,29 +619,17 @@
               <div class="row">
                 <div class="col-xs-4">
                   {% static "" as baseUrl %}
-                  {% with "YSE_App/images/stamps/"|add:transient.postage_stamp_file as stampfile %}
-                  {% with "YSE_App/images/stamps/"|add:transient.postage_stamp_file_fits as stampfitsfile %}
-                  <a href="{% static stampfitsfile %}"><img src="{% static stampfile %}" style='width:170px' alt="" /></a>
-                  {% endwith %}
-                  {% endwith %}
+                  <a href="{{ transient.postage_stamp_file_fits|stamp_src }}"><img src="{{ transient.postage_stamp_file|stamp_src }}" style='width:170px' alt="" /></a>
                   <br><br>
                 </div>
                 <div class="col-xs-4">
                   {% static "" as baseUrl %}
-                  {% with "YSE_App/images/stamps/"|add:transient.postage_stamp_ref as stampfile %}
-                  {% with "YSE_App/images/stamps/"|add:transient.postage_stamp_ref_fits as stampfitsfile %}
-                  <a href="{% static stampfitsfile %}"><img src="{% static stampfile %}" style='width:170px' alt="" /></a>
-                  {% endwith %}
-                  {% endwith %}
+                  <a href="{{ transient.postage_stamp_ref_fits|stamp_src }}"><img src="{{ transient.postage_stamp_ref|stamp_src }}" style='width:170px' alt="" /></a>
                   <br><br>
                 </div>
                 <div class="col-xs-4">
                   {% static "" as baseUrl %}
-                  {% with "YSE_App/images/stamps/"|add:transient.postage_stamp_diff as stampfile %}
-                  {% with "YSE_App/images/stamps/"|add:transient.postage_stamp_diff_fits as stampfitsfile %}
-                  <a href="{% static stampfitsfile %}"><img src="{% static stampfile %}" style='width:170px' alt="" /></a>
-                  {% endwith %}
-                  {% endwith %}
+                  <a href="{{ transient.postage_stamp_diff_fits|stamp_src }}"><img src="{{ transient.postage_stamp_diff|stamp_src }}" style='width:170px' alt="" /></a>
                   <br><br>
                 </div>
               </div>
@@ -1013,37 +1003,25 @@
                                     <td>{{diff.phot_data.band.name}}</td>
                                     <td>{{diff.phot_data.band.instrument.name}}</td>
                                     <td>
-                                     {% if diff.valid_pixels %}
+                                     {% if diff.valid_pixels or diff.postage_stamp_file|is_url %}
                                         {% static "" as baseUrl %}
-                                        {% with "YSE_App/images/stamps/"|add:diff.postage_stamp_file as stampfile %}
-                                        {% with "YSE_App/images/stamps/"|add:diff.postage_stamp_file_fits as stampfitsfile %}
-                                        <a href="{% static stampfitsfile %}"><img src="{% static stampfile %}" style='width:170px' alt="" /></a>
-                                        {% endwith %}
-                                        {% endwith %}
+                                        <a href="{{ diff.postage_stamp_file_fits|stamp_src }}"><img src="{{ diff.postage_stamp_file|stamp_src }}" style='width:170px' alt="" /></a>
                                         {% else %}
                                         No Valid Pixels
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if diff.valid_pixels %}
+                                        {% if diff.valid_pixels or diff.postage_stamp_file|is_url %}
                                         {% static "" as baseUrl %}
-                                        {% with "YSE_App/images/stamps/"|add:diff.postage_stamp_ref as stampfile %}
-                                        {% with "YSE_App/images/stamps/"|add:diff.postage_stamp_ref_fits as stampfitsfile %}
-                                        <a href="{% static stampfitsfile %}"><img src="{% static stampfile %}" style='width:170px' alt="" /></a>
-                                        {% endwith %}
-                                        {% endwith %}
+                                        <a href="{{ diff.postage_stamp_ref_fits|stamp_src }}"><img src="{{ diff.postage_stamp_ref|stamp_src }}" style='width:170px' alt="" /></a>
                                         {% else %}
                                         No Valid Pixels
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if diff.valid_pixels %}
+                                        {% if diff.valid_pixels or diff.postage_stamp_file|is_url %}
                                         {% static "" as baseUrl %}
-                                        {% with "YSE_App/images/stamps/"|add:diff.postage_stamp_diff as stampfile %}
-                                        {% with "YSE_App/images/stamps/"|add:diff.postage_stamp_diff_fits as stampfitsfile %}
-                                        <a href="{% static stampfitsfile %}"><img src="{% static stampfile %}" style='width:170px' alt="" /></a>
-                                        {% endwith %}
-                                        {% endwith %}
+                                        <a href="{{ diff.postage_stamp_diff_fits|stamp_src }}"><img src="{{ diff.postage_stamp_diff|stamp_src }}" style='width:170px' alt="" /></a>
                                         {% else %}
                                         No Valid Pixels
                                         {% endif %}

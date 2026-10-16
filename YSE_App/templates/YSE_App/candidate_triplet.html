@@ -1,0 +1,35 @@
+{% load candidate_extras %}
+{# One triplet (SCI, REF, DIFF) for a point: "Highest S/N" and "Most recent" on the candidate page. #}
+<div class="box box-default cand-box">
+  <div class="box-header with-border">
+    <h3 class="box-title">{{ title }}</h3>
+    {% if triplet %}
+    <span class="text-muted" style="margin-left:8px">
+      {{ triplet.band }} &middot; {{ triplet.date|date:"Y-m-d H:i" }} UTC
+      {% if triplet.snr is not None %}&middot; S/N {{ triplet.snr|floatformat:1 }}{% endif %}
+      {% if not triplet.detection %}<span class="label label-default">limit</span>{% endif %}
+      &middot;
+      {% if triplet.mag is not None %}mag {{ triplet.mag|floatformat:2 }}{% if triplet.mag_err is not None %} &plusmn; {{ triplet.mag_err|floatformat:2 }}{% endif %}{% endif %}
+      {% if triplet.flux is not None %}{% if triplet.mag is not None %}&middot; {% endif %}flux {{ triplet.flux|floatformat:4 }}{% if triplet.flux_err is not None %} &plusmn; {{ triplet.flux_err|floatformat:4 }}{% endif %} &micro;Jy{% endif %}
+    </span>
+    {% endif %}
+  </div>
+  <div class="box-body">
+    {% if triplet %}
+    <div class="cand-trip">
+      {% for label, url, fits in triplet.cutouts %}
+      <div class="cut">
+        {% if url %}
+          <a href="#cand_cutouts_tab" class="cand-goto" data-phot="{{ triplet.phot_id }}" title="show this point in All cutouts"><img class="cand-cutout" src="{{ url|stamp_src }}" alt="{{ label }} cutout"></a>
+        {% else %}
+          <div class="cand-cutout cand-missing">not provided</div>
+        {% endif %}
+        <small>{{ label }}</small>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted" style="margin:0">No cutouts registered.</p>
+    {% endif %}
+  </div>
+</div>

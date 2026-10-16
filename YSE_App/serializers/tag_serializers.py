@@ -3,8 +3,17 @@ from YSE_App.models import *
 from django.contrib.auth.models import User
 
 
+class TagKindSerializer(serializers.HyperlinkedModelSerializer):
+    created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
+    modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
+
+    class Meta:
+        model = TagKind
+        fields = "__all__"
+
 class TransientTagSerializer(serializers.HyperlinkedModelSerializer):
     color = serializers.HyperlinkedRelatedField(queryset=WebAppColor.objects.all(), allow_null=True, required=False, view_name='webappcolor-detail')
+    kind = serializers.HyperlinkedRelatedField(queryset=TagKind.objects.all(), allow_null=True, required=False, view_name='tagkind-detail')
 
     created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
     modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')

@@ -2,10 +2,10 @@ from django.conf import settings
 from django.db import migrations
 
 
-# Lookup rows the candidate flow (#16, #23) relies on: (app model, name).
+# Lookup rows the candidate flow (#16, #23) relies on: (app model, name). There is deliberately no
+# "Candidate" tag: status is what marks a candidate, and tags are annotations (#38).
 CANDIDATE_LOOKUP_ROWS = [
     ('TransientStatus', 'Candidate'),
-    ('TransientTag', 'Candidate'),
     ('DataQuality', 'Superseded'),
     ('InformationSource', 'diffpype'),
 ]

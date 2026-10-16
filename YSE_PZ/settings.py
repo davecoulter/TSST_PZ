@@ -37,6 +37,10 @@ ALLOWED_HOSTS = ['*']
 # whether an incoming source is an existing transient (#23).
 TRANSIENT_MATCH_RADIUS_ARCSEC = 0.2
 
+# Interim (#46): the catalog /add_candidate/ assumes for a host block with no `host_catalog`.
+# Matched against HostCatalog file names and nicknames; remove once the pipeline sends it.
+CANDIDATE_DEFAULT_HOST_CATALOG = 'JADES'
+
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8080',   # nginx (LOCAL_HTTP_PORT)
     'http://127.0.0.1:8080',

@@ -7,7 +7,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework.schemas import get_schema_view
 from django.urls import path, re_path, include
 
-from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest
+from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest, candidate_views
 from . import api_views
 from .form_views import *
 from .yse_utils.yse_forms import MoveYSEFormView
@@ -25,6 +25,11 @@ urlpatterns = [
     re_path(r'^$', views.index, name='index'),
     re_path(r'^dashboard/$', views.dashboard, name='dashboard'),
     re_path(r'^yse_home/$', views.yse_home, name='yse_home'),
+    re_path(r'^candidates/$', candidate_views.candidate_dashboard, name='candidate_dashboard'),
+    re_path(r'^archived/$', views.archived_dashboard, name='archived_dashboard'),
+    re_path(r'^candidate/(?P<slug>[^/]+)/$', candidate_views.candidate_detail, name='candidate_detail'),
+    re_path(r'^candidate_sed/(?P<transient_id>[0-9]+)/$', candidate_views.candidate_sed, name='candidate_sed'),
+    re_path(r'^candidate_tag/(?P<transient_id>[0-9]+)/$', candidate_views.candidate_tag, name='candidate_tag'),
     re_path(r'^personaldashboard/$', views.personaldashboard, name='personaldashboard'),
     re_path(r'^calendar/$', views.calendar, name='calendar'),
     re_path(r'^followup/$', views.followup, name='followup'),
@@ -177,6 +182,8 @@ router = DefaultRouter()
 router.register(r'transientwebresources', api_views.TransientWebResourceViewSet)
 router.register(r'hostwebresources', api_views.HostWebResourceViewSet)
 router.register(r'transientstatuses', api_views.TransientStatusViewSet)
+router.register(r'hostcatalogs', api_views.HostCatalogViewSet)
+router.register(r'tagkinds', api_views.TagKindViewSet)
 router.register(r'followupstatuses', api_views.FollowupStatusViewSet)
 router.register(r'taskstatuses', api_views.TaskStatusViewSet)
 router.register(r'antaresclassifications', api_views.AntaresClassificationViewSet)

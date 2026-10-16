@@ -33,6 +33,7 @@ def candidate_payload(name, ra, dec, mjd=61102.41532):
         "photometry": [
             {
                 "band": band, "mjd": mjd, "flux": flux, "flux_err": err,
+                "mag": 23.9 - 2.5 * math.log10(flux), "mag_err": 1.0857 * err / flux,
                 "flux_unit": "uJy", "upper_limit": False, "limit_sigma": None,
                 "stamps": {"sci": f"https://example.org/{name}_{band}_sci.png",
                            "ref": f"https://example.org/{name}_{band}_ref.png",
@@ -219,3 +220,14 @@ def test_dry_run_on_an_existing_candidate_saves_nothing(
     real = post_candidate(again)
     assert real.status_code == 200
     assert real.json()["match_separation_arcsec"] is not None
+
+
+def test_permalink_must_be_http_or_https(post_candidate, new_transient, api_get):
+    for bad in ("javascript:alert(1)", "ftp://example.org/x", "/relative/path", "websniff page"):
+        payload = candidate_payload(**new_transient)
+        payload["permalink"] = bad
+        resp = post_candidate(payload)
+        assert resp.status_code == 400, (bad, resp.text[:300])
+        assert "permalink" in resp.json()["errors"]
+    assert api_get(f"/api/transients/?name={new_transient['name']}&format=json")["results"] == []
+
