@@ -8,15 +8,14 @@ This page covers:
 2. [Install it](#2-install-it)
 3. [Check it, then post](#3-check-it-then-post)
 4. [If something goes wrong](#4-if-something-goes-wrong)
-5. [Talking to the API without the script](#5-talking-to-the-api-without-the-script)
-6. [The JSON payload (contract v1.3)](#6-the-json-payload-contract-v13)
+5. [The JSON payload (contract v1.3)](#5-the-json-payload-contract-v13)
 
 The steps are for macOS and Linux (zsh or bash).
 
 ## 1. What you need
 
 - **Python 3.** Any recent `python3` on your `PATH`. (It runs on the 3.8 in the project's image and on current releases.)
-- **An STZ-PZ account of your own.** Ask an admin to create one (admin site, *Users*). Any active account can post. The account that posts is recorded as the creator of what is added and as the reviewer behind the `quality_flag` and `notes`, so do not share one login between people.
+- **A STZ-PZ account of your own.** Ask an admin to create one (admin site, *Users*). Any active account can post. The account that posts is recorded as the creator of what is added and as the reviewer behind the `quality_flag` and `notes`, so do not share one login between people.
 - **The address of the STZ-PZ you are posting to**, for example `https://<your STZ-PZ host>`, or `http://localhost:8001` for a local copy.
 - **The script**, from a checkout of this repository: `scripts/ingest_candidates_cli.py`.
 
@@ -106,7 +105,7 @@ ingest_candidates_cli.py candidates.json
 
 Things to know:
 
-- **A file holds one candidate object or an array of them** (the diff-imaging pipeline writes one array per run). See [section 6](#6-the-json-payload-contract-v13) if you need to write your own.
+- **A file holds one candidate object or an array of them** (the diff-imaging pipeline writes one array per run). See [section 5](#5-the-json-payload-contract-v13) if you need to write your own.
 - **Each candidate is independent.** A bad one is reported by id, field and message, and the others are still saved.
 - **Re-running a file is safe.** Points for the same band and epoch are marked `Superseded` on the server and not duplicated.
 - **A real run creates real objects.** Don't use it to test; use `--dry-run`. If you do create a test object, ask an admin to delete it.
@@ -122,69 +121,16 @@ Things to know:
 | `error: the server rejected the login (HTTP 401/403)` | Wrong username or password, or the account is inactive. Nothing was sent. Check the `Target:` line too: the account exists on that server only. |
 | `could not reach the server: ...` | Wrong `YSE_URL`, no network or VPN, or the server is down. |
 | `warning: ... is plain http, so your password and the data travel unencrypted` | The address starts with `http://` and is not your own machine. Use `https://` if the server has it. |
-| `FAILED  photometry[0].mjd: required` (any `FAILED` line) | The payload is wrong at that field. See [section 6](#6-the-json-payload-contract-v13). |
+| `FAILED  photometry[0].mjd: required` (any `FAILED` line) | The payload is wrong at that field. See [section 5](#5-the-json-payload-contract-v13). |
 | `FAILED  instrument: unknown instrument "X" on telescope "Y"` | STZ-PZ must already know the instrument. Ask an admin to add it. |
 | `warning: host_catalog not given; assumed 'JADES'` | Your host block has no `host_catalog`. It was saved against JADES. Send the catalog's file name to avoid the assumption. |
 | `warning: ignored unknown field '...'` | The payload has a top-level field STZ-PZ does not read. Usually a typo. |
 | `warning: mag worked out from flux for photometry[N]` | A detection had `flux` but no `mag`; the server computed it (AB, zero point 23.9 for µJy). |
 | `command not found: ingest_candidates_cli.py` | The `PATH` line is missing, the folder name is wrong, or the file is not executable (`chmod +x`). |
 
-## 5. Talking to the API without the script
+## 5. The JSON payload (contract v1.3)
 
-You can post from a notebook, a pipeline or `curl` with no websniff page involved, as long as the payload follows [section 6](#6-the-json-payload-contract-v13).
-
-- **Request:** `POST {YSE_URL}/add_candidate/` with `Content-Type: application/json` and HTTP basic auth (your STZ-PZ username and password).
-- **Dry run:** add `?dry_run=1`. Everything is evaluated and rolled back; the reply says what would have happened and has `"dry_run": true`.
-- **Body:** one candidate object, or a JSON array of up to 500.
-- **Use `https`.** Basic auth sends the password with every request.
-
-```bash
-curl -u "$USER_YSE" -H 'Content-Type: application/json' \
-     -d @candidate.json "$YSE_URL/add_candidate/?dry_run=1"
-```
-
-(`-u "$USER_YSE"` makes curl ask for the password.)
-
-```python
-import requests
-reply = requests.post(f"{url}/add_candidate/", params={"dry_run": 1},
-                      json=payload, auth=(user, password), timeout=120)
-print(reply.status_code, reply.json())
-```
-
-### Replies
-
-**One object:**
-
-| Status | Meaning | Body |
-|---|---|---|
-| `201` | A new candidate was created | `{"result": "created", "transient": "<name>", "url": "/transient_detail/<slug>/", "match_separation_arcsec": null, "photometry_added": 4, "photometry_superseded": 0, "host": {...}, "warnings": [...]}` |
-| `200` | Appended to an existing candidate | the same with `"result": "appended"` and the separation of the match |
-| `400` | Bad payload; **nothing is saved** | `{"errors": {"photometry[0].mjd": "required"}}` |
-| `401` / `403` | No credentials / wrong credentials | |
-| `405` | Not a POST | |
-
-**An array:** the status is `200` for a well-formed request, and the body says what happened to each candidate (each has the status a single POST would have had):
-
-```json
-{"summary": {"created": 2, "appended": 0, "failed": 1},
- "results": [
-   {"index": 0, "candidate_id": "x_0", "status": 201, "result": "created", "transient": "x_0", "...": "..."},
-   {"index": 1, "candidate_id": "x_1", "status": 400, "errors": {"ra": "required"}}]}
-```
-
-An empty array, or more than 500, is a `400` for the whole request.
-
-### How STZ-PZ treats a post
-
-- **Matching:** a candidate is matched to an existing object with the same `candidate_id` (as its name or as an alias), otherwise to any object within **0.2 arcsec**. A match is appended to; no match creates a new object. Later runs have their own `candidate_id`s, and are linked by position.
-- **Same epoch again:** a point for the same band within a second of an existing one replaces it. The old point is kept and flagged `Superseded`.
-- **Never send** `created_by`, `status` or a `name`; STZ-PZ sets them.
-- **Nothing is dropped silently.** Anything ignored or assumed comes back in `warnings`.
-
-## 6. The JSON payload (contract v1.3)
-
-This is a working summary. The authoritative version, with its history, is `agentic_planning/023-add-candidate-endpoint/contract.md`, and a complete example is `agentic_planning/023-add-candidate-endpoint/add_candidate_example.json`. Field names are those of the diff-imaging pipeline.
+This is what goes in the files you give the script, whether they come from the diff-imaging pipeline or from something you wrote yourself. It is a working summary. The authoritative version, with its history, is `agentic_planning/023-add-candidate-endpoint/contract.md`, and a complete example is `agentic_planning/023-add-candidate-endpoint/add_candidate_example.json`. Field names are those of the diff-imaging pipeline.
 
 ### A minimal candidate
 
@@ -288,6 +234,13 @@ A host is matched by catalog and ID, then by position, else created. The first h
 - A `null` stamp or FITS entry means that image does not exist.
 - All numbers must be finite (no `NaN` or `Infinity`); send `null` instead.
 
+### What STZ-PZ does with a candidate
+
+- **Matching:** a candidate is matched to an existing object with the same `candidate_id` (as its name or as an alias), otherwise to any object within **0.2 arcsec**. A match is appended to; no match creates a new object. A later run will have its own `candidate_id`s, and is linked by position.
+- **Same epoch again:** a point for the same band within a second of an existing one replaces it. The old point is kept and flagged `Superseded`.
+- **Never send** `created_by`, `status` or a `name`; STZ-PZ sets them.
+- **Nothing is dropped silently.** Anything ignored or assumed is printed by the script as a `warning:` line.
+
 ### Versions
 
-`v1.0` (2026-10-14) first frozen; `v1.1` adds the array form; `v1.2` adds `?dry_run=1`; `v1.3` (2026-10-15) adds what the websniff page sends (`quality_flag`, `notes`, `fitsmap_url`, `tags`, the new `host` block, `warnings`). Further changes are a new version, agreed by both sides and recorded in `contract.md`.
+`v1.0` (2026-10-14) first frozen; `v1.1` adds the array form; `v1.2` adds the dry run; `v1.3` (2026-10-15) adds what the websniff page sends (`quality_flag`, `notes`, `fitsmap_url`, `tags`, the new `host` block, `warnings`). Further changes are a new version, agreed by both sides and recorded in `contract.md`.
