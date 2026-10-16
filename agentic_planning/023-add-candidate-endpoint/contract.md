@@ -58,24 +58,28 @@ The v1.0 to v1.2 host fields (`name`, `ra`, `dec`, `photo_z`, ...) are replaced;
 | `field` | string | no | Field or visit, e.g. `"jw05324-o017_t014_nircam_clear"`. |
 | `telescope` | string | no | Default `"JWST"`. |
 | `instrument` | string | yes | e.g. `"NIRCam"`, `"MIRI"`. Must already exist in STZ-PZ. |
-| `tags` | list of strings | no | Extra STZ-PZ tags (must already exist). `"Candidate"` is added automatically. |
-| `host` | object or `null` | no | `null` when there's no host match. See below. |
+| `tags` | list of strings | no | Candidate tags. Matched to existing candidate tags (ignoring case and whitespace) or created. A newly created candidate also gets the tag `New` automatically. |
+| `host` | object or `null` | no | `null` when there's no host match. See `host` below. |
+| `fitsmap_url` | string (URL) | no | The FitsMap view of the candidate (http or https). |
+| `quality_flag` | 1, 2, 3 (number or string) | no | The reviewer's confidence (1 definite, 2 probable, 3 possible). |
+| `notes` | string, up to 4000 characters | no | Free text; becomes a comment by the posting user. |
 | `photometry` | list | yes (≥1) | One entry per filter per epoch. See below. |
 
 ## `host`
 
+The v1.3 shape (Justin's names). An object, or `null` when there is no host match.
+
 | Field | Type | Req. | Meaning |
 |---|---|---|---|
-| `name` | string | yes | Host catalog name/ID. |
-| `ra`, `dec` | float, deg | yes | Host position. |
-| `photo_z`, `photo_z_err` | float | no | Photometric redshift and 1σ error. |
-| `redshift`, `redshift_err` | float | no | Spectroscopic redshift and 1σ error. |
-| `catalog` | string | no | Source of the redshift(s), e.g. `"JADES"`. |
+| `host_id` | integer | yes | The host's ID in its catalog. |
+| `host_ra`, `host_dec` | float, deg | yes | Host position. |
+| `host_z` | float | no | Median of the photo-z PDF; stored as the host's photo-z. |
+| `host_catalog` | string | no | The catalog's file name. When missing, the server assumes JADES and adds a warning. |
+| `host_z2`, `host_sep` | float | no | Accepted and not stored (the separation is worked out from the positions). |
 
 ```json
-"host": {"name": "JADES-12345", "ra": 189.21961, "dec": 62.16722,
-         "photo_z": 0.81, "photo_z_err": 0.05, "redshift": null, "redshift_err": null,
-         "catalog": "JADES"}
+"host": {"host_id": 12345, "host_ra": 189.21961, "host_dec": 62.16722, "host_z": 0.81,
+         "host_z2": 0.79, "host_sep": 0.9, "host_catalog": "jades_dr3_nircam.fits"}
 ```
 
 ## `photometry[]`
@@ -86,7 +90,7 @@ The v1.0 to v1.2 host fields (`name`, `ra`, `dec`, `photo_z`, ...) are replaced;
 | `mjd` | float | yes | Mid-exposure MJD (UTC). |
 | `flux`, `flux_err` | float | yes* | Difference-image flux and 1σ error, in `flux_unit`. |
 | `flux_unit` | string | yes | `"uJy"` preferred. |
-| `flux_zero_point` | float | no | AB zero point for `flux_unit` (23.9 for µJy). |
+| `flux_zero_point` | float | no | AB zero point for `flux_unit`. When missing it is 23.9 for `uJy` and 31.4 for `nJy`. |
 | `mag`, `mag_err` | float | no | AB magnitude and error, if computed. |
 | `upper_limit` | bool | yes | `true` for a non-detection. |
 | `limit_sigma` | number | if limit | The σ level of the limit (e.g. 3). |

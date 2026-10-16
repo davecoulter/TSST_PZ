@@ -29,7 +29,7 @@ it with the latest values instead of appending.
 
 # ingest_candidates_cli.py
 
-Loads candidate JSON files (one object, or an array, as the diff-imaging pipeline writes) into STZ-PZ through the `/add_candidate/` endpoint. The server does the matching and the create-or-append; this script reads files, posts them in batches, and reports each candidate. Standard library only. Payload format: `agentic_planning/023-add-candidate-endpoint/contract.md`.
+Loads candidate JSON files (one object, or an array, as the diff-imaging pipeline writes) into STZ-PZ through the `/add_candidate/` endpoint. The server does the matching and the create-or-append; this script reads files, posts them in batches, and reports each candidate. Standard library only. Payload format: `agentic_planning/023-add-candidate-endpoint/contract.md`. **To set it up on your own machine (account, folder, `PATH`, environment variables) and for a summary of the JSON payload, see [INSTALL_ingest_candidates_cli.md](INSTALL_ingest_candidates_cli.md).**
 
 ## Run
 

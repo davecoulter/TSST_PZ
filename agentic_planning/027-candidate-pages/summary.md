@@ -14,6 +14,7 @@ Candidates detected on JWST difference images (by Justin's pipeline, shown on st
 | `agentic_planning/023-.../plan.md`, `024-...`, `025-...` | The endpoint, lookup-row migration and CLI plans |
 | `docker/README.md` | Running the stack, migrations, the VS Code debugger |
 | `scripts/README.md` | The ingest CLIs |
+| `scripts/INSTALL_ingest_candidates_cli.md` | For someone posting candidates: install the CLI, set credentials, and the JSON payload in short (also for clients other than websniff) |
 
 ## Pieces (and the routes)
 - **Endpoint** `POST /add_candidate/` (one object or a list; `?dry_run=1` runs everything and rolls back). Match by 0.2 arcsec, create or append, supersede repeated epochs, host by catalog and ID (the first host stays), notes and confidence as a comment, a FitsMap resource, candidate tags, `warnings` for anything ignored. Code: `YSE_App/candidate_ingest.py`.
