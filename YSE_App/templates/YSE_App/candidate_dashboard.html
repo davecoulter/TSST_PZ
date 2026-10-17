@@ -71,7 +71,7 @@
           <td style="width:48px">
             {% if c.thumb %}<img class="cand-thumb-sm" src="{{ c.thumb|stamp_src }}" alt="" loading="lazy">{% else %}<span class="cand-nothumb-sm"></span>{% endif %}
           </td>
-          <td><a href="{% url 'candidate_detail' c.transient.slug %}"><b>{{ c.transient.name }}</b></a></td>
+          <td><a href="{% url 'candidate_detail' c.transient.slug %}"><b>{{ c.transient.display_name }}</b></a>{% if c.transient.iau_name %}<br/><small class="text-muted">{{ c.transient.name }}</small>{% endif %}</td>
           <td>{% if c.transient.disc_date %}{{ c.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
           <td>{% if c.last_date %}{{ c.last_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
           <td class="num">{% if c.max_snr is not None %}{{ c.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</td>

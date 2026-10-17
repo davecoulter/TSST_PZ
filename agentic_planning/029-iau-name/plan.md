@@ -2,7 +2,7 @@
 
 - **Issue:** #29 (part of #16; #52 builds on it)
 - **Branch:** `29-iau-name`
-- **Status:** Draft, decisions settled; awaiting Dave's approval
+- **Status:** Built (2026-10-17); awaiting Dave's test on the local stack
 
 ## Why
 
@@ -55,7 +55,8 @@ On Dave's local stack after `python manage.py migrate`:
 - Check the candidate dashboard and transient tables: IAU name shown, internal name underneath.
 - Search for each name: the transient comes up.
 - Open `/transient_detail/does-not-exist/`: friendly 404 with a TNS link.
-- `python manage.py test YSE_App` for the new unit tests.
+- `python manage.py test YSE_App` for the new unit tests. On a fresh test DB this stops at import time because `forms.py` reads `FollowupStatus 'Requested'` while the URLs load (#22); see the Log.
+- On the detail page, as staff: "Edit in admin" opens a popup; set the IAU name and save; the popup closes and the page reloads at the new URL.
 
 ## Decisions
 
@@ -65,3 +66,10 @@ On Dave's local stack after `python manage.py migrate`:
 ## Log
 - **2026-10-17:** Plan drafted from the issue conversation with Dave (on the go).
 - **2026-10-17:** Dave settled the open questions: bare IAU designation; admin popup link instead of a custom form (8b).
+- **2026-10-17:** Approved; built with Opus at high effort (Dave's OK).
+- **2026-10-17:** How it was checked, without the Docker stack: a throwaway Python 3.8 venv in Claude's scratch space with the image's pins (Django 4.0, autoslug 1.9.8, tables2 2.4.0, ...) and the image's site-package patches, on SQLite. All migrations including 0009 apply; `makemigrations --check` reports no changes; the 12 new tests pass; the real pages were exercised (old URL, `AT 2026abc`, candidate URL, search, downloads, 404); and the "Edit in admin" popup was driven in headless Chromium: save closes the popup and the page reloads at the new slug. MySQL itself was not exercised.
+- **2026-10-17 (finding):** `manage.py test` can't start on a fresh test DB: `forms.py` indexes `FollowupStatus.objects.filter(name='Requested')[0]` at import (#22), and the test DB has no rows. The scratch run used a local runner that seeds the row first (not committed). Fixing #22 is a prerequisite for running these tests anywhere, including CI (#53).
+- **2026-10-17:** Also routed through `find_transient`: the download views, `ztf_forced_phot` and the `get_transient` API, so a renamed transient's old slug or internal name still works there (and a missing one is a 404, not a 500).
+- **2026-10-17:** Transient is now registered with a `TransientAdmin` that uses raw ID widgets for `host` and `best_spectrum`, so the popup doesn't render every host in a dropdown, and searches both names.
+- **2026-10-17:** Known edge, not handled: if another transient already has the slug `2026abc` (e.g. a legacy one named after the IAU designation), the renamed one gets `2026abc-2` and `/transient_detail/2026abc/` shows the other. Merging duplicates is out of scope.
+- **2026-10-17 (inferred):** The 404 page's TNS link searches by `name=` for IAU-looking names and `internal_name=` otherwise; those parameter names are from TNS's search form as I know it, not checked against the live site.

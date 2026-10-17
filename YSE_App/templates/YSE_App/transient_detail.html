@@ -15,15 +15,17 @@
 <!-- Content Header (Page header) -->
 {% block content_header %}
     <h1>{% if 'YSE' in transient.tags|tags_list or 'YSE Forced Phot' in transient.tags|tags_list %}
-        {{transient.name}}   <b>(YSE)</b><br/>
+        {{transient.display_name}}   <b>(YSE)</b><br/>
         {% else %}
-        {{transient.name}}<br/>
+        {{transient.display_name}}<br/>
         {% endif %}
+        {% if transient.iau_name %}<small>Internal name: {{ transient.name }}</small><br/>{% endif %}
         <small><a href="{% url 'index' %}">Back</a></small>
+        {% include 'YSE_App/transient_admin_edit.html' %}
     </h1>
     <ol class="breadcrumb">
         <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
-        <li>{{transient.name}}</li>
+        <li>{{transient.display_name}}</li>
     </ol>
 {% endblock %}
 
@@ -500,7 +502,7 @@
                                             </div>
                                             <div class="col-xs-6">
                                                 <div class="form-group">
-                                                    <a class="btn btn-block btn-primary" href="https://www.wis-tns.org/object/{{ transient.name }}" target="_blank">TNS</a>
+                                                    <a class="btn btn-block btn-primary" href="https://www.wis-tns.org/object/{{ transient.iau_name|default:transient.name }}" target="_blank">TNS</a>
                                                 </div>
                                             </div>
                                             <div class="col-xs-6">

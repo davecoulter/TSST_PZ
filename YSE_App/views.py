@@ -35,6 +35,7 @@ from .forms import *
 from .common import utilities
 from . import view_utils
 from .candidate_ingest import find_by_name
+from .transient_names import find_transient, name_q, transient_not_found
 from . import dashboard_sets
 from . import candidate_views
 import datetime
@@ -1020,12 +1021,13 @@ def transient_detail(request, slug):
     too_resource_form = ToOResourceForm()
     automated_spectrum_form = AutomatedSpectrumRequest()
     
-    transient = Transient.objects.filter(slug=slug)
-    alternate_transient = AlternateTransientNames.objects.filter(slug=slug)
-    if len(alternate_transient) and not len(transient):
-        transient = Transient.objects.filter(name=alternate_transient[0].transient.name).select_related()
-        #return redirect('/transient_detail/%s/'%transient[0].slug)
-        return HttpResponseRedirect(reverse_lazy('transient_detail',kwargs={'slug':transient[0].slug}))
+    # an old slug (alias) or a name typed into the URL redirects to the current slug (#29)
+    found = find_transient(slug)
+    if found is None:
+        return transient_not_found(request, slug)
+    if found.slug and found.slug != slug:
+        return HttpResponseRedirect(reverse_lazy('transient_detail',kwargs={'slug':found.slug}))
+    transient = Transient.objects.filter(pk=found.pk)
     logs = Log.objects.filter(transient=transient[0].id)
 
     obs = None
@@ -1239,7 +1241,10 @@ def download_data(request, slug):
     else:
         user = request.user
         
-    transient = Transient.objects.filter(slug=slug)
+    found = find_transient(slug)
+    if found is None:
+        raise Http404('No transient named %s' % slug)
+    transient = Transient.objects.filter(pk=found.pk)
     data = {transient[0].name:{'transient':{},'host':{},'photometry':{},'spectra':{}}}
     data[transient[0].name]['transient'] = json.loads(serializers.serialize("json", transient, use_natural_foreign_keys=True))
 
@@ -1289,7 +1294,10 @@ def download_photometry(request, slug):
         
     content = ""
         
-    transient = Transient.objects.filter(slug=slug)
+    found = find_transient(slug)
+    if found is None:
+        raise Http404('No transient named %s' % slug)
+    transient = Transient.objects.filter(pk=found.pk)
     data = {transient[0].name:{'transient':{},'host':{},'photometry':{},'spectra':{}}}
     data[transient[0].name]['transient'] = json.loads(serializers.serialize("json", transient, use_natural_foreign_keys=True))
     for k in data[transient[0].name]['transient'][0]['fields'].keys():
@@ -1491,7 +1499,9 @@ def download_spectra(request, slug):
         user = request.user
 
 
-    transient = Transient.objects.get(slug=slug)
+    transient = find_transient(slug)
+    if transient is None:
+        raise Http404('No transient named %s' % slug)
     
     st = BytesIO()
     archive = zipfile.ZipFile(st, 'w', zipfile.ZIP_DEFLATED)
@@ -1678,8 +1688,8 @@ class SearchResultsView(ListView):
             transients = Transient.objects.filter(Q(ra__gt=ramin) & Q(ra__lt=ramax) & Q(dec__gt=decmin) & Q(dec__lt=decmax))
                 
         if transients is None:
-            # otherwise execute a simple search on name
-            transients = Transient.objects.filter(name__icontains=query)
+            # otherwise execute a simple search on either name (#29)
+            transients = Transient.objects.filter(name_q(query))
         
         context = super().get_context_data()
         transientfilter = TransientFilter(self.request.GET, queryset=transients,prefix='')
@@ -1712,7 +1722,9 @@ def ztf_forced_phot(request,slug):
 
     from YSE_App.data_ingest import ZTF_Forced_Phot
 
-    transient = Transient.objects.get(slug=slug)
+    transient = find_transient(slug)
+    if transient is None:
+        raise Http404('No transient named %s' % slug)
 
     # make sure this request wasn't run w/i the last 12 hours
     old_log = Log.objects.filter(transient=transient).\

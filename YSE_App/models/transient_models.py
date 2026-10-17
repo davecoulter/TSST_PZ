@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from YSE_App.models.base import *
 from YSE_App.models.enum_models import *
@@ -43,9 +43,13 @@ class Transient(BaseModel):
 	
 	### Properties ###
 	# Required
-	name = models.CharField(max_length=64)
+	name = models.CharField(max_length=64) # the internal name; ingest and the API match on it
 	ra = models.FloatField()
 	dec = models.FloatField()
+
+	# The IAU designation from TNS, bare as TNS stores it (2026abc, no AT/SN prefix); null until
+	# reported (#29). When set it leads in the UI (display_name) and in the URL (see save()).
+	iau_name = models.CharField(max_length=64, null=True, blank=True, unique=True)
 
 	# Optional
 	ra_err = models.FloatField(null=True, blank=True)
@@ -254,6 +258,49 @@ class Transient(BaseModel):
 			return sortname
 		else:
 			return None
+
+	@property
+	def display_name(self):
+		"""The IAU name once there is one, else the internal name (#29). In the DB, the same
+		rule is YSE_App.transient_names.display_name_expression()."""
+		return self.iau_name or self.name
+
+	@classmethod
+	def from_db(cls, db, field_names, values):
+		instance = super().from_db(db, field_names, values)
+		# the stored IAU name, so save() can tell when it changes without a query (#29)
+		if 'iau_name' in field_names:
+			instance._stored_iau_name = values[list(field_names).index('iau_name')]
+		return instance
+
+	def save(self, *args, **kwargs):
+		# #29: the slug follows the IAU name (or the internal name when there is none). When the
+		# IAU name is set, changed or cleared, the old slug is kept as an alias, which the detail
+		# views redirect from, so URLs handed out under the old name keep working. QuerySet.update()
+		# skips this, so set iau_name through save() (the API and the admin both do).
+		self.iau_name = (self.iau_name or '').strip() or None
+		with transaction.atomic():
+			if self.pk is None:
+				if self.iau_name:
+					self.slug = self.iau_name  # AutoSlugField slugifies it and keeps it unique
+			else:
+				if hasattr(self, '_stored_iau_name'):
+					stored = self._stored_iau_name
+				else:  # built by hand or loaded with iau_name deferred
+					stored = Transient.objects.filter(pk=self.pk).values_list('iau_name', flat=True).first()
+				if stored != self.iau_name:
+					self._keep_slug_as_alias(stored or self.name)
+					self.slug = self.iau_name or self.name
+			super().save(*args, **kwargs)
+		self._stored_iau_name = self.iau_name
+
+	def _keep_slug_as_alias(self, old_name):
+		"""Record the current slug as an alias of this transient before the slug changes."""
+		if not self.slug or AlternateTransientNames.objects.filter(slug=self.slug).exists():
+			return
+		user_id = self.modified_by_id or self.created_by_id
+		AlternateTransientNames.objects.create(transient=self, name=old_name, slug=self.slug,
+		                                       created_by_id=user_id, modified_by_id=user_id)
 
 	def __str__(self):
 		return self.name

@@ -1,0 +1,31 @@
+{% comment %}
+"Edit in admin" for staff (#29): the stock Django admin change form for this transient (e.g. to set
+its IAU name), opened in a popup so the detail page stays put. After a save, the admin's popup
+response calls dismissChangeRelatedObjectPopup on this window, which closes the popup and reloads;
+a changed IAU name moves the slug, and the old URL redirects to the new one.
+{% endcomment %}
+{% if user.is_staff %}
+<small><a href="{% url 'admin:YSE_App_transient_change' transient.id %}" class="transient-admin-edit"
+   title="Edit this transient, e.g. its IAU name, in the admin">Edit in admin</a></small>
+<script>
+(function () {
+    function done(win) { win.close(); window.location.reload(); }
+    window.dismissChangeRelatedObjectPopup = done;
+    window.dismissAddRelatedObjectPopup = done;
+    window.dismissDeleteRelatedObjectPopup = function (win) {
+        win.close();
+        window.location.href = '{% url 'dashboard' %}';
+    };
+    document.querySelectorAll('a.transient-admin-edit').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+            var popup = window.open(a.href + '?_popup=1', 'transient_admin_edit',
+                                    'width=1000,height=800,resizable=yes,scrollbars=yes');
+            if (popup) {  /* popups blocked: the plain link opens the form in this tab instead */
+                e.preventDefault();
+                popup.focus();
+            }
+        });
+    });
+})();
+</script>
+{% endif %}

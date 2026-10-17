@@ -10,6 +10,7 @@ from django.db.models.functions import Greatest, Coalesce
 from django_tables2 import A
 from django.db import models
 from .data import PhotometryService
+from .transient_names import display_name_expression
 import time
 import django_filters
 import itertools
@@ -21,10 +22,29 @@ from matplotlib import rcParams
 from django.db.models.expressions import RawSQL
 rcParams['figure.figsize'] = (7,7)
 
+# #29: the Name column shows the IAU name first, with the internal name under it when there is
+# one, and sorts by the same rule in the DB.
+def name_column(path=''):
+    """The Name column for a table of transients, or of rows that reach one through `path`
+    (e.g. 'transient.')."""
+    r = 'record.' + path
+    template = ('<a href="{% url \'transient_detail\' ' + r + 'slug %}">{{ ' + r + 'display_name }}</a>'
+                '{% if ' + r + 'iau_name %}<br/><small class="text-muted">{{ ' + r + 'name }}</small>{% endif %}')
+    return tables.TemplateColumn(template, verbose_name='Name', orderable=True, order_by='name')
+
+def order_by_display_name(prefix=''):
+    """An order_name_string method sorting by display name; `prefix` as in name_column, in ORM form
+    (e.g. 'transient__'). The annotation can't be called display_name: that's a model property."""
+    def order(table, queryset, is_descending):
+        queryset = queryset.annotate(display_name_sort=display_name_expression(prefix)).order_by(
+            ('-' if is_descending else '') + 'display_name_sort')
+        return (queryset, True)
+    return order
+
 class TransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -134,8 +154,8 @@ SELECT pd.mag
 
 class FieldTransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -253,8 +273,8 @@ SELECT pd.mag
 
 class AdjustFieldTransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -373,8 +393,8 @@ SELECT pd.mag
 
 class YSETransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -531,8 +551,8 @@ SELECT pd.mag
 
 class YSEFullTransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -677,8 +697,8 @@ SELECT pd.mag
 
 class YSERisingTransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -834,8 +854,8 @@ SELECT pd.mag
 
 class NewTransientTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.slug %}\">{{ record.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column()
+    order_name_string = order_by_display_name()
     ra_string = tables.Column(accessor='CoordString.0',
                               verbose_name='RA',orderable=True,order_by='ra')
     dec_string = tables.Column(accessor='CoordString.1',
@@ -947,8 +967,8 @@ SELECT pd.mag
 
 class FollowupTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.transient.slug %}\">{{ record.transient.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column('transient.')
+    order_name_string = order_by_display_name('transient__')
     ra_string = tables.Column(accessor='transient.CoordString.0',
                               verbose_name='RA',orderable=True,order_by='transient.ra')
     dec_string = tables.Column(accessor='transient.CoordString.1',
@@ -1027,8 +1047,8 @@ SELECT pd.mag
 
 class ObsNightFollowupTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.transient.slug %}\">{{ record.transient.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column('transient.')
+    order_name_string = order_by_display_name('transient__')
     ra_string = tables.Column(accessor='transient.CoordString.0',
                               verbose_name='RA',orderable=True,order_by='transient.ra')
     dec_string = tables.Column(accessor='transient.CoordString.1',
@@ -1171,8 +1191,8 @@ SELECT pd.mag
 
 class ToOFollowupTable(tables.Table):
 
-    name_string = tables.TemplateColumn("<a href=\"{% url 'transient_detail' record.transient.slug %}\">{{ record.transient.name }}</a>",
-                                        verbose_name='Name',orderable=True,order_by='name')
+    name_string = name_column('transient.')
+    order_name_string = order_by_display_name('transient__')
     ra_string = tables.Column(accessor='transient.CoordString.0',
                               verbose_name='RA',orderable=True,order_by='transient.ra')
     dec_string = tables.Column(accessor='transient.CoordString.1',
@@ -1425,7 +1445,7 @@ class TransientFilter(django_filters.FilterSet):
     #										label='Name')
 
     ex = django_filters.CharFilter(method='filter_ex',label='Search')
-    search_fields = ['name','ra','dec','disc_date','disc_mag','obs_group_name',
+    search_fields = ['name','iau_name','ra','dec','disc_date','disc_mag','obs_group_name',
                      'spec_class','redshift','host_redshift',
                      'status_name']
 
@@ -1472,7 +1492,7 @@ class RisingTransientFilter(django_filters.FilterSet):
     #recent_mag__gt = django_filters.NumberFilter(name='recent_mag', lookup_expr='recent_mag__gt')
     #recent_mag__lt = django_filters.NumberFilter(name='recent_mag', lookup_expr='recent_mag__lt')
     ex = django_filters.CharFilter(method='filter_ex',label='Search')
-    search_fields = ['name','ra','dec','disc_date','disc_mag','obs_group_name',
+    search_fields = ['name','iau_name','ra','dec','disc_date','disc_mag','obs_group_name',
                      'spec_class','redshift','host_redshift',
                      'status_name','recent_mag']
 
