@@ -2,7 +2,7 @@
 
 - **Issue:** #29 (part of #16; #52 builds on it)
 - **Branch:** `29-iau-name`
-- **Status:** Draft, awaiting Dave's approval
+- **Status:** Draft, decisions settled; awaiting Dave's approval
 
 ## Why
 
@@ -19,7 +19,8 @@ A candidate starts with our internal name and may later get an IAU name from TNS
 | 5 | **Friendly not-found page** | `transient_detail` (and the other slug views in `views.py` that index `transient[0]`) return a 404 page instead of an `IndexError`: "No transient named X in STZ-PZ", plus a link to search TNS for X (`https://www.wis-tns.org/search?name=X`) and a link back to search. One small template. |
 | 6 | **Grids show the display name** | The name column in `table_utils.py` tables, the candidate dashboard cards, and the detail-page header show the display name, with the internal name underneath in small text when the two differ. Sorting on name uses the annotated `display_name`. |
 | 7 | **Search by either name** | The main search (`views.py` simple name search) and the candidate dashboard filter match `name` or `iau_name`. |
-| 8 | **API** | `iau_name` is in the transient serializer (it uses `fields = "__all__"`, so it appears automatically) and is writable, which is how it gets set until #52 exists. Also editable in Django admin. |
+| 8 | **API** | `iau_name` is in the transient serializer (it uses `fields = "__all__"`, so it appears automatically) and is writable. |
+| 8b | **Edit link on the detail page** (Dave) | For staff only, an "Edit in admin" link on the detail page opens the stock Django admin change form for that transient (already registered in `admin.py`) in a popup window via `?_popup=1`, so the user never leaves the detail page. A few lines of JS on the detail page define `dismissChangeRelatedObjectPopup`, which admin calls after save: it closes the popup and reloads the page, landing on the new slug if the IAU name changed. No custom form. |
 | 9 | **Tests** | Unit tests for 1 to 4 and 7: slug change, alias creation, old URL redirect, internal-name redirect, unknown name gives 404, search by both names. |
 
 Out of scope:
@@ -43,7 +44,7 @@ Out of scope:
 - [ ] An unknown name gives the 404 page with the TNS link, not a 500.
 - [ ] Shared tables, candidate dashboard and detail header show the IAU name first, internal name second; sorting by name uses the display name.
 - [ ] Search finds a transient by either name.
-- [ ] `iau_name` can be set through the API and admin.
+- [ ] `iau_name` can be set through the API, and through the admin popup from the detail page (staff only), which reloads the page on save.
 - [ ] `ruff check .` passes; no dependency or image change.
 
 ## Verification
@@ -56,10 +57,11 @@ On Dave's local stack after `python manage.py migrate`:
 - Open `/transient_detail/does-not-exist/`: friendly 404 with a TNS link.
 - `python manage.py test YSE_App` for the new unit tests.
 
-## Open questions
+## Decisions
 
-1. Bare designation (`2026abc`) as recommended, or with prefix (`AT 2026abc`)?
-2. Should the detail page get a small "set IAU name" field for admins now, or is API + admin enough until #52?
+1. **Bare designation** (`2026abc`), as TNS stores it (Dave).
+2. **No custom form:** a staff-only link to the stock admin change form in a popup (Dave).
 
 ## Log
 - **2026-10-17:** Plan drafted from the issue conversation with Dave (on the go).
+- **2026-10-17:** Dave settled the open questions: bare IAU designation; admin popup link instead of a custom form (8b).
