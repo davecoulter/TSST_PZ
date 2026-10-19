@@ -33,6 +33,7 @@ This is a TSST customization of [YSE_PZ](https://github.com/davecoulter/YSE_PZ),
 - **Bugs found mid-work:** propose the fix in chat (what's broken, the fix, which layer) and wait for confirmation before applying it.
 - **Tech debt:** file it as a GitHub issue labeled `tech-debt` (`/log-issue`). Don't fix it on the side.
 - **Django models:** a model change ships with its migration (`python manage.py makemigrations`) in the same PR. Remind the human to `migrate`. Never run `migrate` against a shared or live DB yourself.
+- **API parity:** a model change says, in its plan and PR, whether the API exposes it. If yes: add the field to the serializer, *including the hand-written `create()` and `update()`, which copy fields one by one* (`fields = "__all__"` only makes a field appear in responses, not get written); add the filter if it should be searchable; add the `*-detail` route for a new model; and add an integration test that writes it through the API and reads it back. If no, say so in the plan.
 - **Data:** never delete DB volumes or data directories (`docker compose down -v`, `rm -rf` on data) without explicit approval.
 - **Secrets:** never commit `.env` files or credentials. `docker/.env` and `db_configuration/*.ini` are git-ignored for a reason.
 - **Meta-config:**
