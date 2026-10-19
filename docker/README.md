@@ -95,7 +95,7 @@ The unit tests need the database user to be allowed to create the test database.
 GRANT ALL PRIVILEGES ON `test\_YSE`.* TO 'dev'@'%';
 ```
 
-It gives access to the temporary test database only. Your real data is not touched. The runner starts on an empty database, because importing the app no longer queries it (#22).
+It gives access to the temporary test database only, and your real data is not touched. Do this on your local database only, never on a shared or production one: the proper home for the unit tests is CI (#53), which runs them on its own throwaway MySQL with a dedicated test user. The runner starts on an empty database, because importing the app no longer queries it (#22).
 
 ## Changing dependencies
 
