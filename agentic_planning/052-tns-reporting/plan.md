@@ -2,7 +2,7 @@
 
 - **Issue:** #52 (part of #16)
 - **Branch:** `52-tns-reporting`, built off `29-iau-name` (needs `Transient.iau_name`); rebase onto `master` once #29 merges
-- **Status:** Draft, revised 2026-10-19 with Dave's answers and his TNS bot code; awaiting approval
+- **Status:** Decisions settled 2026-10-19; awaiting approval to build
 
 ## Why
 
@@ -46,9 +46,9 @@ Out of scope:
 
 ## Decisions
 
-1. **Reporters** (Dave): a free-text reporters field on the form, prefilled with `D. A. Coulter, on behalf of the TSST and COSMOS 3D teams.` (from his script) and editable. **Who can open the page:** a "TNS Reporters" group plus superusers (assumed; confirm).
+1. **Reporters** (Dave): a free-text reporters field on the form, prefilled with `D. A. Coulter, on behalf of the TSST and COSMOS 3D teams.` (from his script) and editable. **Who can open the page** (Dave): a "TNS Reporters" group plus superusers.
 2. **Enumerations** (resolved): TNS publishes them at `/api/get/values`, so a sync command refreshes a committed snapshot, as in 6b.
-3. **Shared vs per-transient fields** (proposed): shared are reporting group, data-source group, reporters, AT type, instrument, units, and the non-detection method with its default archival remark. Per transient: discovery date and photometry (prefilled from our data, editable), non-detection details when it's an observation, host name and z, and remarks. The internal name is always `Transient.name`.
+3. **Shared vs per-transient fields** (Dave): shared are reporting group, data-source group, reporters, AT type, instrument, units, and the non-detection method with its default archival remark. Per transient: discovery date and photometry (prefilled from our data, editable), non-detection details when it's an observation, host name and z, and remarks. The internal name is always `Transient.name`.
 4. **Pending replies** (Dave): synchronous polling plus a "Check again" button; no cron.
 5. **Target** (Dave): sandbox and production are both choices on the form, each with its own keys in the ini. Sandbox is preselected; production shows a red confirmation modal. A prod-like test environment that only talks to the sandbox is the long-term answer, as a separate issue with IT.
 
@@ -71,3 +71,4 @@ Out of scope:
 ## Log
 - **2026-10-18:** Plan drafted, so it's ready for Dave's session tonight with the AZ collaborators.
 - **2026-10-19:** Revised from Dave's answers and his TNS bot code (`tns_api_bulk_report.py`, `make_json_dave_edit.py`, `values.json`): TNS 2.0 endpoints, the values endpoint, group 170, JWST IDs, the filter-"Other" convention, and 5 s / 30 s reply polling. Cron dropped.
+- **2026-10-19:** Dave confirmed decision 3 (shared vs per-transient split as proposed) and page access ("TNS Reporters" group plus superusers). Dave will regenerate the TNS bot keys that were in his shared script.
