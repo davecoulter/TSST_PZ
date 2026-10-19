@@ -2,7 +2,7 @@
 
 - **Issue:** #29 (part of #16; #52 builds on it)
 - **Branch:** `29-iau-name`
-- **Status:** Built (2026-10-17); awaiting Dave's test on the local stack
+- **Status:** Built (2026-10-17); tested 2026-10-19 on Dave's local MySQL stack (11 integration tests, and Dave in the browser); ready for PR
 
 ## Why
 
@@ -38,14 +38,14 @@ Out of scope:
 
 ## Acceptance criteria
 
-- [ ] Migration adds `iau_name` (nullable, unique) and nothing else; existing rows are untouched.
-- [ ] Setting `iau_name` changes the slug to it, and the old slug redirects to the new one.
-- [ ] `/transient_detail/<internal name>/` and `/candidate/<internal name>/` resolve (redirect) after the IAU name is set.
-- [ ] An unknown name gives the 404 page with the TNS link, not a 500.
-- [ ] Shared tables, candidate dashboard and detail header show the IAU name first, internal name second; sorting by name uses the display name.
-- [ ] Search finds a transient by either name.
-- [ ] `iau_name` can be set through the API, and through the admin popup from the detail page (staff only), which reloads the page on save.
-- [ ] `ruff check .` passes; no dependency or image change.
+- [x] Migration adds `iau_name` (nullable, unique) and nothing else; existing rows are untouched.
+- [x] Setting `iau_name` changes the slug to it, and the old slug redirects to the new one.
+- [x] `/transient_detail/<internal name>/` and `/candidate/<internal name>/` resolve (redirect) after the IAU name is set.
+- [x] An unknown name gives the 404 page with the TNS link, not a 500.
+- [x] Shared tables, candidate dashboard and detail header show the IAU name first, internal name second; sorting by name uses the display name.
+- [x] Search finds a transient by either name.
+- [x] `iau_name` can be set through the API, and through the admin popup from the detail page (staff only), which reloads the page on save.
+- [x] `ruff check .` passes; no dependency or image change.
 
 ## Verification
 
@@ -75,4 +75,5 @@ On Dave's local stack after `python manage.py migrate`:
 - **2026-10-17 (inferred):** The 404 page's TNS link searches by `name=` for IAU-looking names and `internal_name=` otherwise; those parameter names are from TNS's search form as I know it, not checked against the live site.
 - **2026-10-19 (finding, fixed):** Dave migrated his local MySQL (0009) and restarted web. Integration tests written against the live stack (`tests/integration/test_iau_name.py`, 11 tests; they use the API to set the name, as the admin popup's save does through the model) found that **`iau_name` could not be set through the API**: `TransientSerializer.update()` copies a fixed list of fields by hand, so a PATCH with `iau_name` returned 200 and wrote nothing. The Log entry above, and deliverable 8, were wrong to say `fields = "__all__"` made it writable: that only makes it appear in responses. Fixed with one line in `update()` (null still clears the name). After the fix all 11 pass on MySQL, including: a second transient taking the same IAU name gets a 400, also when the letter case differs (MySQL's collation is case-insensitive); a renamed transient can be deleted (its alias row goes with it); clearing the name restores the internal slug and the IAU slug then redirects to it. The SQLite check did not catch this because it never went through the API.
 - **2026-10-19 (finding, not fixed here):** the same pattern exists in two serializers from #50: `HostSerializer.update()` never writes `catalog` or `catalog_object_id`, and `TransientTagSerializer.update()` never writes `kind`. Proposed to Dave as a separate issue and branch, not part of #29.
+- **2026-10-19:** Dave tested in the browser on the local stack: "Edit in admin" popup saves, closes and reloads at the new URL, and the new name shows on the page and in the grid in real time. All acceptance criteria are met (the API one after the serializer fix above). Follow-ups filed, not part of this PR: #54 (the same API bug for Host.catalog, Host.catalog_object_id and TransientTag.kind) and #55 (tech debt: generate serializer updates). The link is a small "Edit in admin" under the title; a visible "IAU name" row in the Transient Detail panel was offered and is Dave's call.
 
