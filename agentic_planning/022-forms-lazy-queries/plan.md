@@ -21,7 +21,7 @@ Plain querysets passed to a field (e.g. `FollowupStatus.objects.all()`) are fine
 
 | # | Deliverable | Notes |
 |---|---|---|
-| 1 | **Move evaluated queries into `__init__`** | For the five forms above, declare the fields statically and fill `queryset`, `choices` and `initial` in `__init__`, so they're computed per form instance. A missing "Requested" status leaves `initial` empty instead of crashing. The fields that only existed conditionally (`instrument`, `user`) always exist, with an empty queryset when there are no rows, matching what the template would get today with an empty table at startup. |
+| 1 | **Move evaluated queries into `__init__`** | For the five forms above, declare the fields statically and fill `queryset`, `choices` and `initial` in `__init__`, so they're computed per form instance. A missing "Requested" status leaves `initial` empty instead of crashing. The two fields that exist only when matching rows exist (`instrument` in `SurveyFieldForm`, `user` in `OncallForm`) keep that rule, but decide it per form instance in `__init__` instead of at import: when there are matching rows, replace the field as the class body does today (same position); when there are none, do nothing. With no matching rows the form is then exactly what it is today. For `SurveyFieldForm` that means Django's auto-generated `instrument` field (every instrument, required, because `SurveyField.instrument` is a required foreign key listed in `Meta.fields`), not an empty optional dropdown. |
 | 2 | **Same rendered forms** | Same field names, order, widgets, `required` flags and defaults as today when the data is the same. No template, view, model or dependency change. |
 | 3 | **Tests** | In `YSE_App/tests.py`: importing `YSE_App.urls` on an empty test DB works; `TransientFollowupForm()` defaults to "Requested" when it exists and to nothing when it doesn't; a classical resource created after import shows up in a new form. Removes the need for the seeding runner used for #29. |
 
@@ -44,3 +44,4 @@ Out of scope:
 
 ## Log
 - **2026-10-17:** Plan drafted after #29 found that `manage.py test` can't start on a fresh DB.
+- **2026-10-19:** Plan corrected in review (before approval). The draft said the conditional fields would always exist with an empty queryset, "matching today". That is wrong for `SurveyFieldForm`: with no `GPC` instrument the declared field is absent and Django auto-generates a required dropdown of all instruments (the model field is a required FK and is in `Meta.fields`), so an always-declared, optional, empty field would break the Add Survey Field page. Deliverable 1 now keeps the rule but applies it per form instance.
