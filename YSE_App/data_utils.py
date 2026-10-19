@@ -2,6 +2,7 @@ import django
 from django.http import HttpResponse,JsonResponse
 from django.shortcuts import render, get_object_or_404
 from .models import *
+from .transient_names import find_transient
 from django.db import models
 from astropy.coordinates import get_moon, SkyCoord
 from astropy.time import Time
@@ -1200,7 +1201,9 @@ def add_transient_spec(request):
 
 @login_or_basic_auth_required
 def get_transient(request, slug):
-    t = Transient.objects.filter(slug=slug)
+    # also finds a renamed transient by its old slug or either name (#29)
+    found = find_transient(slug)
+    t = Transient.objects.filter(pk=found.pk) if found is not None else Transient.objects.none()
 
     return_dict = {"transient":""}
     if t.exists():

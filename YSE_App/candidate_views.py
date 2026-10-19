@@ -22,6 +22,7 @@ from django.views.decorators.http import require_POST
 from . import dashboard_sets, view_utils
 from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, _candidate_tags, find_by_name
 from .forms import TransientCommentForm
+from .transient_names import find_transient, name_q, transient_not_found
 from .common.utilities import angular_separation_arcsec
 from .models import (
     AlternateTransientNames, Log, TagKind, Transient, TransientDiffImage, TransientPhotData,
@@ -132,7 +133,7 @@ def candidate_quality(ids):
 def _sort_value(column, c):
     """The value a table column sorts by, or None when the row has none (those go last)."""
     return {
-        'name': lambda: c['transient'].name.lower(),
+        'name': lambda: c['transient'].display_name.lower(),
         'newest': lambda: c['transient'].disc_date,
         'last': lambda: c['last_date'],
         'snr': lambda: c['max_snr'],
@@ -172,15 +173,17 @@ def candidate_dashboard(request):
     if status is not None:
         found = Transient.objects.filter(status=status)
         if query:
-            found = found.filter(name__icontains=query)
+            found = found.filter(name_q(query))
         transients = list(found.select_related('host'))
         ids = [t.id for t in transients]
         stats = candidate_stats(ids)
         quality = candidate_quality(ids)
         alias_counts = defaultdict(int)
-        for transient_id in AlternateTransientNames.objects.filter(
-                transient_id__in=ids).values_list('transient_id', flat=True):
-            alias_counts[transient_id] += 1
+        internal_names = {t.id: t.name for t in transients}
+        for transient_id, alias_name in AlternateTransientNames.objects.filter(
+                transient_id__in=ids).values_list('transient_id', 'name'):
+            if alias_name != internal_names[transient_id]:  # the old slug kept on renaming (#29)
+                alias_counts[transient_id] += 1
         reporters = defaultdict(set)  # who sent each candidate in: the rows' creators
         for transient_id, user_id in (TransientPhotData.objects
                                       .filter(photometry__transient_id__in=ids)
@@ -278,9 +281,10 @@ def candidate_section_context(transient):
         permalinks[key].append(r.resource_url)
         if detail:
             details.setdefault(key, detail)
-    names = [transient.name] + list(AlternateTransientNames.objects
-                                    .filter(transient=transient).order_by('id')
-                                    .values_list('name', flat=True))
+    # renaming to the IAU name keeps the internal name as an alias too (#29): one run, not two
+    names = [transient.name] + [n for n in AlternateTransientNames.objects
+                                .filter(transient=transient).order_by('id')
+                                .values_list('name', flat=True) if n != transient.name]
     runs = [{'name': n, 'permalinks': permalinks.pop(n, []), 'detail': details.get(n, '')} for n in names]
     # permalinks recorded under an ID that is neither the name nor an alias
     runs += [{'name': n, 'permalinks': urls, 'detail': details.get(n, '')} for n, urls in permalinks.items()]
@@ -488,12 +492,12 @@ def candidate_page_context(transient):
 
 @login_required
 def candidate_detail(request, slug):
-    transient = Transient.objects.filter(slug=slug).select_related('host__catalog', 'status').first()
+    # an old slug (alias) or a name typed into the URL redirects to the current slug (#29)
+    transient = find_transient(slug, Transient.objects.select_related('host__catalog', 'status'))
     if transient is None:
-        alias = AlternateTransientNames.objects.filter(slug=slug).select_related('transient').first()
-        if alias is not None:
-            return redirect('candidate_detail', slug=alias.transient.slug)
-        raise Http404('Candidate not found')
+        return transient_not_found(request, slug)
+    if transient.slug and transient.slug != slug:
+        return redirect('candidate_detail', slug=transient.slug)
 
     context = candidate_page_context(transient)
     if not context:

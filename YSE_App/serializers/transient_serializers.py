@@ -61,6 +61,7 @@ class TransientSerializer(serializers.HyperlinkedModelSerializer):
         instance.internal_survey = validated_data.get('internal_survey', instance.internal_survey)
 
         instance.name = validated_data.get('name', instance.name)
+        instance.iau_name = validated_data.get('iau_name', instance.iau_name)  # #29; null clears it
         instance.ra = validated_data.get('ra', instance.ra)
         instance.dec = validated_data.get('dec', instance.dec)
         instance.disc_date = validated_data.get('disc_date', instance.disc_date)

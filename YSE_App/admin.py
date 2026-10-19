@@ -46,7 +46,13 @@ admin.site.register(Profile)
 admin.site.register(UserTelescopeToFollow)
 #admin.site.register(UserQuery)
 admin.site.register(Host)
-admin.site.register(Transient)
+@admin.register(Transient)
+class TransientAdmin(admin.ModelAdmin):
+	# The detail pages' "Edit in admin" popup (#29) opens this form. Raw ID widgets keep it from
+	# rendering every host and spectrum in a dropdown.
+	raw_id_fields = ('host', 'best_spectrum')
+	search_fields = ('name', 'iau_name')
+
 #admin.site.register(SimpleTransientSpecRequest)
 admin.site.register(TransientFollowup)
 admin.site.register(HostFollowup)
