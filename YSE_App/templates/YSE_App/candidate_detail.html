@@ -72,8 +72,8 @@
 {% block content_header %}
     <h1>
         {{ transient.display_name }}
-        <small>{% if transient.iau_name %}{{ transient.name }} &middot; {% endif %}candidate</small>
         {% include 'YSE_App/transient_admin_edit.html' %}
+        <small>{% if transient.iau_name %}{{ transient.name }} &middot; {% endif %}candidate</small>
     </h1>
     <ol class="breadcrumb">
         <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
