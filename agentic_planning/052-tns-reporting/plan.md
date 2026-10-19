@@ -2,7 +2,7 @@
 
 - **Issue:** #52 (part of #16)
 - **Branch:** `52-tns-reporting`, built off `29-iau-name` (needs `Transient.iau_name`); rebase onto `master` once #29 merges
-- **Status:** Draft, awaiting Dave's approval and the decisions below
+- **Status:** Draft, revised 2026-10-19 with Dave's answers and his TNS bot code; awaiting approval
 
 ## Why
 
@@ -21,11 +21,12 @@ Discoveries are reported to TNS one at a time today, by hand or with the legacy 
 | # | Deliverable | Notes |
 |---|---|---|
 | 1 | **Payload builder** `YSE_App/tns_report.py` | Pure function: transient + shared fields → one `at_report` entry. RA/Dec (sexagesimal), discovery date, discovery photometry, last non-detection (or "archival" when there is none), reporter list, group, AT type, internal name (`Transient.name`), host name and z, remarks. Unit-tested on its own; no hardcoded authors or groups. Replaces nothing yet: the legacy `submit_to_tns.py` stays untouched. |
-| 2 | **TNS client** | Reuse `YSE_App/util/tnsAPI.py` (`addBulkReport`, `getBulkReportReply`) as is, with the bot name, ID and key from settings (`tns_bot_name`, `tns_bot_id`, `tnsapikey`, already read from the server ini). A new `tns_base_url` ini setting chooses sandbox or production; default sandbox. |
+| 2 | **TNS client** `YSE_App/tns_client.py` | Small, tested client for the TNS 2.0 API as Dave's bot script uses it: `POST /api/set/bulk-report` (form fields `api_key`, `data` = the JSON), `POST /api/get/bulk-report-reply` (`api_key`, `report_id`; 404 means not ready yet), `POST /api/get/values`, all with the `User-Agent: tns_marker{"tns_id": ..., "type": "bot", "name": ...}` header. The legacy `YSE_App/util/tnsAPI.py` posts to the older URL shapes, so it isn't reused. Two targets, each with its own bot ID, name and key in the server ini: `[tns_sandbox]` and `[tns_production]`. |
 | 3 | **`TNSReportAttempt` model** + migration | transient, created_by, created_date, base URL used, report ID, status (pending / reported / failed), payload sent, response received (both as JSON text, so no jsonfield dependency), error message, IAU name returned. One row per transient per submission. |
 | 4 | **Writing back** | On "reported": set `transient.iau_name` through `save()`, which moves the slug and keeps the old URL working (#29). |
 | 5 | **Failure flag** | The detail page and candidate page show a "TNS report failed" label while the latest attempt failed, and a "TNS reports" box listing every attempt (time, who, status, report ID, TNS's message, payload on click). |
 | 6 | **Pages and nav** | Select, details, confirm modal, results. Same look as the candidate pages. |
+| 6b | **TNS values** | `manage.py sync_tns_values [--target sandbox\|production]` calls `/api/get/values` and writes `YSE_App/data/tns_values.json` (committed; starts from Dave's 2025-06-18 download). Forms read the file, so page loads never call TNS. |
 | 7 | **Tests** | Payload builder (dates, photometry choice, non-detection fallback, remarks), the TNS reply parser (success, per-entry error, still processing) with recorded responses, permission checks on the pages, write-back of `iau_name`. No live TNS calls in unit tests. |
 
 Out of scope:
@@ -39,15 +40,17 @@ Out of scope:
 - **Discovery photometry.** Default: the first detection at S/N ≥ 5 (superseded points excluded), reported as AB magnitude, with the band mapped to TNS's filter ID. The last point before it below the detection threshold is the non-detection, with its limiting magnitude. Both are editable on the details form.
 - **Dates.** TNS takes `YYYY-MM-DD.ddddd` (fractional day). This is a tested helper. The legacy code pads the fraction wrongly: 0.05 of a day becomes `.50`. Inferred from `submit_to_tns.py`, not verified against TNS's records.
 - **Remarks.** Prefilled from the candidate's comments on its detail page (the newest first, trimmed to TNS's length limit) and editable per transient.
-- **Asynchronous reply.** TNS returns a report ID right away and the outcome later. After submitting, the page polls the reply for up to ~20 s; anything still pending is picked up by a `django_cron` job every few minutes (django_cron is already installed and used), and the results page has a "check again" button.
+- **Asynchronous reply, handled synchronously.** TNS returns a report ID right away and the outcome later. After submitting, the request asks for the reply every 5 s for up to 30 s (Dave's script's values; a 404 means "not ready"), and stops early on a rate-limit response. Anything still pending shows a "Check again" button. Nothing runs on a timer (Dave: TNS throttles strictly).
+- **Defaults from Dave's bot code.** Reporting and data-source group: `TSST_COSMOS_3D` (TNS group 170). AT type: PSN. Instrument: `JWST - NIRCam` (185). Units: ABMag. Filters are looked up by name (`F200W-JWST`, ...); a band TNS doesn't list (e.g. F090W) is sent as filter "Other" (0) with the comment `Filter is JWST-NIRCam-F090W`, as his script does. Non-detection is either an observation (date, filter, instrument, limiting mag) or archival (archive "Other" plus a remark, e.g. the PRIMER sentence his script used). All IDs come from the values snapshot, not from code.
+- **Photometry.** Like his script, the report carries every band measured at the discovery epoch, with the discovery band first.
 
-## Decisions (recommendation first)
+## Decisions
 
-1. **Who can report.** A Django group "TNS Reporters" (plus superusers), so collaborators can report without full admin rights. The alternative is staff only.
-2. **Enumerations** (groups, AT types, filters, instruments, units). A committed JSON snapshot of the values we use, plus a `manage.py sync_tns_values` command that refreshes it from TNS. The form reads the snapshot, so a page load never calls TNS. **Needs from Dave:** the TNS getting-started guide or values list (offered earlier), and our group ID.
-3. **Per-transient vs shared fields.** Shared: reporting group, reporters, AT type, instrument, proprietary period, units. Per transient: discovery and non-detection photometry, host, remarks.
-4. **Pending replies.** A cron job plus a manual "check again" button, as above. The alternative is button only.
-5. **Default target.** Sandbox, until `tns_base_url` in the ini points at production. The confirm modal says which one in red when it's production.
+1. **Reporters** (Dave): a free-text reporters field on the form, prefilled with `D. A. Coulter, on behalf of the TSST and COSMOS 3D teams.` (from his script) and editable. **Who can open the page:** a "TNS Reporters" group plus superusers (assumed; confirm).
+2. **Enumerations** (resolved): TNS publishes them at `/api/get/values`, so a sync command refreshes a committed snapshot, as in 6b.
+3. **Shared vs per-transient fields** (proposed): shared are reporting group, data-source group, reporters, AT type, instrument, units, and the non-detection method with its default archival remark. Per transient: discovery date and photometry (prefilled from our data, editable), non-detection details when it's an observation, host name and z, and remarks. The internal name is always `Transient.name`.
+4. **Pending replies** (Dave): synchronous polling plus a "Check again" button; no cron.
+5. **Target** (Dave): sandbox and production are both choices on the form, each with its own keys in the ini. Sandbox is preselected; production shows a red confirmation modal. A prod-like test environment that only talks to the sandbox is the long-term answer, as a separate issue with IT.
 
 ## Acceptance criteria
 
@@ -67,3 +70,4 @@ Out of scope:
 
 ## Log
 - **2026-10-18:** Plan drafted, so it's ready for Dave's session tonight with the AZ collaborators.
+- **2026-10-19:** Revised from Dave's answers and his TNS bot code (`tns_api_bulk_report.py`, `make_json_dave_edit.py`, `values.json`): TNS 2.0 endpoints, the values endpoint, group 170, JWST IDs, the filter-"Other" convention, and 5 s / 30 s reply polling. Cron dropped.
