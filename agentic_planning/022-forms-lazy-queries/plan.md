@@ -2,7 +2,7 @@
 
 - **Issue:** #22 (tech-debt)
 - **Branch:** `22-forms-lazy-queries`
-- **Status:** Draft, awaiting Dave's approval
+- **Status:** Built and tested 2026-10-19; ready for PR
 
 ## Why
 
@@ -31,10 +31,10 @@ Out of scope:
 
 ## Acceptance criteria
 
-- [ ] `python manage.py test YSE_App` runs on a fresh test DB with no seeded rows (and so do the #29 tests once both branches are merged).
-- [ ] With the same data, the follow-up, survey field, survey obs, on-call and spectrum upload forms render as before.
-- [ ] A classical resource added while the server runs appears in the follow-up form without a restart.
-- [ ] `ruff check .` passes; no model, migration, dependency or image change.
+- [x] `python manage.py test YSE_App` runs on a fresh test DB with no seeded rows, and so do the #29 tests: 22 tests pass (shown on a throwaway empty MySQL as root). On Dave's local stack the `dev` user needs a one-time grant on `test_YSE` first, now in `docker/README.md`.
+- [x] With the same data, the follow-up, survey field, survey obs, on-call and spectrum upload forms render as before.
+- [x] A classical resource added while the server runs appears in the follow-up form without a restart.
+- [x] `ruff check .` passes; no model, migration, dependency or image change.
 
 ## Verification
 
@@ -45,3 +45,13 @@ Out of scope:
 ## Log
 - **2026-10-17:** Plan drafted after #29 found that `manage.py test` can't start on a fresh DB.
 - **2026-10-19:** Plan corrected in review (before approval). The draft said the conditional fields would always exist with an empty queryset, "matching today". That is wrong for `SurveyFieldForm`: with no `GPC` instrument the declared field is absent and Django auto-generates a required dropdown of all instruments (the model field is a required FK and is in `Meta.fields`), so an always-declared, optional, empty field would break the Add Survey Field page. Deliverable 1 now keeps the rule but applies it per form instance.
+- **2026-10-19:** Approved by Dave. Model and effort for the build: Sonnet 5.5, medium (a bounded refactor with a detailed plan; the verification is before-and-after renderings of each form plus tests). Move up to high only if the renderings differ.
+- **2026-10-19:** Built. `__init__` now fills the evaluated defaults in the five forms; `SurveyFieldForm` and `OncallForm` keep their conditional fields, decided per form instance. How it was checked:
+  - **Same forms.** All five forms rendered on Dave's real local data before and after: byte-identical. The first run was not: setting the "Requested" default in `__init__` left the blank "---------" choice and the `required` attribute on the status select, because Django drops both when the initial value is given to the field's constructor. Fixed by also clearing `empty_label` when the default exists.
+  - **The issue's failure.** On an empty MySQL with no tables, importing `master`'s `forms.py` fails with `ProgrammingError: Table 'YSE_App_followupstatus' doesn't exist`; the new one imports the whole URL configuration with no database access.
+  - **`migrate` with system checks** builds all 97 tables from the migrations alone on that empty database (0007 and 0008 print their "no superuser" notes, as designed).
+  - **Unit tests:** 10 new tests in `YSE_App/tests.py` (no queries on import; the Requested default and its missing-row case; a classical resource added while running shows up in a new form and an old one doesn't; the GPC and YSE-user fields stay conditional and keep their place; the survey and group choices follow the database). With the 12 from #29, 22 pass on a fresh test database.
+  - **Regression:** `ruff` passes; the full integration suite (111 tests) passes on the restarted local stack; the detail page's follow-up form renders with Requested selected and no blank choice.
+- **2026-10-19 (finding, not fixed here):** the "Downloading .../sites.json" line seen when running management commands is astroplan fetching site data over the network when the app starts. Out of scope for #22 (as the plan says); worth its own issue.
+- **2026-10-19 (finding):** on the local stack `manage.py test` stops at "Access denied for user 'dev'@'%' to database 'test_YSE'": the app's database user cannot create the test database. A one-time `GRANT` by a MySQL admin fixes it; added to `docker/README.md` (new "Tests" section). It is also something CI (#53) will need to handle.
+

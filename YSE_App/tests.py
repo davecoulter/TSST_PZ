@@ -1,8 +1,16 @@
-from django.contrib.auth.models import User
-from django.test import TestCase
-from django.urls import reverse
+import importlib
+from datetime import timedelta
 
-from .models import AlternateTransientNames, ObservationGroup, Transient, TransientStatus
+from django.contrib.auth.models import Group, User
+from django.db import connection
+from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
+from django.utils import timezone
+
+from . import forms
+from .models import (AlternateTransientNames, ClassicalResource, FollowupStatus, Instrument, Observatory,
+                     ObservationGroup, SurveyField, Telescope, Transient, TransientStatus)
 from .table_utils import TransientTable
 from .transient_names import find_transient, name_q
 
@@ -110,3 +118,96 @@ class TransientNameTests(TestCase):
 		plain = self.make('aaa_internal')
 		table = TransientTable(Transient.objects.all(), order_by=('name_string',))
 		self.assertEqual([row.record for row in table.rows], [renamed, plain])  # '2026aaa' < 'aaa_internal'
+
+
+class FormsDoNotQueryAtImportTests(TestCase):
+	"""#22: form defaults that need a query are computed per form instance, never when the module is imported."""
+
+	@classmethod
+	def setUpTestData(cls):
+		cls.user = User.objects.create_user('forms_tester', password='pw')
+		cls.audit = dict(created_by=cls.user, modified_by=cls.user)
+		observatory = Observatory.objects.create(name='Obs', utc_offset=0, tz_name='UTC', **cls.audit)
+		cls.telescope = Telescope.objects.create(name='Tel', observatory=observatory, latitude=0.0,
+												 longitude=0.0, elevation=0.0, **cls.audit)
+
+	def test_importing_the_forms_makes_no_queries(self):
+		with CaptureQueriesContext(connection) as queries:
+			importlib.reload(forms)
+		self.assertEqual(len(queries), 0, [q['sql'] for q in queries])
+
+	# --- TransientFollowupForm ---
+
+	def test_followup_status_defaults_to_requested_without_a_blank_choice(self):
+		FollowupStatus.objects.create(name='Other', **self.audit)
+		requested = FollowupStatus.objects.create(name='Requested', **self.audit)
+		field = forms.TransientFollowupForm().fields['status']
+		self.assertEqual(field.initial, requested)
+		self.assertIsNone(field.empty_label)  # as when the initial value is given to the field itself
+
+	def test_followup_form_works_when_there_is_no_requested_status(self):
+		field = forms.TransientFollowupForm().fields['status']
+		self.assertIsNone(field.initial)
+		self.assertEqual(field.empty_label, '---------')
+
+	def test_a_classical_resource_added_while_running_shows_up_in_a_new_form(self):
+		before = forms.TransientFollowupForm()
+		self.assertEqual(before.fields['classical_resource'].queryset.count(), 0)
+		self.assertIsNone(before.fields['valid_start'].initial)
+		now = timezone.now()
+		resource = ClassicalResource.objects.create(telescope=self.telescope, begin_date_valid=now,
+													end_date_valid=now + timedelta(days=3), **self.audit)
+		after = forms.TransientFollowupForm()
+		self.assertEqual(list(after.fields['classical_resource'].queryset), [resource])
+		self.assertEqual(after.fields['classical_resource'].initial, resource)
+		self.assertEqual(after.fields['valid_start'].initial, resource.begin_date_valid)
+		self.assertEqual(after.fields['valid_stop'].initial, resource.end_date_valid)
+
+	def test_a_classical_resource_that_ended_days_ago_is_not_offered(self):
+		now = timezone.now()
+		ClassicalResource.objects.create(telescope=self.telescope, begin_date_valid=now - timedelta(days=10),
+										 end_date_valid=now - timedelta(days=3), **self.audit)
+		self.assertEqual(forms.TransientFollowupForm().fields['classical_resource'].queryset.count(), 0)
+
+	# --- the fields that exist only when matching rows exist ---
+
+	def test_survey_field_form_keeps_the_models_own_instrument_field_without_gpc_instruments(self):
+		Instrument.objects.create(name='Other', telescope=self.telescope, **self.audit)
+		field = forms.SurveyFieldForm().fields['instrument']
+		self.assertTrue(field.required)  # the model's required foreign key, every instrument
+		self.assertEqual(field.queryset.count(), 1)
+
+	def test_survey_field_form_limits_instrument_to_gpc_when_they_exist(self):
+		gpc = Instrument.objects.create(name='GPC1', telescope=self.telescope, **self.audit)
+		Instrument.objects.create(name='Other', telescope=self.telescope, **self.audit)
+		form = forms.SurveyFieldForm()
+		field = form.fields['instrument']
+		self.assertFalse(field.required)
+		self.assertEqual(list(field.queryset), [gpc])
+		self.assertEqual(field.initial, gpc)
+		self.assertEqual(list(form.fields).index('instrument'), 3)  # keeps its place from Meta.fields
+
+	def test_oncall_form_has_a_user_field_only_when_yse_users_exist(self):
+		self.assertNotIn('user', forms.OncallForm().fields)
+		member = User.objects.create_user('yse_member', password='pw')
+		member.groups.add(Group.objects.create(name='YSE'))
+		field = forms.OncallForm().fields['user']
+		self.assertEqual(list(field.queryset), [member])
+		self.assertEqual(field.initial, member)
+
+	# --- choices that come from the database ---
+
+	def test_survey_obs_choices_follow_the_database(self):
+		self.assertEqual(forms.SurveyObsForm().fields['ztf_field_id'].choices, [])
+		group = ObservationGroup.objects.create(name='Other', **self.audit)
+		instrument = Instrument.objects.create(name='GPC1', telescope=self.telescope, **self.audit)
+		SurveyField.objects.create(obs_group=group, field_id='f1', ztf_field_id='ztf100', instrument=instrument,
+								   ra_cen=1.0, dec_cen=2.0, width_deg=1.0, height_deg=1.0, **self.audit)
+		field = forms.SurveyObsForm().fields['ztf_field_id']
+		self.assertEqual(field.choices, [('ztf100', 'ztf100')])
+		self.assertEqual(field.initial, ('ztf100', 'ztf100'))
+
+	def test_spectrum_upload_permissions_follow_the_groups_in_the_database(self):
+		self.assertNotIn(('alpha', 'alpha'), forms.SpectrumUploadForm().fields['permissions'].choices)
+		Group.objects.create(name='alpha')
+		self.assertIn(('alpha', 'alpha'), forms.SpectrumUploadForm().fields['permissions'].choices)
