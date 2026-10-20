@@ -2,7 +2,7 @@
 
 - **Issue:** #29 (part of #16; #52 builds on it)
 - **Branch:** `29-iau-name`
-- **Status:** Built (2026-10-17); awaiting Dave's test on the local stack
+- **Status:** Built (2026-10-17); tested 2026-10-19 on Dave's local MySQL stack (11 integration tests, and Dave in the browser); ready for PR
 
 ## Why
 
@@ -20,7 +20,7 @@ A candidate starts with our internal name and may later get an IAU name from TNS
 | 6 | **Grids show the display name** | The name column in `table_utils.py` tables, the candidate dashboard cards, and the detail-page header show the display name, with the internal name underneath in small text when the two differ. Sorting on name uses the annotated `display_name`. |
 | 7 | **Search by either name** | The main search (`views.py` simple name search) and the candidate dashboard filter match `name` or `iau_name`. |
 | 8 | **API** | `iau_name` is in the transient serializer (it uses `fields = "__all__"`, so it appears automatically) and is writable. |
-| 8b | **Edit link on the detail page** (Dave) | For staff only, an "Edit in admin" link on the detail page opens the stock Django admin change form for that transient (already registered in `admin.py`) in a popup window via `?_popup=1`, so the user never leaves the detail page. A few lines of JS on the detail page define `dismissChangeRelatedObjectPopup`, which admin calls after save: it closes the popup and reloads the page, landing on the new slug if the IAU name changed. No custom form. |
+| 8b | **Edit link on the detail page** (Dave) | For staff only, a small "(edit name)" link right after the title on the detail and candidate pages (first built as "Edit in admin" under the title) opens the stock Django admin change form for that transient (already registered in `admin.py`) in a popup window via `?_popup=1`, so the user never leaves the detail page. A few lines of JS on the detail page define `dismissChangeRelatedObjectPopup`, which admin calls after save: it closes the popup and reloads the page, landing on the new slug if the IAU name changed. No custom form. |
 | 9 | **Tests** | Unit tests for 1 to 4 and 7: slug change, alias creation, old URL redirect, internal-name redirect, unknown name gives 404, search by both names. |
 
 Out of scope:
@@ -38,14 +38,14 @@ Out of scope:
 
 ## Acceptance criteria
 
-- [ ] Migration adds `iau_name` (nullable, unique) and nothing else; existing rows are untouched.
-- [ ] Setting `iau_name` changes the slug to it, and the old slug redirects to the new one.
-- [ ] `/transient_detail/<internal name>/` and `/candidate/<internal name>/` resolve (redirect) after the IAU name is set.
-- [ ] An unknown name gives the 404 page with the TNS link, not a 500.
-- [ ] Shared tables, candidate dashboard and detail header show the IAU name first, internal name second; sorting by name uses the display name.
-- [ ] Search finds a transient by either name.
-- [ ] `iau_name` can be set through the API, and through the admin popup from the detail page (staff only), which reloads the page on save.
-- [ ] `ruff check .` passes; no dependency or image change.
+- [x] Migration adds `iau_name` (nullable, unique) and nothing else; existing rows are untouched.
+- [x] Setting `iau_name` changes the slug to it, and the old slug redirects to the new one.
+- [x] `/transient_detail/<internal name>/` and `/candidate/<internal name>/` resolve (redirect) after the IAU name is set.
+- [x] An unknown name gives the 404 page with the TNS link, not a 500.
+- [x] Shared tables, candidate dashboard and detail header show the IAU name first, internal name second; sorting by name uses the display name.
+- [x] Search finds a transient by either name.
+- [x] `iau_name` can be set through the API, and through the admin popup from the detail page (staff only), which reloads the page on save.
+- [x] `ruff check .` passes; no dependency or image change.
 
 ## Verification
 
@@ -73,3 +73,8 @@ On Dave's local stack after `python manage.py migrate`:
 - **2026-10-17:** Transient is now registered with a `TransientAdmin` that uses raw ID widgets for `host` and `best_spectrum`, so the popup doesn't render every host in a dropdown, and searches both names.
 - **2026-10-17:** Known edge, not handled: if another transient already has the slug `2026abc` (e.g. a legacy one named after the IAU designation), the renamed one gets `2026abc-2` and `/transient_detail/2026abc/` shows the other. Merging duplicates is out of scope.
 - **2026-10-17 (inferred):** The 404 page's TNS link searches by `name=` for IAU-looking names and `internal_name=` otherwise; those parameter names are from TNS's search form as I know it, not checked against the live site.
+- **2026-10-19 (finding, fixed):** Dave migrated his local MySQL (0009) and restarted web. Integration tests written against the live stack (`tests/integration/test_iau_name.py`, 11 tests; they use the API to set the name, as the admin popup's save does through the model) found that **`iau_name` could not be set through the API**: `TransientSerializer.update()` copies a fixed list of fields by hand, so a PATCH with `iau_name` returned 200 and wrote nothing. The Log entry above, and deliverable 8, were wrong to say `fields = "__all__"` made it writable: that only makes it appear in responses. Fixed with one line in `update()` (null still clears the name). After the fix all 11 pass on MySQL, including: a second transient taking the same IAU name gets a 400, also when the letter case differs (MySQL's collation is case-insensitive); a renamed transient can be deleted (its alias row goes with it); clearing the name restores the internal slug and the IAU slug then redirects to it. The SQLite check did not catch this because it never went through the API.
+- **2026-10-19 (finding, not fixed here):** the same pattern exists in two serializers from #50: `HostSerializer.update()` never writes `catalog` or `catalog_object_id`, and `TransientTagSerializer.update()` never writes `kind`. Proposed to Dave as a separate issue and branch, not part of #29.
+- **2026-10-19:** Dave tested in the browser on the local stack: "Edit in admin" popup saves, closes and reloads at the new URL, and the new name shows on the page and in the grid in real time. All acceptance criteria are met (the API one after the serializer fix above). Follow-ups filed, not part of this PR: #54 (the same API bug for Host.catalog, Host.catalog_object_id and TransientTag.kind) and #55 (tech debt: generate serializer updates). Dave found the "Edit in admin" link under the title easy to miss.
+- **2026-10-19:** Link moved and renamed at Dave's request: a small "(edit name)" directly to the right of the title on both the transient detail page and the candidate page (the old link under the title is gone). Same popup, same behavior. Checked by rendering both pages as a staff user and by Dave in the browser ("things look great"); the 11 integration tests still pass.
+
