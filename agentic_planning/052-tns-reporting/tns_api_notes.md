@@ -85,3 +85,22 @@ Note: the repo's legacy `YSE_App/util/tnsAPI.py` builds `<base>/api/bulk-report`
 | Filters | 102 F115W, 103 F150W, 100 F200W, 104 F277W, 106 F335M, 105 F356W, 107 F410M, 101 F444W | `<band>-JWST` |
 | Filter not listed (e.g. F090W) | 0 | Other, plus a comment |
 | Archive | 0 | Other |
+
+## From the TNS bulk report manual (Jan 2025)
+
+Read 2026-10-20 (`TNS2.0_bulk_reports_manual.pdf`, sections 5 and 7).
+- **Limits:** at most 100 AT reports per submission, and at most 10 photometry entries per report.
+- **Required keys:**
+  - The entry needs `ra.value`, `dec.value`, `reporting_groupid`, `data_source_groupid`, `reporter`, `discovery_datetime` and `at_type`.
+  - Each photometry point needs `obsdate`, `flux`, `flux_unitid`, `filterid` and `instrumentid`.
+  - The non-detection needs either `obsdate`, `flux_unitid`, `filterid` and `instrumentid`, or `archiveid` and `archival_remarks`.
+- **Dates:** examples are `2016-03-01.234` (fractional day). No limit is given for remarks.
+- **`internal_ids`:** up to 5 key/value pairs, each at most 30 characters (alphanumeric, `_`, `-`, `#`). They are returned unchanged in the reply, so they can match feedback to transients (stage 3).
+- **Blocking errors:**
+  - 1: last non-detection should precede the discovery datetime.
+  - 2: at least the discovery photometry point is required.
+  - 3: required field.
+  - 5: an identical AT report (sender, RA/Dec, discovery date, internal name) already exists.
+  - 6: last non-detection or archival info must be filled.
+- **Feedback:** 100 "Transient object was inserted" (`objname`); 101 "Transient object exists" (`objname`, prefix, type, RA, Dec, separation); 103 "Submitted".
+- **Sandbox:** reset from production every Sunday 04:00 UT. Bots defined only on the sandbox are overwritten, so the bot should exist on production.

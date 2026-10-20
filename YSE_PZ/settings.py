@@ -233,6 +233,14 @@ TNSAPIKEY = config.get('main','tnsapikey')
 TNSDECAMUSER = config.get('main','tns_decam_bot_name')
 TNSDECAMID = config.get('main','tns_decam_bot_id')
 TNSDECAMAPIKEY = config.get('main','tnsdecamapikey')
+# Reporting candidates to TNS (#52): generic TNS conventions the report form starts with. They are TNS
+# labels, looked up in the TNS values snapshot (YSE_App/tns_values.py), so no TNS id is written here.
+# Per-survey values (groups, reporter, archival remark) come from the transient's ObservationGroup.
+TNS_REPORT_DEFAULTS = {
+    'at_type': 'PSN',
+    'units': 'ABMag',
+    'archive': 'Other',
+}
 REDYSEFILTER = config.get('yse','red_yse_filter')
 ghost_path = config.get('main','ghost_path')
 

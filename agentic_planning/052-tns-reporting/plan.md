@@ -67,6 +67,37 @@ Out of scope:
    4. The failure flag and attempt history on the detail pages, and the nav entry.
 8. **Integration tests, not only unit tests.** A small fake TNS server (started by the tests, replaying real sandbox responses, including "not ready" 404s, per-entry errors and a rate limit) lets the whole flow run in `tests/integration` against the live stack with no internet or credentials: select, preview, submit, poll, write back, lock. The base URL is configurable for this. A manual run against the real sandbox, from Dave's local stack, confirms the fake matches reality; the recorded responses come from that run. (The automated sandbox job is #53.)
 
+## Amendments, part 2 (2026-10-20, stage 1 review with Dave)
+
+These replace the "Defaults from Dave's bot code" and "Discovery photometry" design notes, the prefilled reporter in decision 1, and the shared vs per-transient split in decision 3, wherever they disagree.
+
+9. **Defaults come from our data, otherwise a prompt.** Dave's script values (PRIMER, `TSST_COSMOS_3D`, the COSMOS 3D reporter text) belonged to particular runs. They are not defaults.
+   - **Generic TNS conventions** stay in `settings.TNS_REPORT_DEFAULTS`: AT type PSN, units ABMag, archive "Other".
+   - **Per-survey values** go on `ObservationGroup` as four nullable fields: `tns_reporting_group_id`, `tns_data_source_group_id`, `tns_reporter`, `tns_archival_remarks`.
+     - An empty field gives an empty form field that the reporter must fill in.
+     - They are edited in the admin. The group fields are dropdowns from the TNS values snapshot and store the TNS id.
+     - **API parity:** shown read-only in API responses, never writable through the API.
+     - They ship in stage 2, with their migration.
+   - **Instrument and filter** come from each photometry point: our telescope + instrument name gives the TNS instrument ("JWST - NIRCam"), and the band gives the filter. The instrument is left blank and prompted when TNS lists no match; a filter TNS lacks is sent as "Other" plus a comment, as before.
+   - **Batch values:** the groups, reporter and archival remark are entered once for the batch and can be overridden per row, because a batch can mix surveys.
+10. **Photometry:** the reporter picks at most 10 points (TNS's limit; TNS is a clearing house, not the system of record). The discovery point is preselected: the highest-S/N detection on the UTC day of the first S/N >= 5 point, since a JWST visit's filters share the day. The picker lists detections, by the app's existing rule (S/N >= 3, or a magnitude with no flux).
+11. **Redshift:** `host_redshift` is the transient's spec-z, else the host's spec-z, else the host's photo-z. The preview says which one was used. A photo-z is sent to 2 decimals and a spec-z to 4, since more digits read as spectroscopic. TNS's AT report has no transient-redshift field.
+12. **Non-detection: archival only**, with archive "Other" and the remark from the obs group or prompted. The automatic search for the last limit is dropped: we do archival differences, not rolling surveys.
+13. **Remarks:** an open field, empty by default, of at most 512 characters; the form rejects longer text. Candidate comments are not used: they judge whether a candidate is real, which is not what a TNS remark is for.
+14. **Dates:** whole days (`YYYY-MM-DD`). All the transients from one JWST exposure share a date, and sub-day precision does not matter here.
+15. **Internal ids:**
+    - `internal_name` is always `Transient.name`. TNS stores it, so our records and TNS's can be cross-referenced without an RA/Dec match.
+    - `internal_ids: {"tsst_id": "<pk>"}` is returned unchanged in TNS's reply, so stage 3 can match each result to its transient.
+16. **One coordinate helper.**
+    - `common/utilities.GetSexigesimalString` gets fixed (seconds carry, RA wrap, no "-00") on its own issue branch from `master`, first.
+    - `tns_report` calls it, with no copy of its own, and `master` is merged back into this branch.
+    - Coordinates that legacy scripts format by hand go to a tech-debt issue.
+17. **Follow-ups, each its own issue:**
+    - Ingest (transients and candidates) must carry the survey/obs group that TNS reports need. Today candidates get a group named after the telescope, or "Unknown".
+    - Dave fills in existing rows' obs groups and TNS fields by hand (SQL or admin) after the deploy.
+
+Stage 2 in amendment 7 therefore also carries the `ObservationGroup` fields, their migration and their admin.
+
 ## Acceptance criteria
 
 - [ ] Only TNS reporters see the nav entry and can open the pages; others get 403.
@@ -93,4 +124,31 @@ Out of scope:
 - **2026-10-19:** Revised from Dave's answers and his TNS bot code (`tns_api_bulk_report.py`, `make_json_dave_edit.py`, `values.json`): TNS 2.0 endpoints, the values endpoint, group 170, JWST IDs, the filter-"Other" convention, and 5 s / 30 s reply polling. Cron dropped.
 - **2026-10-19:** Dave confirmed decision 3 (shared vs per-transient split as proposed) and page access ("TNS Reporters" group plus superusers). Dave will regenerate the TNS bot keys that were in his shared script.
 - **2026-10-20:** Dave approved the plan with amendments (the section above): a pending-report guard and row lock that also covers the manual and API name edits, a rate-limited "Check again" with an abandon action, the key sent but never stored, no API exposure, the target chosen by the deployment (`TNS_TARGET`), a live payload preview, one PR built in four stages with a checkpoint where Dave reviews the payload before anything can be sent, and integration tests against a fake TNS server plus a manual sandbox run. Project Claude is not needed for the build (it needs Dave's local stack and sandbox bot); it can review the PR at the end. Model and effort for the build: Opus 5.5 at high (a report to TNS cannot be unsent).
+- **2026-10-20 (stage 1 built):** values snapshot `YSE_App/data/tns_values.json` + loader `YSE_App/tns_values.py`; payload builder `YSE_App/tns_report.py`; tests `YSE_App/test_tns_report.py`. Decisions for Dave's review:
+  - Form defaults live in `settings.TNS_REPORT_DEFAULTS` as TNS *labels* (group, AT type, instrument, units, archive, reporter text, PRIMER remark); the snapshot turns them into ids. No TNS id or author is in the code.
+  - The builder is two halves: `transient_fields(transient)` reads our data (the values the form will prefill), and `at_report_entry(fields, shared)` is pure (preview and submission both use it). `problems(entry)` flags what TNS would reject.
+  - Discovery: the first current point with a magnitude at S/N >= 5. Other bands: each band's best detection (the app's S/N >= 3 rule) within 1 day *after* the discovery, at most 10 points in all (TNS's limit).
+  - Non-detection: the last point before the discovery below S/N 5 that has a flux error and zero point; limiting mag = zp - 2.5 log10(5 x flux_err). 5 sigma because ingest does not store each limit's own sigma, and 5 is the discovery threshold.
+  - `host_redshift` is the host's spec-z only (photo-z is not sent).
+  - Remarks: the transient's comments, newest first, joined by "; ". For a candidate Save-dialog comment, only its notes are kept, without the quality flag. **Not trimmed:** the TNS manual (Jan 2025) gives no length limit, so the sandbox run will tell us.
+  - Dates are `YYYY-MM-DD.ddddd` (5 decimals, about 0.9 s). Dave's script sent whole days, so the sandbox run will confirm TNS keeps the fraction.
+  - Coordinates use a new helper: `common/utilities.GetSexigesimalString` can print RA seconds as `60.00`, and astropy's `to_string` prints 360° as `24:00:00`. The legacy helper is untouched (tech-debt candidate).
+  - Compared with Dave's bot code (`collab_scratch/TNS_Bot/`, scrubbed of keys): the structure and ids match. It differs in three ways, all for Dave to decide. (a) His reports sent the host **photo-z** as `host_redshift` (`securephotoz`/`questionable_photoz` inputs); the builder sends spec-z only. (b) His reporter text says "COSMOS-3D", while the plan says "COSMOS 3D". (c) His filter comment was "Filter is NIRCam-F090W."; the builder writes "Filter is JWST-NIRCam-F090W.". His outputs are catalogs, not TNS replies, so stage 3's recorded replies must come from a sandbox run.
+  - Superseded the same day by "Amendments, part 2" (Dave's review): see below for what changed.
+  - Tests: the local MySQL user lacks the test-database grant, so the DB tests ran on a throwaway SQLite settings file in `collab_scratch/`: 21 TNS tests, and all 43 `YSE_App` tests, pass. `ruff check .` passes.
 
+- **2026-10-20 (stage 1 review):** Dave's feedback became "Amendments, part 2" (9–17).
+  - Survey values move to nullable `ObservationGroup` fields (stage 2).
+  - Photometry becomes a pick list of at most 10 points.
+  - Redshift: transient spec-z, then host spec-z, then host photo-z.
+  - Non-detections are archival only; remarks are capped at 512; dates are whole days; `internal_ids` is added.
+  - One coordinate helper, fixed on its own branch first.
+  - Follow-up issues: ingest must carry the survey/obs group, and existing rows are backfilled by hand.
+  - Rebuilt to match: 20 TNS tests, and all 42 `YSE_App` tests, pass on throwaway SQLite settings in `collab_scratch/`; `ruff check .` passes.
+- **2026-10-20:** Discovery rule (Dave): the highest-S/N detection on the UTC day of the first S/N >= 5 point. A JWST visit's filters share the day, and the strongest one is what the candidate search found. 21 TNS tests, and all 43 `YSE_App` tests, pass on SQLite and on local MySQL (as a dedicated local test account with ALL on `test\_YSE` only).
+- **2026-10-20 (Dave's code review):**
+  - Remarks are an open field, no longer filled from candidate comments.
+  - A photo-z is sent to 2 decimals, a spec-z to 4.
+  - Magnitudes stay at 2 decimals; the picker uses the app's detection rule.
+  - Local unit tests now run as `local_test_account` through a git-ignored `YSE_PZ/local_test_settings.py` (see `docker/README.md`, "6. Tests"). The SQLite stand-in is retired.
+  - 42 tests pass on MySQL.

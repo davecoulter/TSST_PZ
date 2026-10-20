@@ -45,15 +45,17 @@ _QUALITY = re.compile(r'^quality_flag:\s*(\d+(?:\.\d+)?)')
 QUALITY_HELP = '1 definite, 2 probable, 3 possible; the average of each reporter\'s latest, lower is better'
 
 
-def _snr(flux, flux_err):
+def flux_snr(flux, flux_err):
+    """flux/flux_err, or None without a usable error. Also used by tns_report (#52)."""
     if flux is None or not flux_err or flux_err <= 0:
         return None
     return flux / flux_err
 
 
-def _is_detection(flux, flux_err, mag):
-    """Same rule as the light-curve plots: S/N >= 3, or a mag with no flux."""
-    snr = _snr(flux, flux_err)
+def is_detection(flux, flux_err, mag):
+    """Same rule as the light-curve plots: S/N >= 3, or a mag with no flux. Also used by tns_report
+    (#52), so the TNS photometry picker and the candidate pages agree."""
+    snr = flux_snr(flux, flux_err)
     if snr is not None:
         return snr >= DETECTION_SNR
     return flux is None and mag is not None
@@ -95,12 +97,12 @@ def candidate_stats(transient_ids):
         last = stats[p['photometry__transient_id']]
         if last['last_date'] is None or p['obs_date'] > last['last_date']:
             last['last_date'] = p['obs_date']  # any current point, detection or limit
-        if not _is_detection(p['flux'], p['flux_err'], p['mag']):
+        if not is_detection(p['flux'], p['flux_err'], p['mag']):
             continue
         s = stats[p['photometry__transient_id']]
         s['n_detections'] += 1
         s['filters'].add(p['band__name'])
-        snr = _snr(p['flux'], p['flux_err'])
+        snr = flux_snr(p['flux'], p['flux_err'])
         if snr is not None and (s['max_snr'] is None or snr > s['max_snr']):
             s['max_snr'] = snr
         stamp = stamps.get(p['id'])
@@ -301,8 +303,8 @@ def candidate_section_context(transient):
             'stamps': [(d.postage_stamp_file, d.postage_stamp_file_fits),
                        (d.postage_stamp_ref, d.postage_stamp_ref_fits),
                        (d.postage_stamp_diff, d.postage_stamp_diff_fits)],
-            'snr': _snr(pd.flux, pd.flux_err),
-            'detection': _is_detection(pd.flux, pd.flux_err, pd.mag),
+            'snr': flux_snr(pd.flux, pd.flux_err),
+            'detection': is_detection(pd.flux, pd.flux_err, pd.mag),
             'superseded': any(q.name == SUPERSEDED for q in pd.data_quality.all()),
         })
 
@@ -586,7 +588,7 @@ def candidate_sed(request, transient_id):
         except (TypeError, ValueError):
             continue
         zero_point = p.flux_zero_point if p.flux_zero_point is not None else 23.9
-        if _is_detection(p.flux, p.flux_err, p.mag) and p.mag is not None:
+        if is_detection(p.flux, p.flux_err, p.mag) and p.mag is not None:
             points.append({'band': p.band.name, 'lam': wavelength, 'mag': p.mag,
                            'err': p.mag_err or 0.0, 'limit': False})
         elif p.flux_err and p.flux_err > 0:
