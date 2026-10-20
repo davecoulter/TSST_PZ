@@ -40,19 +40,25 @@ def getSeparation(ra1_decimal,dec1_decimal,
 		return(c1.separation(c2).arcsec)
 		
 def GetSexigesimalString(ra_decimal, dec_decimal):
-	c = SkyCoord(ra_decimal,dec_decimal,unit=(u.deg, u.deg))
-	ra = c.ra.hms
-	#dec = c.dec.dms
-	dec = np.array(c.dec.to_string(precision=2).replace('d',':').replace('m',':').replace('s','').split(':')).astype(float)
-	ra_string = "%02d:%02d:%05.2f" % (ra[0],ra[1],ra[2])
-	if dec[0] >= 0:
-		dec_string = "+%02d:%02d:%05.2f" % (dec[0],np.abs(dec[1]),np.abs(dec[2]))
-	else:
-		dec_string = "%03d:%02d:%05.2f" % (dec[0],np.abs(dec[1]),np.abs(dec[2]))
+	"""(ra, dec) in degrees as ('HH:MM:SS.ss', '+DD:MM:SS.ss').
 
-	# Python has a -0.0 object. If the deg is this (because object lies < 60 min south), the string formatter will drop the negative sign
-	if c.dec < 0.0 and dec[0] == 0.0:
-		dec_string = "-00:%02d:%05.2f" % (np.abs(dec[1]),np.abs(dec[2]))
+	Each is rounded once, in whole hundredths of a second, and then split, so 59.996 s carries
+	into the minute instead of printing as 60.00, RA wraps at 24 h, and a Dec that rounds to zero
+	is '+00:00:00.00' (#61).
+	"""
+	if not -90.0 <= dec_decimal <= 90.0:
+		raise ValueError('Dec must be within [-90, 90] degrees, got %r' % dec_decimal)
+
+	centi = int(round((ra_decimal % 360.0) / 15.0 * 3600 * 100)) % (24 * 3600 * 100)
+	hours, rest = divmod(centi, 3600 * 100)
+	minutes, centi = divmod(rest, 60 * 100)
+	ra_string = '%02d:%02d:%02d.%02d' % (hours, minutes, centi // 100, centi % 100)
+
+	centi = int(round(abs(dec_decimal) * 3600 * 100))
+	sign = '-' if dec_decimal < 0 and centi else '+'
+	degrees, rest = divmod(centi, 3600 * 100)
+	minutes, centi = divmod(rest, 60 * 100)
+	dec_string = '%s%02d:%02d:%02d.%02d' % (sign, degrees, minutes, centi // 100, centi % 100)
 	return (ra_string, dec_string)
 
 def get_psstamp_url(request, transient_id, Transient):
