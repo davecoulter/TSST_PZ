@@ -3,12 +3,13 @@ from datetime import timedelta
 
 from django.contrib.auth.models import Group, User
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from . import forms
+from .common.utilities import GetSexigesimalString
 from .models import (AlternateTransientNames, ClassicalResource, FollowupStatus, Instrument, Observatory,
                      ObservationGroup, SurveyField, Telescope, Transient, TransientStatus)
 from .table_utils import TransientTable
@@ -211,3 +212,36 @@ class FormsDoNotQueryAtImportTests(TestCase):
 		self.assertNotIn(('alpha', 'alpha'), forms.SpectrumUploadForm().fields['permissions'].choices)
 		Group.objects.create(name='alpha')
 		self.assertIn(('alpha', 'alpha'), forms.SpectrumUploadForm().fields['permissions'].choices)
+
+
+class SexigesimalStringTests(SimpleTestCase):
+	"""#61: coordinates are rounded once, then split, so seconds carry and signs are right."""
+
+	def test_ordinary_coordinates(self):
+		self.assertEqual(GetSexigesimalString(150.180166667, 2.445291667), ('10:00:43.24', '+02:26:43.05'))
+		self.assertEqual(GetSexigesimalString(53.2147917, -27.7747639), ('03:32:51.55', '-27:46:29.15'))
+		self.assertEqual(GetSexigesimalString(0.0, 0.0), ('00:00:00.00', '+00:00:00.00'))
+
+	def test_seconds_carry_into_the_minute(self):
+		self.assertEqual(GetSexigesimalString(150.24998333333, 1.0)[0], '10:01:00.00')  # was 10:00:60.00
+		self.assertEqual(GetSexigesimalString(14.99999999, -0.5), ('01:00:00.00', '-00:30:00.00'))  # was 00:59:60.00
+		self.assertEqual(GetSexigesimalString(150.0, 2.4499988889)[1], '+02:27:00.00')
+
+	def test_seconds_just_under_a_minute_are_not_rounded_up(self):
+		# 316139.9933 arcsec; astropy's to_string(precision=2) printed +87:49:00.00
+		self.assertEqual(GetSexigesimalString(10.0, 87.81666481559884)[1], '+87:48:59.99')
+
+	def test_ra_wraps_at_24_hours(self):
+		self.assertEqual(GetSexigesimalString(359.9999999, 0.0)[0], '00:00:00.00')  # was 23:59:60.00
+		self.assertEqual(GetSexigesimalString(360.0, 0.0)[0], '00:00:00.00')
+		self.assertEqual(GetSexigesimalString(-15.0, 0.0)[0], '23:00:00.00')
+
+	def test_dec_sign(self):
+		self.assertEqual(GetSexigesimalString(10.0, -0.0000001)[1], '+00:00:00.00')  # rounds to zero; was -00:00:00.00
+		self.assertEqual(GetSexigesimalString(10.0, -0.01)[1], '-00:00:36.00')
+		self.assertEqual(GetSexigesimalString(0.0, -89.99999999)[1], '-90:00:00.00')
+		self.assertEqual(GetSexigesimalString(0.0, 90.0)[1], '+90:00:00.00')
+
+	def test_dec_out_of_range_is_refused(self):
+		with self.assertRaises(ValueError):
+			GetSexigesimalString(10.0, 90.5)
