@@ -70,9 +70,32 @@ docker compose exec web python3 manage.py migrate                         # loca
 
 Some migrations also add lookup rows (e.g. `0005_candidate_lookup_rows`: the "Candidate" status, the "Superseded" data-quality flag, and the "diffpype" information source). They're attributed to the first superuser. On a DB with no superuser they're skipped with a printed note; create the rows by hand, or create a superuser and re-run that migration's function.
 
-A fresh DB built from `db_init/` therefore needs `migrate` run once after the seed: the candidate work lives in migrations 0004 to 0008 (the lookup rows above, host catalogs, tag kinds, the "Archived" status, NIRCam band wavelengths, and the `New` tag given to the candidates that already exist), not in the SQL scripts. If a migration fails partway, MySQL cannot roll back the schema changes it already made, so try a migration on a throwaway DB before a shared one.
+A fresh DB built from `db_init/` therefore needs `migrate` run once after the seed: the candidate work lives in migrations 0004 to 0009 (the lookup rows above, host catalogs, tag kinds, the "Archived" status, NIRCam band wavelengths, and the `New` tag given to the candidates that already exist), not in the SQL scripts. If a migration fails partway, MySQL cannot roll back the schema changes it already made, so try a migration on a throwaway DB before a shared one.
 
 The entrypoint does not run `migrate`. Shared and live DBs are migrated by a person, never automatically and never by Claude. Change the schema through migrations, not by hand-editing the `db_init/` SQL.
+
+## 6. Tests
+
+Two kinds, both run against the local stack:
+
+```bash
+# Unit tests (Django's runner). It builds a temporary database called test_YSE, runs the tests, and drops it.
+cd docker
+docker compose exec web python3 manage.py test YSE_App
+
+# Integration tests: real HTTP against the running stack, in tests/integration/
+pip install pytest requests
+export YSE_URL=http://localhost:8001 YSE_USER=<an admin user> YSE_PW=<its password>
+pytest tests/integration
+```
+
+The unit tests need the database user to be allowed to create the test database. If the runner stops with `Access denied for user 'dev'@'%' to database 'test_YSE'`, a MySQL admin (root, in Workbench) grants it once on your local DB (change the user name if yours differs):
+
+```sql
+GRANT ALL PRIVILEGES ON `test\_YSE`.* TO 'dev'@'%';
+```
+
+It gives access to the temporary test database only, and your real data is not touched. Do this on your local database only, never on a shared or production one: the proper home for the unit tests is CI (#53), which runs them on its own throwaway MySQL with a dedicated test user. The runner starts on an empty database, because importing the app no longer queries it (#22).
 
 ## Changing dependencies
 

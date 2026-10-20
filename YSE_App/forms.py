@@ -35,24 +35,32 @@ class TransientForm(ModelForm):
             'postage_stamp_file']
 
 class TransientFollowupForm(ModelForm):
-    status = forms.ModelChoiceField(
-        FollowupStatus.objects.all(),
-        initial=FollowupStatus.objects.filter(name='Requested')[0])
-    qs = ClassicalResource.objects.filter(end_date_valid__gt = timezone.now()-timedelta(days=1)).order_by('end_date_valid').select_related()
-    if len(qs):
-        classical_resource = forms.ModelChoiceField(
-            queryset=qs,
-            initial=qs[0],
-            required=False)
-        valid_start = forms.DateTimeField(initial=qs[0].begin_date_valid)
-        valid_stop = forms.DateTimeField(initial=qs[0].end_date_valid)
-    else:
-        classical_resource = forms.ModelChoiceField(
-            queryset=qs,
-            required=False)
-        valid_start = forms.DateTimeField()
-        valid_stop = forms.DateTimeField()
+    # Nothing here may query the database: this module is imported when the URLs load (#22).
+    # The defaults that need a query are filled in __init__, once per form instance.
+    status = forms.ModelChoiceField(FollowupStatus.objects.all())
+    classical_resource = forms.ModelChoiceField(
+        queryset=ClassicalResource.objects.none(),
+        required=False)
+    valid_start = forms.DateTimeField()
+    valid_stop = forms.DateTimeField()
     comment = forms.CharField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        requested = FollowupStatus.objects.filter(name='Requested').first()
+        if requested is not None:
+            self.fields['status'].initial = requested
+            # a field built with an initial value has no blank choice; this keeps that rendering
+            self.fields['status'].empty_label = None
+        # classical resources that have not ended more than a day ago, soonest ending first
+        qs = ClassicalResource.objects.filter(
+            end_date_valid__gt=timezone.now() - timedelta(days=1)).order_by('end_date_valid').select_related()
+        self.fields['classical_resource'].queryset = qs
+        first = qs.first()
+        if first is not None:
+            self.fields['classical_resource'].initial = first
+            self.fields['valid_start'].initial = first.begin_date_valid
+            self.fields['valid_stop'].initial = first.end_date_valid
 
     class Meta:
         model = TransientFollowup
@@ -106,12 +114,18 @@ class SurveyFieldForm(ModelForm):
     valid_start = forms.DateTimeField()
     valid_stop = forms.DateTimeField()
     coord = forms.CharField()
-    qs = Instrument.objects.filter(name__startswith = 'GPC').select_related()
-    if len(qs):
-        instrument = forms.ModelChoiceField(
-            queryset=qs,
-            initial=qs[0],
-            required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # With GPC instruments in the database the field is limited to them and optional. With none,
+        # the model's own required field (every instrument) stays, as it always has. Decided per form
+        # instance, not at import (#22).
+        qs = Instrument.objects.filter(name__startswith='GPC').select_related()
+        if qs.exists():
+            self.fields['instrument'] = forms.ModelChoiceField(
+                queryset=qs,
+                initial=qs.first(),
+                required=False)
 
     class Meta:
         model = SurveyField
@@ -124,23 +138,22 @@ class SurveyObsForm(ModelForm):
 
     survey_obs_date = forms.DateTimeField()
 
-    qs = [(i['ztf_field_id'], i['ztf_field_id']) for i in SurveyField.objects.filter(~Q(obs_group__name='ZTF')).values('ztf_field_id').distinct().order_by('ztf_field_id')]
-
-    if len(qs):
-        ztf_field_id = forms.MultipleChoiceField(
-            choices=qs,
-            initial=qs[0],
-            required=True)
-    else:
-        ztf_field_id = forms.MultipleChoiceField(
-            choices=[],
-            required=True)
-
+    # the choices come from the database, so they are set in __init__ (#22)
+    ztf_field_id = forms.MultipleChoiceField(
+        choices=[],
+        required=True)
 
     instrument = forms.MultipleChoiceField(
         choices=[['GPC1','GPC1'],['GPC2','GPC2']],
         initial=['GPC1','GPC1'],
         required=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = [(i['ztf_field_id'], i['ztf_field_id']) for i in SurveyField.objects.filter(~Q(obs_group__name='ZTF')).values('ztf_field_id').distinct().order_by('ztf_field_id')]
+        self.fields['ztf_field_id'].choices = choices
+        if choices:
+            self.fields['ztf_field_id'].initial = choices[0]
 
     class Meta:
         model = SurveyObservation
@@ -151,12 +164,17 @@ class OncallForm(ModelForm):
 
     valid_start = forms.DateTimeField()
     valid_stop = forms.DateTimeField()
-    qs = User.objects.all().filter(groups__name='YSE').filter(~Q(username='admin')).order_by('username')
-    if len(qs):
-        user = forms.ModelChoiceField(
-            queryset=qs,
-            initial=qs[0],
-            required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # the user field exists only when there are YSE group users, as before; decided per form
+        # instance, not at import (#22)
+        qs = User.objects.all().filter(groups__name='YSE').filter(~Q(username='admin')).order_by('username')
+        if qs.exists():
+            self.fields['user'] = forms.ModelChoiceField(
+                queryset=qs,
+                initial=qs.first(),
+                required=False)
 
     class Meta:
         model = YSEOnCallDate
@@ -238,10 +256,14 @@ class SpectrumUploadForm(ModelForm):
     data_quality = forms.ModelChoiceField(
         DataQuality.objects.filter(Q(name='Quicklook')),required=False)
 
-    qs = [(i['name'], i['name']) for i in Group.objects.all().values('name').distinct().order_by('name')]
+    # the group names come from the database, so the choices are set in __init__ (#22)
     permissions = forms.MultipleChoiceField(
-            choices=qs,
+            choices=[],
             required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['permissions'].choices = [(i['name'], i['name']) for i in Group.objects.all().values('name').distinct().order_by('name')]
 
     spec_instruments = [
         'SED-Machine','P200-TSPEC','SPRAT',
