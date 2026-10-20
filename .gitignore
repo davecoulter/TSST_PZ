@@ -1,4 +1,5 @@
 settings.ini
+YSE_PZ/local_test_settings.py
 *.pyo
 *.pyc
 YSE_PZ/static/

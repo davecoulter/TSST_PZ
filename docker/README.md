@@ -97,6 +97,22 @@ GRANT ALL PRIVILEGES ON `test\_YSE`.* TO 'dev'@'%';
 
 It gives access to the temporary test database only, and your real data is not touched. Do this on your local database only, never on a shared or production one: the proper home for the unit tests is CI (#53), which runs them on its own throwaway MySQL with a dedicated test user. The runner starts on an empty database, because importing the app no longer queries it (#22).
 
+**Or use a separate local test account** instead of granting the app's user:
+1. In Workbench, create an account (for example `local_test_account`).
+   - Host: `%`. The tests connect from the web container, not from `localhost`.
+   - Schema privileges: ALL on `test\_YSE`, entered without `.*`.
+2. Point the tests at it with a settings file, `YSE_PZ/local_test_settings.py`. It is git-ignored, because it holds the account's password:
+
+   ```python
+   from YSE_PZ.settings import *  # noqa
+   DATABASES['default'] = dict(DATABASES['default'], USER='local_test_account', PASSWORD='<its password>')  # noqa: F405
+   ```
+3. Run the tests with it:
+
+   ```bash
+   docker compose exec web python3 manage.py test YSE_App --settings=YSE_PZ.local_test_settings
+   ```
+
 ## Changing dependencies
 
 The runtime image is a brittle chain (see `web_image_history/`). Don't add or change dependencies as a side fix; see `CLAUDE.md`.
