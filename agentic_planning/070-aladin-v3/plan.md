@@ -1,7 +1,7 @@
 # 070: Replace Aladin Lite v2 with vendored Aladin Lite v3
 
 - **Issue:** #70
-- **Branch:** `claude/project-thread-lh91gc`. This is the Project Claude working branch; the convention would be `70-aladin-v3`, so rename it before the PR if you want.
+- **Branch:** `70-aladin-v3`
 - **Status:** Draft
 
 ## Why
