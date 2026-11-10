@@ -19,12 +19,57 @@ class QueryModelForm(forms.ModelForm):
 class UserQueryAdmin(admin.ModelAdmin):
 	form = QueryModelForm
 	
+def _tns_group_choices():
+	"""The TNS groups of the values snapshot (#52), read when the form is built, not at import."""
+	from YSE_App import tns_values
+	return [('', '---------')] + [(i, '%s (%s)' % (label, i)) for i, label in tns_values.choices('groups')]
+
+
+class ObservationGroupForm(forms.ModelForm):
+	"""The TNS group fields as dropdowns of TNS's groups; the TNS id is what is stored."""
+	tns_reporting_group_id = forms.ChoiceField(choices=_tns_group_choices, required=False, label='TNS reporting group')
+	tns_data_source_group_id = forms.ChoiceField(choices=_tns_group_choices, required=False,
+	                                             label='TNS data source group')
+
+	class Meta:
+		model = ObservationGroup
+		fields = ('name', 'tns_reporting_group_id', 'tns_data_source_group_id')
+
+	def _clean_optional(self, name):
+		value = (self.cleaned_data.get(name) or '').strip()
+		return value or None  # empty is NULL: the report form then asks for it
+
+	def clean_tns_reporting_group_id(self):
+		return self._clean_optional('tns_reporting_group_id')
+
+	def clean_tns_data_source_group_id(self):
+		return self._clean_optional('tns_data_source_group_id')
+
+
+@admin.register(ObservationGroup)
+class ObservationGroupAdmin(admin.ModelAdmin):
+	form = ObservationGroupForm
+	list_display = ('name', 'tns_reporting_group_id', 'tns_data_source_group_id')
+	fieldsets = (
+		(None, {'fields': ('name',)}),
+		('TNS reports (#52)', {
+			'fields': ('tns_reporting_group_id', 'tns_data_source_group_id'),
+			'description': 'The TNS groups a report of this group\'s transients starts with. Leave a field '
+			               'empty and the report form asks for it.'}),
+	)
+
+	def save_model(self, request, obj, form, change):
+		if not change:
+			obj.created_by = request.user
+		obj.modified_by = request.user
+		super().save_model(request, obj, form, change)
+
+
 admin.site.register(TransientStatus)
 admin.site.register(FollowupStatus)
 admin.site.register(TaskStatus)
 admin.site.register(AntaresClassification)
 admin.site.register(InternalSurvey)
-admin.site.register(ObservationGroup)
 admin.site.register(SEDType)
 admin.site.register(HostMorphology)
 admin.site.register(Phase)

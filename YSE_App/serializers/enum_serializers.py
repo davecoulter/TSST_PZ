@@ -94,6 +94,8 @@ class ObservationGroupSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = ObservationGroup
         fields = "__all__"
+        # the TNS report defaults (#52) are set in the admin only, never through the API
+        read_only_fields = ('tns_reporting_group_id', 'tns_data_source_group_id')
 
     def create(self, validated_data):
         return ObservationGroup.objects.create(**validated_data)

@@ -55,7 +55,7 @@ Out of scope:
 ## Amendments (2026-10-20, after review with Dave)
 
 1. **A report in flight blocks a second one.** The select grid leaves out transients whose latest attempt is pending. Submitting re-checks and locks the selected rows inside one transaction, so two reporters at once cannot send the same transient twice.
-2. **While an attempt is pending, `iau_name` cannot be changed by hand.** The admin "(edit name)" form shows it read-only with the reason, and the API refuses a change (serializer validation). The write-back never overwrites a name that was set meanwhile: it marks the attempt "reported, name differs" (TNS's name and ours both shown) for a person to resolve.
+2. **While an attempt is pending, `iau_name` cannot be changed by hand.** The admin "(edit transient, admin only)" form shows it read-only with the reason, and the API refuses a change (serializer validation). The write-back never overwrites a name that was set meanwhile: it marks the attempt "reported, name differs" (TNS's name and ours both shown) for a person to resolve.
 3. **"Check again"** asks TNS for the reply of one pending attempt, any number of times. It is rate-limited on the server (`last_checked` on the attempt; a minimum gap between checks, so repeated clicks do nothing and TNS is not hammered). An attempt that never resolves can be marked **abandoned** by a superuser (admin action), and a pending attempt older than a day shows a "pending for more than a day" label. Status values: pending, reported, failed, abandoned.
 4. **The key is sent, never stored.** TNS takes two form fields: `api_key` and `data`. What we store as "payload sent" is the `data` JSON (no key in it) and the reply TNS returned. The whole request is never logged.
 5. **Not an API.** This is a workflow for people. `TNSReportAttempt` gets no serializer and no `/api/` route (the "API parity" rule in `CLAUDE.md`: not exposed, on purpose), so we do not shadow TNS's own API.
@@ -89,14 +89,47 @@ These replace the "Defaults from Dave's bot code" and "Discovery photometry" des
     - `internal_name` is always `Transient.name`. TNS stores it, so our records and TNS's can be cross-referenced without an RA/Dec match.
     - `internal_ids: {"tsst_id": "<pk>"}` is returned unchanged in TNS's reply, so stage 3 can match each result to its transient.
 16. **One coordinate helper.**
-    - `common/utilities.GetSexigesimalString` gets fixed (seconds carry, RA wrap, no "-00") on its own issue branch from `master`, first.
+    - `common/utilities.GetSexigesimalString` gets fixed (seconds carry, RA wrap, no "-00") on its own issue branch from `master`, first: #61, PR #64, merged 2026-10-20 and merged into this branch.
     - `tns_report` calls it, with no copy of its own, and `master` is merged back into this branch.
-    - Coordinates that legacy scripts format by hand go to a tech-debt issue.
+    - Coordinates that legacy scripts format by hand go to a tech-debt issue: #62.
 17. **Follow-ups, each its own issue:**
-    - Ingest (transients and candidates) must carry the survey/obs group that TNS reports need. Today candidates get a group named after the telescope, or "Unknown".
+    - Ingest (transients and candidates) must carry the survey/obs group that TNS reports need (#63). Today candidates get a group named after the telescope, or "Unknown".
     - Dave fills in existing rows' obs groups and TNS fields by hand (SQL or admin) after the deploy.
 
 Stage 2 in amendment 7 therefore also carries the `ObservationGroup` fields, their migration and their admin.
+
+## Amendments, part 3 (2026-11-10, stage 2 review with Dave)
+
+These replace amendment 12, the "plus superusers" in decision 1, and the committed file in 6b, wherever they disagree.
+
+18. **Non-detection: archival or observed, by radio button** (stage 2).
+    - Set once for the batch; a row can override it, like the survey values.
+    - **Archival** (the default): the archive is required (Other by default; TNS also lists SDSS and DSS), and so is the remark.
+    - **Last non-detection:** date, limiting magnitude (in the batch's units), filter and instrument, all required. The date must be before the discovery date (TNS's blocking error 1).
+      - TNS 2.0 keys: `obsdate`, `limiting_flux`, `flux_unitid`, `filterid`, `instrumentid`. `limiting_flux` is from Dave's older script; the sandbox run confirms it.
+    - Our data has no reference-image date or depth yet, so an observed non-detection starts blank. Candidate ingest carrying reference-image metadata is #73; its prefill stays editable, since the transient can be in the reference (high-z).
+19. **Access is the "TNS Reporters" group only.** Superusers are not let in by default, since the local copy of the legacy DB has 25 of them, and a report goes out under the TSST bot's name. The nav entry moves from stage 4 to stage 2.
+20. **TNS values live in a database table, not a committed file** (stage 3).
+    - Seeded from the 2025-06-18 snapshot; each value has a last-updated time.
+    - Refreshed by `manage.py sync_tns_values` and by a "Refresh from TNS" button on the TNS pages, for TNS reporters, rate-limited on the server. The form shows "TNS values as of <date>".
+    - A refresh adds and updates; it never deletes (a value TNS stops listing is marked as such, and the preview keeps flagging it).
+    - No scheduled run for now: a tested cron for local, test and production comes with #51.
+    - Not exposed through the API: it mirrors TNS.
+21. **One obs group per TNS group** (stage 3, part of the sync). For each TNS group:
+    1. an obs group already linked to its TNS id is left alone;
+    2. otherwise the obs group with exactly its name is linked;
+    3. otherwise an obs group with its name is created and linked.
+
+    Never deletes or renames. `tns_reporting_group_id` becomes unique (new migration). The data source group defaults to the same id but can differ; the reporter text and archival remark are per report (amendment 22). The legacy TNS ingest already names obs groups after TNS reporting groups (`data_ingest/TNS_uploads.py:259`); 86 of the 101 local obs groups match a TNS group name.
+22. **`ObservationGroup` keeps only the two TNS group ids** (stage 2; replaces part of amendment 9). The reporter text and the archival remark are per report: typed for the batch, and the archival remark can be overridden per row along with the rest of the non-detection. The reporter is batch-only. Migration 0010 is rewritten to add only the two ids (it is not on `master` yet). **API parity:** the two ids stay read-only in API responses.
+23. **Every prefilled value is editable, with TNS values as dropdowns** (stage 2).
+    - Each photometry point's TNS filter and instrument are dropdowns of every TNS value, preselected from the band and instrument mapping.
+    - Picking filter "Other" shows a comment field, required and prefilled with "Filter is <telescope>-<camera>-<band>."; a comment is sent only with "Other".
+    - Every dropdown starts with "-- select --" under a bold label.
+24. **One redshift format** (stage 2): `tns_report.format_redshift` (photo-z 2 decimals, spec-z 4) is used by the payload, the details form's prefill and the select grid.
+25. **Setting a candidate's obs group** (stage 2): until ingest carries it (#63), staff use the detail pages' admin popup, relabelled from "(edit name)" to "(edit transient, admin only)". It is shown only to staff, and the admin checks permissions again.
+26. **The measurements are editable too** (stage 2; Dave: for power users, everything editable until that causes trouble). Each point's MJD, magnitude and error are prefilled and editable; the TNS date (and the discovery date, for the discovery point) follows the MJD. A value that does not parse is flagged and ours is kept. One flag in the page, `LOCK_MEASUREMENTS`, makes them read-only, and then our data is sent unchanged.
+27. **Ours beside what is sent** (stage 2). Each photometry row has two column groups: "In STZ-PZ (read-only)" (MJD, band, magnitude and error, S/N) and "Sent to TNS (editable)" (MJD with the TNS date under it, magnitude and error, filter with its comment, instrument). A sent value that differs from ours is red (Dave: a deliberate, risky choice), and a reset icon puts the point back to ours. The form does not let the browser refill it after a reload.
 
 ## Acceptance criteria
 
@@ -104,7 +137,7 @@ Stage 2 in amendment 7 therefore also carries the `ObservationGroup` fields, the
 - [ ] Selecting several candidates, filling the form, confirming and submitting sends one bulk report to the configured TNS (sandbox by default).
 - [ ] Each reported transient gets its `iau_name` (and its URL moves); each failure is recorded with TNS's message and flagged on the detail page.
 - [ ] Pending reports resolve without a page reload or a restart.
-- [ ] Dropdowns use the TNS values snapshot; nothing hardcodes our group or authors.
+- [ ] Dropdowns use the TNS values table, refreshed from TNS on demand; nothing hardcodes our group or authors.
 - [ ] No TNS credential in the DB, UI or repo.
 - [ ] End-to-end test on the TNS sandbox: report two candidates, one valid and one deliberately broken, and see one IAU name and one flagged failure.
 - [ ] A transient with a pending attempt cannot be selected, and cannot have its IAU name changed from the admin or the API; two simultaneous submissions send it once.
@@ -152,3 +185,33 @@ Stage 2 in amendment 7 therefore also carries the `ObservationGroup` fields, the
   - Magnitudes stay at 2 decimals; the picker uses the app's detection rule.
   - Local unit tests now run as `local_test_account` through a git-ignored `YSE_PZ/local_test_settings.py` (see `docker/README.md`, "6. Tests"). The SQLite stand-in is retired.
   - 42 tests pass on MySQL.
+- **2026-10-20:** Issues #61 (coordinate rounding; fixed by PR #64, merged into this branch), #62 (hand-written coordinate formatting, tech debt) and #63 (ingest carries the survey/obs group).
+- **2026-10-20 (stage 2 built, for Dave's payload review):**
+  - **Data:** `ObservationGroup` gets four nullable TNS fields (migration 0010), and migration 0011 creates the "TNS Reporters" group. In the admin, the group fields are dropdowns from the snapshot, and empty is stored as NULL. **API parity:** the serializer marks the four fields read-only (shown, never written).
+  - **Pages** (`tns_views.py`, all limited to TNS Reporters plus superusers, 403 otherwise):
+    - `/tns/report/`: transients without an IAU name, by status and candidate tag, one box per obs group, with "select all" and a 100-transient cap.
+    - `/tns/report/details/`: the batch values (per-survey ones start from the obs group, or a row overrides them); per row, the discovery date, host name/z and its source, the photometry picker (discovery preselected) and remarks.
+    - `/tns/report/preview/`: `build_report()`, the function stage 3 will submit with, run as the form is edited. It shows a table of TNS labels, the problems, and the raw JSON.
+  - **Target:** `TNS_TARGET` (settings.ini `[tns]`, default sandbox) drives the banner on every TNS page.
+  - **Builder:** `describe()` gives each value's label; `problems()` also flags an id the snapshot lacks.
+  - **Not yet:** submitting, attempts, the pending-attempt exclusion (stage 3); the nav entry (stage 4). Photometry values themselves are not editable, only which points are sent.
+  - **Tests:** 73 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 1):**
+  - Migrations 0010 and 0011 applied on Dave's local stack; the select and details pages load.
+  - **Discovery point is required** (Dave): each detection has a "Discovery" radio button. The picked point is always sent, as entry 0. The discovery date is that point's date, shown read-only, no longer typed. Unticking the discovery point's box clears the pick, and the preview flags the row until another is chosen.
+  - **MJD column** in the photometry picker (via `common/utilities.date_to_mjd`), to order points within one day. TNS still gets whole days (amendment 14).
+  - **Nav entry moved from stage 4 to stage 2** (Dave): "Report to TNS" in the left nav, shown by the `is_tns_reporter` template filter (`templatetags/tns_extras.py`), which calls the same check as the pages.
+  - **Group ids TNS no longer lists** (Dave): keep as built. Our data is never changed; the admin refuses to save such an id, and the preview flags it, so it is never sent.
+  - **Obs group vs TNS group** (Dave): in the problem domain they are one concept, linked by hand in the admin. New TNS groups come in through `sync_tns_values` (6b, not built yet; it needs the TNS client, so it lands in stage 3). Nothing pushes groups to TNS.
+  - Tests: 77 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 2):** Amendments, part 3 (18-21).
+  - Built for stage 2: the non-detection radio button (archival or last non-detection, batch with per-row override), and group-only access (nav and pages). A row's filter and instrument dropdowns copy the batch's options when first opened, so a 100-row batch does not render ~40,000 options.
+  - Filed #72 (TNS classification reports with spectra; SN types need a spectrum) and #73 (candidate ingest carries reference-image metadata, to prefill the last non-detection).
+  - Tests: 83 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 3):** Amendments 22-25.
+  - `ObservationGroup.tns_reporter` and `tns_archival_remarks` are dropped. Dave rolled his local DB back to 0009 and migration 0010 was rewritten to add only the two ids; `makemigrations --check` finds no changes.
+  - Per-point filter and instrument dropdowns (they copy the batch's full TNS lists when first opened), with a required comment for "Other".
+  - Redshift shown as sent; "-- select --" and bold labels on every dropdown; the admin popup link renamed.
+  - Tests: 87 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 4):** Amendment 26: MJD, magnitude and error editable, behind a `LOCK_MEASUREMENTS` flag. Dave re-applied the rewritten 0010 and 0011 locally. 90 `YSE_App` tests pass; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 5):** Amendment 27: the photometry table shows our record beside what is sent, with changed values highlighted and a per-point reset. 90 tests pass; the page's script parses (esprima).

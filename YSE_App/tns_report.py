@@ -7,7 +7,8 @@
 - `default_shared()` gives the batch-wide values the form starts with.
 - `at_report_entry(fields, shared)` turns both into one TNS `at_report` entry. It reads no
   database; the preview and the submission both call it.
-- `problems(entry)` lists what TNS would reject, before anything is sent.
+- `problems(entry)` lists what TNS would reject, before anything is sent; `describe(entry)` lists
+  every value with its TNS label, for the preview.
 
 Field names and required keys follow the TNS bulk report manual (Jan 2025), section 5.5. Ids come
 from the TNS values snapshot (`tns_values`), never from code.
@@ -36,6 +37,10 @@ REMARKS_MAX_LENGTH = 512
 TRANSIENT_SPEC_Z = 'transient spec-z'
 HOST_SPEC_Z = 'host spec-z'
 HOST_PHOTO_Z = 'host photo-z'
+# The two kinds of non-detection TNS takes (one is required): an archive the transient is absent
+# from, with a remark, or a dated observation with its limiting magnitude (amendment 18).
+ND_ARCHIVAL = 'archival'
+ND_OBSERVATION = 'observation'
 
 
 def tns_date(value):
@@ -60,8 +65,14 @@ def default_shared():
         'reporter': '',
         'at_type': tns_values.find_id('at_types', d['at_type']),
         'flux_unitid': tns_values.find_id('units', d['units']),
+        'non_detection': ND_ARCHIVAL,
         'archiveid': tns_values.find_id('archives', d['archive']),
         'archival_remarks': '',
+        # an observed non-detection: our data does not have it yet, so the reporter enters it
+        'nd_obsdate': '',
+        'nd_limiting_flux': '',
+        'nd_filterid': None,
+        'nd_instrumentid': None,
     }
 
 
@@ -145,19 +156,37 @@ def transient_fields(transient):
 
 # --- the payload ------------------------------------------------------------
 
+def other_filter():
+    """TNS's filter id for 'Other': a filter TNS does not list, named in the point's comment."""
+    return tns_values.find_id('filters', 'Other') or ''
+
+
+def filter_comment(band, instrumentid):
+    """The comment that names one of our bands when it is sent as filter 'Other'
+    ('Filter is JWST-NIRCam-F090W.')."""
+    telescope, _, camera = (tns_values.label('instruments', instrumentid) or '').partition(' - ')
+    return 'Filter is %s.' % '-'.join(x for x in (telescope, camera, band) if x)
+
+
 def tns_filter(band, instrumentid):
     """(filterid, comments) for one of our band names. TNS lists JWST filters as 'F200W-JWST', so
     the band is looked up as is, then with the instrument's telescope. A band TNS does not list is
-    sent as filter 'Other' with a comment naming it ('Filter is JWST-NIRCam-F090W.')."""
-    instrument = tns_values.label('instruments', instrumentid) or ''
-    telescope, _, camera = instrument.partition(' - ')
+    sent as filter 'Other' with a comment naming it (filter_comment)."""
+    telescope = (tns_values.label('instruments', instrumentid) or '').partition(' - ')[0]
     found = tns_values.find_id('filters', band)
     if found is None and telescope:
         found = tns_values.find_id('filters', '%s-%s' % (band, telescope))
     if found is not None:
         return found, ''
-    name = '-'.join(x for x in (telescope, camera, band) if x)
-    return tns_values.find_id('filters', 'Other') or '', 'Filter is %s.' % name
+    return other_filter(), filter_comment(band, instrumentid)
+
+
+def format_redshift(z, source):
+    """A redshift as TNS gets it, and as the form shows it: a photo-z to 2 decimals, a spec-z to 4
+    (more digits read as spectroscopic). '' for none."""
+    if z is None:
+        return ''
+    return '%.*f' % (2 if source == HOST_PHOTO_Z else 4, z)
 
 
 def _id(value):
@@ -165,7 +194,13 @@ def _id(value):
 
 
 def _photometry(point, shared):
-    filterid, comments = tns_filter(point['band'], point.get('instrumentid'))
+    """One photometry entry. The filter comes from the band (tns_filter) unless the reporter chose
+    one ('filterid' in the point, with its 'comments'); a comment is sent only with filter 'Other'."""
+    if 'filterid' in point:
+        filterid = _id(point['filterid'])
+        comments = (point.get('comments') or '').strip() if filterid == other_filter() else ''
+    else:
+        filterid, comments = tns_filter(point['band'], point.get('instrumentid'))
     entry = {
         'obsdate': tns_date(point['obs_date']),
         'flux': '' if point['mag'] is None else '%.2f' % point['mag'],
@@ -177,6 +212,16 @@ def _photometry(point, shared):
     if comments:
         entry['comments'] = comments
     return entry
+
+
+def _non_detection(shared):
+    """The entry's non_detection: an observation (date, limiting magnitude in the batch's units,
+    filter, instrument) when shared['non_detection'] says so, else the archive and its remark."""
+    if shared.get('non_detection') == ND_OBSERVATION:
+        return {'obsdate': shared.get('nd_obsdate') or '', 'limiting_flux': shared.get('nd_limiting_flux') or '',
+                'flux_unitid': _id(shared['flux_unitid']), 'filterid': _id(shared.get('nd_filterid')),
+                'instrumentid': _id(shared.get('nd_instrumentid'))}
+    return {'archiveid': _id(shared['archiveid']), 'archival_remarks': (shared['archival_remarks'] or '').strip()}
 
 
 def at_report_entry(fields, shared):
@@ -199,12 +244,10 @@ def at_report_entry(fields, shared):
     if fields.get('host_name'):
         entry['host_name'] = fields['host_name']
     if fields.get('host_redshift'):
-        decimals = 2 if fields.get('host_redshift_source') == HOST_PHOTO_Z else 4
-        entry['host_redshift'] = '%.*f' % (decimals, fields['host_redshift'])
+        entry['host_redshift'] = format_redshift(fields['host_redshift'], fields.get('host_redshift_source'))
     if (fields.get('remarks') or '').strip():
         entry['remarks'] = fields['remarks'].strip()
-    entry['non_detection'] = {'archiveid': _id(shared['archiveid']),
-                              'archival_remarks': (shared['archival_remarks'] or '').strip()}
+    entry['non_detection'] = _non_detection(shared)
     entry['photometry'] = {str(i): _photometry(p, shared) for i, p in enumerate(fields['photometry'])}
     return entry
 
@@ -218,14 +261,38 @@ def bulk_report(entries):
     return {'at_report': {str(i): entry for i, entry in enumerate(entries)}}
 
 
+# entry keys that hold a TNS id, and the snapshot table that labels it
+_LABELLED = {'reporting_groupid': 'groups', 'data_source_groupid': 'groups', 'at_type': 'at_types',
+             'flux_unitid': 'units', 'filterid': 'filters', 'instrumentid': 'instruments', 'archiveid': 'archives'}
+
+
+def describe(entry, prefix=''):
+    """[(path, value, label)] for every value in an entry, nested keys joined with '.'
+    ('photometry.0.filterid'). label is the TNS label of an id, None for an id the snapshot does not
+    have, and '' for a value that is not an id."""
+    rows = []
+    for key, value in entry.items():
+        path = prefix + key
+        if isinstance(value, dict):
+            rows += describe(value, path + '.')
+        else:
+            kind = _LABELLED.get(key)
+            rows.append((path, value, tns_values.label(kind, value) if kind and value != '' else ''))
+    return rows
+
+
 _REQUIRED = ('reporting_groupid', 'data_source_groupid', 'reporter', 'discovery_datetime', 'at_type')
 _REQUIRED_PHOTOMETRY = ('obsdate', 'flux', 'flux_unitid', 'filterid', 'instrumentid')
+# TNS requires all but the limit; we require it too, since a non-detection without one says little
+_REQUIRED_NON_DETECTION = ('obsdate', 'limiting_flux', 'flux_unitid', 'filterid', 'instrumentid')
 
 
 def problems(entry):
     """{path: message} for what TNS would reject in one entry (empty when it looks complete):
-    missing required values, no or too much photometry, an empty archival remark, long remarks."""
-    found = {}
+    missing required values, no or too much photometry, an incomplete non-detection (or one not before
+    the discovery), long remarks, an id the TNS values snapshot does not have."""
+    found = {path: 'not in the TNS values snapshot (%s)' % value
+             for path, value, label in describe(entry) if label is None}
     for key in ('ra', 'dec'):
         if not entry.get(key, {}).get('value'):
             found[key] = 'required'
@@ -244,9 +311,16 @@ def problems(entry):
         for key in _REQUIRED_PHOTOMETRY:
             if not point.get(key):
                 found['photometry.%s.%s' % (i, key)] = 'required'
+        if point.get('filterid') and point['filterid'] == other_filter() and not point.get('comments'):
+            found['photometry.%s.comments' % i] = 'name the filter: it is sent as "Other"'
 
     nd = entry.get('non_detection') or {}
-    for key in ('archiveid', 'archival_remarks'):
+    observed = 'obsdate' in nd
+    for key in (_REQUIRED_NON_DETECTION if observed else ('archiveid', 'archival_remarks')):
         if not nd.get(key):
             found['non_detection.' + key] = 'required'
+    # TNS's blocking error 1; with whole days, the same day does not precede
+    discovery = entry.get('discovery_datetime')
+    if observed and nd.get('obsdate') and discovery and nd['obsdate'] >= discovery:
+        found['non_detection.obsdate'] = 'must be before the discovery date (%s)' % discovery
     return found

@@ -132,6 +132,24 @@ class AtReportEntryTests(SimpleTestCase):
 			entry = tns_report.at_report_entry(fields(host_redshift=0.51, host_redshift_source=source), SHARED)
 			self.assertEqual(entry['host_redshift'], '0.5100')
 
+	def test_an_observed_non_detection(self):
+		"""Amendment 18: a dated non-detection replaces the archive, in the batch's units."""
+		shared = dict(SHARED, non_detection=tns_report.ND_OBSERVATION, nd_obsdate='2023-01-05',
+		              nd_limiting_flux='28.50', nd_filterid='100', nd_instrumentid='185')
+		entry = tns_report.at_report_entry(fields(), shared)
+		self.assertEqual(entry['non_detection'], {'obsdate': '2023-01-05', 'limiting_flux': '28.50', 'flux_unitid': '1',
+		                                          'filterid': '100', 'instrumentid': '185'})
+		self.assertEqual(tns_report.problems(entry), {})
+
+	def test_an_observed_non_detection_must_be_complete_and_before_the_discovery(self):
+		shared = dict(SHARED, non_detection=tns_report.ND_OBSERVATION, nd_obsdate='2023-12-24')
+		self.assertEqual(tns_report.problems(tns_report.at_report_entry(fields(), shared)), {
+			'non_detection.obsdate': 'must be before the discovery date (2023-12-24)',
+			'non_detection.limiting_flux': 'required',
+			'non_detection.filterid': 'required',
+			'non_detection.instrumentid': 'required',
+		})
+
 	def test_a_new_batch_must_be_filled_in(self):
 		"""default_shared leaves the per-survey values empty: the reporter supplies them."""
 		shared = tns_report.default_shared()
@@ -281,3 +299,21 @@ class TransientFieldsTests(TestCase):
 		f = tns_report.transient_fields(self.transient)
 		self.assertEqual((f['transient_id'], f['internal_name'], f['ra'], f['dec'], f['remarks']),
 		                 (self.transient.pk, 'jwst_cand_1', 150.18, 2.44, ''))
+
+
+class DescribeTests(SimpleTestCase):
+
+	def test_describe_labels_every_id(self):
+		rows = {path: (value, label) for path, value, label in tns_report.describe(tns_report.at_report_entry(fields(), SHARED))}
+		self.assertEqual(rows['reporting_groupid'], ('170', 'TSST_COSMOS_3D'))
+		self.assertEqual(rows['at_type'], ('1', 'PSN - Possible SN'))
+		self.assertEqual(rows['photometry.1.filterid'], ('0', 'Other'))
+		self.assertEqual(rows['photometry.0.instrumentid'], ('185', 'JWST - NIRCam'))
+		self.assertEqual(rows['non_detection.archiveid'], ('0', 'Other'))
+		self.assertEqual(rows['internal_ids.tsst_id'], ('42', ''))
+		self.assertEqual(rows['ra.value'], ('10:00:43.24', ''))
+
+	def test_an_id_the_snapshot_lacks_is_a_problem(self):
+		entry = tns_report.at_report_entry(fields(), dict(SHARED, at_type='99'))
+		self.assertIn(('at_type', '99', None), tns_report.describe(entry))
+		self.assertEqual(tns_report.problems(entry), {'at_type': 'not in the TNS values snapshot (99)'})

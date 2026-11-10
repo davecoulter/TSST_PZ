@@ -241,6 +241,11 @@ TNS_REPORT_DEFAULTS = {
     'units': 'ABMag',
     'archive': 'Other',
 }
+# Which TNS this deployment reports to (#52): 'sandbox' unless [tns] TNS_TARGET in settings.ini says
+# 'production'. Only the production server is set to production, once, at setup.
+TNS_TARGET = config.get('tns', 'TNS_TARGET', fallback='sandbox').strip().lower()
+if TNS_TARGET not in ('sandbox', 'production'):
+    raise ValueError("settings.ini [tns] TNS_TARGET must be 'sandbox' or 'production', not %r" % TNS_TARGET)
 REDYSEFILTER = config.get('yse','red_yse_filter')
 ghost_path = config.get('main','ghost_path')
 

@@ -7,7 +7,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework.schemas import get_schema_view
 from django.urls import path, re_path, include
 
-from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest, candidate_views
+from . import views, view_utils, data_utils, table_utils, yse_views, candidate_ingest, candidate_views, tns_views
 from . import api_views
 from .form_views import *
 from .yse_utils.yse_forms import MoveYSEFormView
@@ -30,6 +30,10 @@ urlpatterns = [
     re_path(r'^candidate/(?P<slug>[^/]+)/$', candidate_views.candidate_detail, name='candidate_detail'),
     re_path(r'^candidate_sed/(?P<transient_id>[0-9]+)/$', candidate_views.candidate_sed, name='candidate_sed'),
     re_path(r'^candidate_tag/(?P<transient_id>[0-9]+)/$', candidate_views.candidate_tag, name='candidate_tag'),
+    # reporting to TNS (#52)
+    re_path(r'^tns/report/$', tns_views.tns_report_select, name='tns_report_select'),
+    re_path(r'^tns/report/details/$', tns_views.tns_report_details, name='tns_report_details'),
+    re_path(r'^tns/report/preview/$', tns_views.tns_report_preview, name='tns_report_preview'),
     re_path(r'^personaldashboard/$', views.personaldashboard, name='personaldashboard'),
     re_path(r'^calendar/$', views.calendar, name='calendar'),
     re_path(r'^followup/$', views.followup, name='followup'),
