@@ -20,7 +20,7 @@ class UserQueryAdmin(admin.ModelAdmin):
 	form = QueryModelForm
 	
 def _tns_group_choices():
-	"""The TNS groups of the values snapshot (#52), read when the form is built, not at import."""
+	"""The TNS groups TNS lists (#52), read when the form is built, not at import."""
 	from YSE_App import tns_values
 	return [('', '---------')] + [(i, '%s (%s)' % (label, i)) for i, label in tns_values.choices('groups')]
 

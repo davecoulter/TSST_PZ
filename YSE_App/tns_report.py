@@ -11,7 +11,7 @@
   every value with its TNS label, for the preview.
 
 Field names and required keys follow the TNS bulk report manual (Jan 2025), section 5.5. Ids come
-from the TNS values snapshot (`tns_values`), never from code.
+from the TNS values (`tns_values`, TNS's own lists), never from code.
 Plan: agentic_planning/052-tns-reporting/plan.md (amendments 9-17).
 """
 import datetime
@@ -261,15 +261,15 @@ def bulk_report(entries):
     return {'at_report': {str(i): entry for i, entry in enumerate(entries)}}
 
 
-# entry keys that hold a TNS id, and the snapshot table that labels it
+# entry keys that hold a TNS id, and the TNS values kind that labels it
 _LABELLED = {'reporting_groupid': 'groups', 'data_source_groupid': 'groups', 'at_type': 'at_types',
              'flux_unitid': 'units', 'filterid': 'filters', 'instrumentid': 'instruments', 'archiveid': 'archives'}
 
 
 def describe(entry, prefix=''):
     """[(path, value, label)] for every value in an entry, nested keys joined with '.'
-    ('photometry.0.filterid'). label is the TNS label of an id, None for an id the snapshot does not
-    have, and '' for a value that is not an id."""
+    ('photometry.0.filterid'). label is the TNS label of an id, None for an id TNS never had, and ''
+    for a value that is not an id."""
     rows = []
     for key, value in entry.items():
         path = prefix + key
@@ -290,9 +290,14 @@ _REQUIRED_NON_DETECTION = ('obsdate', 'limiting_flux', 'flux_unitid', 'filterid'
 def problems(entry):
     """{path: message} for what TNS would reject in one entry (empty when it looks complete):
     missing required values, no or too much photometry, an incomplete non-detection (or one not before
-    the discovery), long remarks, an id the TNS values snapshot does not have."""
-    found = {path: 'not in the TNS values snapshot (%s)' % value
-             for path, value, label in describe(entry) if label is None}
+    the discovery), long remarks, an id TNS never had or no longer lists."""
+    found = {}
+    for path, value, text in describe(entry):
+        kind = _LABELLED.get(path.rsplit('.', 1)[-1])
+        if kind and value != '' and text is None:
+            found[path] = 'not a TNS id (%s)' % value
+        elif kind and value != '' and not tns_values.listed(kind, value):
+            found[path] = 'TNS no longer lists %s (%s)' % (text, value)
     for key in ('ra', 'dec'):
         if not entry.get(key, {}).get('value'):
             found[key] = 'required'

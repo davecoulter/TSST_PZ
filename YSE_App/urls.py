@@ -36,6 +36,7 @@ urlpatterns = [
     re_path(r'^tns/report/preview/$', tns_views.tns_report_preview, name='tns_report_preview'),
     re_path(r'^tns/report/submit/$', tns_views.tns_report_submit, name='tns_report_submit'),
     re_path(r'^tns/report/history/$', tns_views.tns_report_history, name='tns_report_history'),
+    re_path(r'^tns/values/refresh/$', tns_views.tns_values_refresh, name='tns_values_refresh'),
     path('tns/report/<uuid:batch>/', tns_views.tns_report_results, name='tns_report_results'),
     path('tns/report/<uuid:batch>/check/', tns_views.tns_report_check, name='tns_report_check'),
     re_path(r'^personaldashboard/$', views.personaldashboard, name='personaldashboard'),

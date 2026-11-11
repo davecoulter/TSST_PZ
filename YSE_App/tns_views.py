@@ -63,8 +63,9 @@ def tns_reporter_required(view):
 
 
 def _target():
+    """What every TNS page shows: which TNS, and how current its values are."""
     return {'tns_target': settings.TNS_TARGET, 'tns_host': TARGET_HOSTS[settings.TNS_TARGET],
-            'tns_production': settings.TNS_TARGET == 'production'}
+            'tns_production': settings.TNS_TARGET == 'production', 'tns_values_as_of': tns_values.as_of()}
 
 
 def _ids(values):
@@ -118,7 +119,7 @@ def tns_report_select(request):
                    statuses=TransientStatus.objects.order_by('name').values_list('name', flat=True),
                    tag_names=TransientTag.objects.filter(kind__name__iexact='Candidate').order_by('name')
                    .values_list('name', flat=True),
-                   max_entries=tns_report.MAX_ENTRIES)
+                   max_entries=tns_report.MAX_ENTRIES, bots=_bots())
     return render(request, 'YSE_App/tns_report_select.html', context)
 
 
@@ -419,3 +420,20 @@ def tns_report_history(request):
         b['n'] += 1
     rows = [dict(b, counts=sorted(b['counts'].items())) for b in batches.values()]
     return render(request, 'YSE_App/tns_report_history.html', dict(_target(), batches=rows))
+
+
+@tns_reporter_required
+@require_POST
+def tns_values_refresh(request):
+    """JSON: refresh the TNS values (and link TNS groups to observation groups) as the chosen bot, at
+    most once per tns_values.REFRESH_GAP site-wide (amendments 20-21)."""
+    bot = TNSBot.objects.filter(pk=request.POST.get('bot') or None, active=True).first()
+    if bot is None or not tns_client.has_key(bot):
+        return JsonResponse({'error': 'choose a bot with a %s key' % settings.TNS_TARGET}, status=400)
+    try:
+        summary = tns_values.refresh(bot, request.user)
+    except tns_values.TooSoon as e:
+        return JsonResponse({'error': str(e), 'wait': e.wait}, status=429)
+    except tns_client.TNSError as e:
+        return JsonResponse({'error': 'TNS did not answer as expected: %s' % e}, status=502)
+    return JsonResponse({'summary': summary, 'text': tns_values.summary_text(summary)})

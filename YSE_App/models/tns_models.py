@@ -81,3 +81,52 @@ class TNSReportAttempt(BaseModel):
 
 	def __str__(self):
 		return '%s to %s TNS: %s' % (self.transient_id, self.target, self.status)
+
+
+class TNSValue(models.Model):
+	"""
+	One of TNS's enumerated values (#52, plan 052 amendment 20): a group, AT type, filter, instrument,
+	unit, archive, ... as TNS's /api/get/values lists them. A mirror of TNS, refreshed by
+	`tns_values.sync` ("Refresh from TNS", `manage.py sync_tns_values`); seeded from the 2025-06-18
+	snapshot by migration 0015. Pages read it, never TNS.
+
+	Attributes:
+		kind (CharField): TNS's table name: 'groups', 'at_types', 'filters', 'instruments', ...
+		tns_id (CharField): the id, as TNS sends it (a string).
+		label (CharField): TNS's label; a sync updates it when TNS renames the value.
+		listed (BooleanField): TNS listed it at the last sync. A value TNS drops is kept, unlisted:
+			dropdowns leave it out, and a report using it is flagged.
+		last_seen (DateTimeField): the last sync (or the snapshot) that listed it.
+
+	Not exposed through the API: it mirrors TNS.
+	"""
+	kind = models.CharField(max_length=32)
+	tns_id = models.CharField(max_length=16)
+	label = models.CharField(max_length=255)
+	listed = models.BooleanField(default=True)
+	last_seen = models.DateTimeField(null=True, blank=True)
+
+	class Meta:
+		unique_together = (('kind', 'tns_id'),)
+
+	def __str__(self):
+		return '%s %s: %s' % (self.kind, self.tns_id, self.label)
+
+
+class TNSValueSync(BaseModel):
+	"""
+	One refresh of TNSValue from TNS (#52): who ran it, as which bot, and what changed. The latest one
+	spaces refreshes out (tns_values.REFRESH_GAP) and dates the values ("TNS values as of ...").
+
+	Attributes:
+		bot: the bot whose key the request used.
+		ok (BooleanField): whether TNS answered; a failed refresh still counts toward the gap.
+		summary (TextField): what changed (values added, relabelled, unlisted; obs groups created,
+			linked, skipped), as JSON, or why it failed.
+	"""
+	bot = models.ForeignKey(TNSBot, on_delete=models.PROTECT, related_name='value_syncs')
+	ok = models.BooleanField(default=False)
+	summary = models.TextField(blank=True, default='')
+
+	class Meta:
+		ordering = ('-created_date',)

@@ -1,6 +1,5 @@
-"""#52: the TNS values snapshot and the AT report payload builder. No TNS call is made here."""
+"""#52: the TNS values (as seeded from the 2025-06-18 snapshot) and the AT report payload builder. No TNS call is made here."""
 import datetime
-import json
 import math
 
 from django.contrib.auth.models import User
@@ -17,16 +16,16 @@ def at(*args):
 	return datetime.datetime(*args, tzinfo=UTC)
 
 
-class TnsValuesTests(SimpleTestCase):
-	"""The committed snapshot and its lookups."""
+class TnsValuesTests(TestCase):
+	"""The TNS values as migration 0015 seeds them, and their lookups (tns_values reads the database)."""
 
-	def test_snapshot_gives_the_ids_of_daves_bot_script(self):
-		self.assertEqual(tns_values.load()['retrieved'], '2025-06-18')
+	def test_the_seed_gives_the_ids_of_daves_bot_script(self):
 		self.assertEqual(tns_values.find_id('groups', 'TSST_COSMOS_3D'), '170')
 		self.assertEqual(tns_values.find_id('instruments', 'JWST - NIRCam'), '185')
 		self.assertEqual(tns_values.find_id('units', 'ABMag'), '1')
 		self.assertEqual(tns_values.find_id('filters', 'F200W-JWST'), '100')
 		self.assertEqual(tns_values.find_id('archives', 'Other'), '0')
+		self.assertEqual(tns_values.as_of().date().isoformat(), '2025-06-18')
 
 	def test_find_id_matches_a_label_or_its_code(self):
 		self.assertEqual(tns_values.find_id('at_types', ' psn '), '1')  # 'PSN - Possible SN'
@@ -41,22 +40,6 @@ class TnsValuesTests(SimpleTestCase):
 		self.assertIsNone(tns_values.label('groups', None))
 		labels = [text for _, text in tns_values.choices('archives')]
 		self.assertEqual(labels, ['DSS', 'Other', 'SDSS'])
-
-	def test_dump_sorts_by_numeric_id_and_round_trips(self):
-		data = {'units': {'10': 'b', '2': 'a'}, 'archives': {'0': 'Other'}}
-		text = tns_values.dump(data, '2026-10-20', 'test')
-		loaded = json.loads(text)
-		self.assertEqual(loaded['data'], data)
-		self.assertEqual(list(loaded['data']), ['archives', 'units'])
-		self.assertEqual(list(loaded['data']['units']), ['2', '10'])
-
-	def test_committed_snapshot_is_in_dump_format(self):
-		"""So `sync_tns_values` rewrites the file without reordering it."""
-		snapshot = tns_values.load()
-		with open(tns_values.SNAPSHOT) as f:
-			self.assertEqual(f.read(), tns_values.dump(snapshot['data'], snapshot['retrieved'], snapshot['source']))
-
-
 
 
 class TnsDateTests(SimpleTestCase):
@@ -89,7 +72,7 @@ def fields(**overrides):
 	return f
 
 
-class AtReportEntryTests(SimpleTestCase):
+class AtReportEntryTests(TestCase):
 	"""The pure builder: fields + batch values -> one TNS at_report entry."""
 
 	def test_full_entry(self):
@@ -301,7 +284,7 @@ class TransientFieldsTests(TestCase):
 		                 (self.transient.pk, 'jwst_cand_1', 150.18, 2.44, ''))
 
 
-class DescribeTests(SimpleTestCase):
+class DescribeTests(TestCase):
 
 	def test_describe_labels_every_id(self):
 		rows = {path: (value, label) for path, value, label in tns_report.describe(tns_report.at_report_entry(fields(), SHARED))}
@@ -316,4 +299,4 @@ class DescribeTests(SimpleTestCase):
 	def test_an_id_the_snapshot_lacks_is_a_problem(self):
 		entry = tns_report.at_report_entry(fields(), dict(SHARED, at_type='99'))
 		self.assertIn(('at_type', '99', None), tns_report.describe(entry))
-		self.assertEqual(tns_report.problems(entry), {'at_type': 'not in the TNS values snapshot (99)'})
+		self.assertEqual(tns_report.problems(entry), {'at_type': 'not a TNS id (99)'})

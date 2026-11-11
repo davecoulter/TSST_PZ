@@ -39,6 +39,14 @@
       </label>
       <button type="submit" class="btn btn-default btn-sm">Filter</button>
     </form>
+    {# TNS's groups, filters, ... as of the date in the banner; a refresh also links TNS groups to obs groups #}
+    <div class="box-tools form-inline" style="top:8px">
+      <select id="tns-refresh-bot" class="form-control input-sm" title="The bot whose key the request uses">
+        {% for bot, has_key in bots %}<option value="{{ bot.pk }}"{% if not has_key %} disabled{% endif %}>{{ bot.name }}{% if not has_key %} (no {{ tns_target }} key){% endif %}</option>{% endfor %}
+      </select>
+      <button type="button" id="tns-refresh" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> Refresh from TNS</button>
+    </div>
+    <p id="tns-refresh-state" class="small" style="margin:6px 0 0"></p>
   </div>
 </div>
 
@@ -108,6 +116,21 @@ $(function () {
   });
   $('.tns-pick').on('change', update);
   update();
+
+  $('#tns-refresh').on('click', function () {
+    var button = $(this).prop('disabled', true);
+    $('#tns-refresh-state').removeClass('text-danger text-success').text('Asking TNS\u2026');
+    $.ajax({url: "{% url 'tns_values_refresh' %}", type: 'POST', data: {bot: $('#tns-refresh-bot').val()},
+            headers: {'X-CSRFToken': '{{ csrf_token }}'}})
+      .done(function (reply) {
+        $('#tns-refresh-state').addClass('text-success').text('Refreshed: ' + reply.text + '. Reloading\u2026');
+        setTimeout(function () { window.location.reload(); }, 2500);
+      })
+      .fail(function (xhr) {
+        $('#tns-refresh-state').addClass('text-danger').text((xhr.responseJSON && xhr.responseJSON.error) || ('Failed: HTTP ' + xhr.status));
+        button.prop('disabled', false);
+      });
+  });
 });
 </script>
 {% endblock %}

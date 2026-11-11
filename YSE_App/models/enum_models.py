@@ -111,7 +111,7 @@ class ObservationGroup(BaseModel):
 	"""
 	name = models.CharField(max_length=64)
 
-	tns_reporting_group_id = models.CharField(max_length=16, null=True, blank=True,
+	tns_reporting_group_id = models.CharField(max_length=16, null=True, blank=True, unique=True,
 		help_text='TNS reporting group for reports of this group\'s transients')
 	tns_data_source_group_id = models.CharField(max_length=16, null=True, blank=True,
 		help_text='TNS discovery data source group')

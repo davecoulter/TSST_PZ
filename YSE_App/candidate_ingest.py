@@ -230,13 +230,17 @@ def validate_payload(data):
 
 # --- lookups ----------------------------------------------------------------
 
+def name_key(name):
+    """How lookup-table names are compared: ignoring case and surrounding whitespace (the rule of
+    migration 0005). Compared in Python, so the database collation doesn't matter."""
+    return (name or '').strip().lower()
+
+
 def find_by_name(model, name):
-    """The row whose name matches ignoring case and surrounding whitespace
-    (compared in Python, so collation doesn't matter; same rule as migration
-    0005), or None. For small lookup tables only."""
-    wanted = name.strip().lower()
+    """The row whose name matches by name_key, or None. For small lookup tables only."""
+    wanted = name_key(name)
     for obj in model.objects.order_by('id'):
-        if (obj.name or '').strip().lower() == wanted:
+        if name_key(obj.name) == wanted:
             return obj
     return None
 

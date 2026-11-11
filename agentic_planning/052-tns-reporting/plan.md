@@ -166,6 +166,10 @@ These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of sc
     - **Production** (TNS_TARGET = production): the confirmation modal enables Submit only once `PRODUCTION` is typed. The sandbox stays one click.
     - **The first real submission** is one candidate to the sandbox (`jets_12577_e1_61323_158`, as TSST_COSMOS_bot for group TSST), sent by Dave from the page; its reply settles the reply parser.
 
+30. **No fake TNS server; integration testing waits for a test environment** (replaces amendment 8; Dave, 2026-11-11). A fake encodes our assumptions about TNS, so it cannot catch TNS changing its contract, which is the failure that matters. Instead:
+    - **The lock under real concurrency** is a unit test: two threads call `tns_attempts.start` for the same transient in real MySQL transactions (`TransactionTestCase`). One succeeds, and the other waits on the row lock, then is refused as in flight.
+    - **Contract drift** is caught against the real sandbox, from a test environment once one exists (today there are only local dev and production). There, D's `sync_tns_values` checks every bot's key read-only, and one report goes to the sandbox as a deploy-checklist step. Until then, that is done by hand from local dev, as on 2026-11-11.
+
 ## Acceptance criteria
 
 - [ ] Only TNS reporters see the nav entry and can open the pages; others get 403.
@@ -178,7 +182,7 @@ These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of sc
 - [ ] A transient with a pending attempt cannot be selected, and cannot have its IAU name changed from the admin or the API; two simultaneous submissions send it once.
 - [ ] "Check again" cannot be hammered (server-enforced gap); an unresolved attempt can be abandoned; the TNS key never appears in the DB, the logs or a stored payload.
 - [ ] The details form previews the exact payload, with enumeration labels, before anything is sent; every TNS page shows the sandbox or production banner.
-- [ ] The whole flow passes in `tests/integration` against the fake TNS server, and once by hand against the real sandbox.
+- [ ] The lock holds under concurrent submissions (unit test on MySQL), and the flow passes once by hand against the real sandbox (amendment 30).
 - [ ] `TNSReportAttempt` is not exposed through the API.
 - [ ] Migration ships in the PR; `ruff check .` passes; no dependency or image change.
 
@@ -265,3 +269,12 @@ These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of sc
   - Unrelated fix, at Dave's request: the transient page's candidate banner (`candidate_pointer.html`, #27) had white-on-white "View in field" and "Permalink" buttons (AdminLTE colours links in a callout white); they are orange now, like "Candidate page".
   - 136 `YSE_App` tests pass.
   - Filed #74 (TNS reporting at scale; diffpype schedules, STZ executes) and #75 (a transient lifecycle model: statuses vs tags).
+- **2026-11-11:** Amendment 30: no fake TNS server (it cannot catch TNS changing its contract). A concurrency unit test instead; sandbox smoke and integration testing wait for a test environment.
+- **2026-11-11 (stage 3, chunk D built; amendments 20, 21, 30):**
+  - `TNSValue` and `TNSValueSync` (migration 0014, which also makes `ObservationGroup.tns_reporting_group_id` unique); migration 0015 seeds `TNSValue` from the 2025-06-18 snapshot, which stays in the repo only as that seed.
+  - `tns_values` reads the table through a per-process copy at most 60 s old (cleared by a refresh in the same process); the lookups keep their names, so no caller changed. The JSON loader is gone.
+  - `refresh(bot, user)`: TNS's values as one bot, at most once per 10 min site-wide (failed refreshes count); `apply` adds, relabels, unlists (never deletes) and relists, leaving kinds TNS omitted alone; `link_obs_groups` is amendment 21's decision tree, matching names by `candidate_ingest.name_key` (now shared with `find_by_name`). The preview flags an id TNS no longer lists; dropdowns offer listed values only.
+  - "Refresh from TNS" (bot picker and button) on the select page, `/tns/values/refresh/`, "TNS values as of ..." in the banner, and `manage.py sync_tns_values --bot --user` (no 10-minute spacing).
+  - The concurrency test (amendment 30): two threads, real MySQL row locks. Removing the lock from `start` makes it fail (the second submission goes through), so it tests the lock.
+  - 151 `YSE_App` tests pass; `ruff check .` passes.
+- **2026-11-11 (first real refresh, Dave's local stack, as TSST_COSMOS_bot):** 92 values added (44 groups, 23 instruments, 16 telescopes, 6 filters, 2 object types, 1 unit), 2 relabelled (NUTS2, SZCYS), none unlisted. Observation groups: 129 created, 85 linked by name, 1 skipped; 230 in all, 214 linked to TNS's 215 groups. All four TSST groups linked (TSST 171, TSST_COSMOS 157, TSST_COSMOS_3D 170, TSST_VENUS 198). The skip: TNS has two groups both named "Icarus" (213, 215); the first got the obs group, the second is left for a person, as amendment 21 says (no automatic "Icarus (215)"); the refresh summary now names each skip, so such a duplicate is visible (Dave). Dave: typing in a dropdown narrows 230 entries well enough for now.

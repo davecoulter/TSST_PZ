@@ -3,10 +3,12 @@
 <div class="callout callout-danger tns-banner">
   <h4><i class="fa fa-exclamation-triangle"></i> PRODUCTION TNS</h4>
   Reports from this site go to <b>{{ tns_host }}</b>: they are public and cannot be withdrawn.
+  {% if tns_values_as_of %}<br><small>TNS values as of {{ tns_values_as_of|date:"Y-m-d H:i" }} UTC</small>{% endif %}
 </div>
 {% else %}
 <div class="callout callout-warning tns-banner">
   <h4><i class="fa fa-flask"></i> SANDBOX TNS</h4>
   Reports from this site go to <b>{{ tns_host }}</b>, TNS's test copy, which is reset every Sunday. Nothing reaches the real TNS.
+  {% if tns_values_as_of %}<br><small>TNS values as of {{ tns_values_as_of|date:"Y-m-d H:i" }} UTC</small>{% endif %}
 </div>
 {% endif %}

@@ -370,4 +370,4 @@ class ObservationGroupTnsFieldTests(TnsPagesTestBase):
 		        'at_type': '1', 'flux_unitid': '1', 'archiveid': '0', 'archival_remarks': 'r',
 		        'r%d-discovery' % t.pk: p.pk, 'r%d-phot' % t.pk: [p.pk]}
 		data = json.loads(self.client.post(reverse('tns_report_preview'), form).content)
-		self.assertEqual(data['entries'][0]['problems']['reporting_groupid'], 'not in the TNS values snapshot (999999)')
+		self.assertEqual(data['entries'][0]['problems']['reporting_groupid'], 'not a TNS id (999999)')
