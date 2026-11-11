@@ -293,11 +293,41 @@
   <div class="box-body"><pre class="tns-json" id="tns-json"></pre></div>
 </div>
 
-<div class="tns-bar">
+<div class="tns-bar form-inline">
   <b id="tns-ready">&hellip;</b>
-  <span class="text-muted" style="margin-left:10px">Review only for now: sending to the {{ tns_target }} TNS comes in the next stage.</span>
+  {# one bot per submission (amendment 28); a bot with no key for this TNS is shown but cannot be chosen #}
+  <label style="margin-left:20px">Report as
+    <select name="bot" id="tns-bot" class="form-control input-sm">
+      <option value="">-- select --</option>
+      {% for bot, has_key in bots %}<option value="{{ bot.pk }}"{% if not has_key %} disabled{% endif %}>{{ bot.name }}{% if not has_key %} (no {{ tns_target }} key){% endif %}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="button" id="tns-send" class="btn btn-sm {% if tns_production %}btn-danger{% else %}btn-primary{% endif %}" style="margin-left:10px" disabled>Send to the {{ tns_target }} TNS&hellip;</button>
 </div>
 </form>
+
+<div class="modal fade" id="tns-confirm" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header {% if tns_production %}bg-red{% else %}bg-yellow{% endif %}">
+        <h4 class="modal-title">Send to the {% if tns_production %}PRODUCTION{% else %}SANDBOX{% endif %} TNS?</h4>
+      </div>
+      <div class="modal-body">
+        <p><b id="tns-c-count"></b> to <b>{{ tns_host }}</b> as <b id="tns-c-bot"></b>, reporting group <b id="tns-c-group"></b>:</p>
+        <ul id="tns-c-names"></ul>
+        {% if tns_production %}
+        <p class="text-danger"><b>Reports on the production TNS are public and cannot be withdrawn.</b></p>
+        <label>Type PRODUCTION to enable Send <input type="text" id="tns-c-typed" class="form-control" autocomplete="off"></label>
+        {% endif %}
+        <p class="text-danger" id="tns-c-error"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" id="tns-c-send" class="btn {% if tns_production %}btn-danger{% else %}btn-primary{% endif %}"{% if tns_production %} disabled{% endif %}>Send</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endif %}
 {% endblock %}
 
@@ -331,7 +361,11 @@ $(function () {
     tr.find('.tns-mjd').trigger('input');  // moves the date back, and refreshes the preview
   });
 
+  var lastReport = null;  // the latest preview: Send needs it ready, and the modal lists it
+
   function render(data) {
+    lastReport = data;
+    sendable();
     $('#tns-json').text(JSON.stringify(data.payload, null, 1));
     var ready = 0;
     data.entries.forEach(function (e) {
@@ -356,6 +390,39 @@ $(function () {
     $('#tns-ready').text(ready + ' of ' + data.entries.length + ' ready')
       .toggleClass('text-success', ready === data.entries.length).toggleClass('text-danger', ready !== data.entries.length);
   }
+
+  // Send: enabled once the preview has no problems and a bot is chosen; it opens the confirmation,
+  // which posts the form to the submit view and goes to the submission's results page.
+  function sendable() {
+    $('#tns-send').prop('disabled', !(lastReport && lastReport.ok && $('#tns-bot').val()));
+  }
+  $('#tns-send').on('click', function () {
+    var groups = {};
+    lastReport.entries.forEach(function (e) {
+      e.rows.forEach(function (row) { if (row[0] === 'reporting_groupid') { groups[row[2] || row[1]] = true; } });
+    });
+    var n = lastReport.entries.length;
+    $('#tns-c-count').text(n + ' transient' + (n === 1 ? '' : 's'));
+    $('#tns-c-bot').text($('#tns-bot option:selected').text());
+    $('#tns-c-group').text(Object.keys(groups).join(', '));
+    $('#tns-c-names').empty();
+    lastReport.entries.forEach(function (e) { $('#tns-c-names').append($('<li></li>').text(e.name)); });
+    $('#tns-c-error').text('');
+    $('#tns-c-typed').val('');
+    {% if tns_production %}$('#tns-c-send').prop('disabled', true);{% endif %}
+    $('#tns-confirm').modal('show');
+  });
+  $('#tns-c-typed').on('input', function () { $('#tns-c-send').prop('disabled', this.value !== 'PRODUCTION'); });
+  $('#tns-c-send').on('click', function () {
+    var button = $(this).prop('disabled', true).text('Sending\u2026');
+    var data = $('#tns-form').serialize() + '&confirm=' + encodeURIComponent($('#tns-c-typed').val() || '');
+    $.ajax({url: "{% url 'tns_report_submit' %}", type: 'POST', data: data, headers: {'X-CSRFToken': '{{ csrf_token }}'}})
+      .done(function (reply) { window.location = reply.results; })
+      .fail(function (xhr) {
+        $('#tns-c-error').text((xhr.responseJSON && xhr.responseJSON.error) || ('Failed: HTTP ' + xhr.status));
+        button.prop('disabled', false).text('Send');
+      });
+  });
 
   function refresh() {
     $.ajax({url: url, type: 'POST', data: $('#tns-form').serialize(), headers: {'X-CSRFToken': '{{ csrf_token }}'}})

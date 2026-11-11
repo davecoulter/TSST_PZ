@@ -131,6 +131,41 @@ These replace amendment 12, the "plus superusers" in decision 1, and the committ
 26. **The measurements are editable too** (stage 2; Dave: for power users, everything editable until that causes trouble). Each point's MJD, magnitude and error are prefilled and editable; the TNS date (and the discovery date, for the discovery point) follows the MJD. A value that does not parse is flagged and ours is kept. One flag in the page, `LOCK_MEASUREMENTS`, makes them read-only, and then our data is sent unchanged.
 27. **Ours beside what is sent** (stage 2). Each photometry row has two column groups: "In STZ-PZ (read-only)" (MJD, band, magnitude and error, S/N) and "Sent to TNS (editable)" (MJD with the TNS date under it, magnitude and error, filter with its comment, instrument). A sent value that differs from ours is red (Dave: a deliberate, risky choice), and a reset icon puts the point back to ours. The form does not let the browser refill it after a reload.
 
+## Amendments, part 4 (2026-11-11, before stage 3, with Dave)
+
+These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of scope item 2 and decision 5.
+
+28. **Several bot identities, one per submission** (stage 3).
+    - **The service** is still chosen per deployment by `[tns] TNS_TARGET` (decision 5). Its section, `[tns_sandbox]` or `[tns_production]`, holds `base_url` and one API key per bot, keyed by the bot's **TNS id**:
+      ```ini
+      [tns]
+      TNS_TARGET = sandbox
+
+      [tns_sandbox]
+      base_url = https://sandbox.wis-tns.org
+      ; TSST_COSMOS_bot
+      193638 = <sandbox key>
+      ```
+      Comments go on their own lines (the ini reader keeps a trailing `; ...` as part of the value). Settings holds the keys as `TNS_API_KEYS`, a name Django's debug page blanks out. No `[tns_production]` on a laptop or test site.
+    - **`TNSBot` table:** TNS id (unique), name exactly as on TNS (the `User-Agent: tns_marker{...}` header needs it), description, active. Edited in the admin; **not exposed through the API**. The id is how a bot finds its key: the database names the key, the ini holds it.
+    - **"Report as"** on the details page: a required dropdown, no default. Bots without a key for the current service are greyed out ("no sandbox key"). A submission uses one bot; to report as another, start a new report from the select page.
+    - **Bot and group are two levels.** TNS keeps each bot's group memberships; we do not copy them. The reporting and data source groups are chosen as before, and a group the bot may not post to fails fast: the attempt is marked failed with TNS's message, and nothing retries it.
+    - **Everyone in TNS Reporters can use every bot**, for now.
+    - Each attempt records its bot and service; "Check again" uses the same bot; "Refresh from TNS" uses the bot picked on the page.
+    - **Keys:** the existing keys are used on the sandbox only. Regenerating them (they were in a shared script) is a precondition for any production use.
+
+29. **Submitting, asynchronously, with a consistent state** (stage 3, chunk C; replaces decision 4's in-request polling).
+    - **The state lives in the database.** Before calling TNS, each transient's attempt is saved as pending with its exact payload entry. TNS's report id is saved the moment TNS returns it. The outcome is fetched later, by anyone, any time: TNS keeps the reply.
+    - **Submit returns at once** to the results page (`/tns/report/<batch>/`), which asks our server to check with TNS every 5 s for up to 30 s, filling rows in as answers come, then offers "Check again". At least **10 s** between checks of one submission, or longer when TNS says it is rate limited (30 requests per 60 s per bot).
+    - **What each failure leaves:**
+      - TNS answered with a refusal (HTTP 4xx, or no report id) → **failed**, with TNS's message; the transient can be selected again.
+      - The request certainly never reached TNS (no connection, or no key configured) → **failed**.
+      - No answer, or a TNS server error (timeout, dropped connection, HTTP 5xx) → **unknown**: pending with no report id, since TNS may have it. A person checks TNS, then a superuser marks it **abandoned** in the admin.
+    - **Badges:** the select grid shows each transient's latest attempt (pending, unknown, failed: retry), and pending or unknown rows cannot be selected. A **history** page (`/tns/report/history/`) lists every submission with its counts and links to its results; it sits beside "Report to TNS". The detail pages get theirs in stage 4.
+    - **Reply codes:** 100 (inserted) is **reported**. 101 (object exists) is also **reported**, with TNS's name written back and the matched object and its separation shown, since TNS may have matched a nearby unrelated object. Anything else is **failed** with TNS's messages. A name we already hold that differs is **name differs** (amendment 2).
+    - **Production** (TNS_TARGET = production): the confirmation modal enables Submit only once `PRODUCTION` is typed. The sandbox stays one click.
+    - **The first real submission** is one candidate to the sandbox (`jets_12577_e1_61323_158`, as TSST_COSMOS_bot for group TSST), sent by Dave from the page; its reply settles the reply parser.
+
 ## Acceptance criteria
 
 - [ ] Only TNS reporters see the nav entry and can open the pages; others get 403.
@@ -215,3 +250,18 @@ These replace amendment 12, the "plus superusers" in decision 1, and the committ
   - Tests: 87 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
 - **2026-11-10 (stage 2 review with Dave, part 4):** Amendment 26: MJD, magnitude and error editable, behind a `LOCK_MEASUREMENTS` flag. Dave re-applied the rewritten 0010 and 0011 locally. 90 `YSE_App` tests pass; `ruff check .` passes.
 - **2026-11-10 (stage 2 review with Dave, part 5):** Amendment 27: the photometry table shows our record beside what is sent, with changed values highlighted and a per-point reset. 90 tests pass; the page's script parses (esprima).
+- **2026-11-11:** Amendment 28 (several bots, keyed by TNS id; no obs-group default bot, at Dave's call). Stage 3 starts: Opus 5.5 at high, agreed 2026-11-10.
+- **2026-11-11 (stage 3, part 1):** settings read this deployment's `[tns_<target>]` into `TNS_BASE_URL` and `TNS_API_KEYS` (absent is fine until a call). `TNSBot` table (migration 0012) with its admin, which shows whether each bot has a key here; a shared `AuditedAdmin` fills the audit fields. `tns_client.py`: `values`, `submit`, `reply`, with `NotConfigured`, `NotReady` (reply 404), `RateLimited` (429 with `x-rate-limit-reset`) and TNS's own `id_message` kept on errors. The key is never logged or raised, and the client's functions are marked `sensitive_variables` for Django's error reports. 13 client tests with `requests.post` mocked; 103 `YSE_App` tests pass; `ruff check .` passes.
+- **2026-11-11 (first live calls, sandbox):** `/api/get/values` works as both bots (TSST_COSMOS_bot 193638, TSST_VENUS_bot 197899) after Dave regenerated their sandbox keys (the keys on disk were refused with 401; TNS gives no detail beyond "Unauthorized"). TNS keys are 33 characters and contain a dot. The `tns_marker` id is now sent as a number, as TNS's bot page shows it. TNS's rate limit: 30 requests per 60 s (`x-rate-limit-*` headers). Values now vs the 2025-06-18 snapshot: 215 groups (171), TSST_VENUS is 198; two groups relabelled (28 NUTS to NUTS2, 167 GGCYSS to SZCYS), none removed, so the sync must update labels too (amendment 20). Replies recorded in `collab_scratch/tns_recorded/` for the tests.
+- **2026-11-11 (stage 3, chunk C built; amendment 29):**
+  - `TNSReportAttempt` (migration 0013) and `tns_attempts.py`: `start` (row locks and re-check in one transaction), `send` (TNS called outside it; report id saved at once), `check` (one at a time per submission, 10 s apart, longer when rate limited), `parse_reply` (TNS codes 100 and 101 found anywhere in an entry; matched by the echoed `tsst_id`, else by position), the write-back (only into an empty `iau_name`; a name we hold, or one another transient has, since `iau_name` is unique, makes it name_differs), `abandon`, `in_flight`.
+  - The client tells a refusal (failed) from a request that never left (`NotSent`: failed) from no answer (`NoAnswer`, HTTP 5xx included: unknown). Checked against a real refused connection and an unresolvable host.
+  - Pages: "Report as" and Send with the confirmation modal (PRODUCTION typed on production), `/tns/report/submit/` (rebuilds the payload on the server), results with automatic checks then "Check again", history, the select grid's badges and lock. Admin: attempts read-only, abandon for superusers; the transient admin and the API keep `iau_name` while a report is in flight.
+  - Tests: 135 `YSE_App` tests pass (32 new; TNS mocked); `ruff check .` passes; the pages' scripts parse.
+  - Not yet: the real sandbox submission (Dave, one candidate) to confirm the reply's shape.
+- **2026-11-11 (first real submission):** Dave reported `jets_12577_e1_61323_158` to the sandbox as TSST_COSMOS_bot for group TSST: TNS report 297425, resolved about 19 s later as **2026aioi**, written back (the slug moved). TNS's reply matched the parser's assumptions exactly: `data.feedback.at_report` is a list; the entry has code `100` with `objname` and `message`, and echoes `internal_ids.tsst_id`. Recorded as `collab_scratch/tns_recorded/bulk_report_reply_297425.json`.
+- **2026-11-11 (Dave, after it):**
+  - **A reported candidate becomes a transient:** when the write-back succeeds (100 or 101), status Candidate becomes `New`, saved with the name; name differs leaves the status. Untagged, it shows in the main dashboard's Needs review grid (#40), so no extra tag for now.
+  - Unrelated fix, at Dave's request: the transient page's candidate banner (`candidate_pointer.html`, #27) had white-on-white "View in field" and "Permalink" buttons (AdminLTE colours links in a callout white); they are orange now, like "Candidate page".
+  - 136 `YSE_App` tests pass.
+  - Filed #74 (TNS reporting at scale; diffpype schedules, STZ executes) and #75 (a transient lifecycle model: statuses vs tags).

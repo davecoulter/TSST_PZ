@@ -3,8 +3,10 @@
 - /tns/report/: transients without an IAU name, one box per observation group, with checkboxes.
 - /tns/report/details/: the batch values, one row per transient (the photometry to send, host,
   remarks, per-row survey values), and beside each row the payload TNS would get.
-- /tns/report/preview/: the payload for the details form as it stands, built by `build_report`,
-  the function the submission will use.
+- /tns/report/preview/: the payload for the details form as it stands, built by `build_report`.
+- /tns/report/submit/: the same payload, sent to TNS as the chosen bot (tns_attempts).
+- /tns/report/<batch>/: a submission's results; .../check/ asks TNS for the outcome.
+- /tns/report/history/: every submission.
 
 Open to the "TNS Reporters" group only; superusers are not let in by default (amendment 19).
 Stage 2: nothing is sent to TNS.
@@ -12,20 +14,23 @@ Plan: agentic_planning/052-tns-reporting/plan.md.
 """
 import datetime
 import functools
+import json
 from collections import defaultdict
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import tns_report, tns_values
+from . import tns_attempts, tns_client, tns_report, tns_values
 from .candidate_ingest import CANDIDATE
 from .common.utilities import date_to_mjd, mjd_to_date
 from .candidate_views import candidate_stats
-from .models import Transient, TransientStatus, TransientTag
+from .models import TNSBot, TNSReportAttempt, Transient, TransientStatus, TransientTag
 
 TNS_REPORTERS = 'TNS Reporters'  # the group, created by migration 0011
 TARGET_HOSTS = {'sandbox': 'sandbox.wis-tns.org', 'production': 'www.wis-tns.org'}
@@ -96,12 +101,15 @@ def tns_report_select(request):
                                .values_list('transient_id', 'transienttag__name')):
         tags[transient_id].append(name)
 
+    attempts = tns_attempts.latest(ids)  # each transient's latest TNS report, for its badge (amendment 29)
     by_group = defaultdict(list)
     for t in transients:
         s = stats.get(t.pk, {})
         z, z_source = tns_report.host_redshift(t)
+        attempt = attempts.get(t.pk)
         by_group[t.obs_group].append({
             'transient': t, 'max_snr': s.get('max_snr'), 'filters': sorted(s.get('filters', ())),
+            'attempt': attempt, 'blocked': attempt is not None and attempt.status == TNSReportAttempt.PENDING,
             'z': tns_report.format_redshift(z, z_source), 'z_source': z_source, 'tags': sorted(tags[t.pk], key=str.lower),
         })
     groups = [{'group': g, 'rows': by_group[g], 'has_tns': bool(g.tns_reporting_group_id or g.tns_data_source_group_id)}
@@ -166,7 +174,7 @@ def tns_report_details(request):
             'detections': [dict(_labelled(d), picked=d['id'] in picked) for d in fields['detections']],
         })
     context = dict(
-        _target(), rows=rows, batch=batch,
+        _target(), rows=rows, batch=batch, bots=_bots(),
         group_choices=tns_values.choices('groups'), at_type_choices=tns_values.choices('at_types'),
         unit_choices=tns_values.choices('units'), archive_choices=tns_values.choices('archives'),
         filter_choices=tns_values.choices('filters'), instrument_choices=tns_values.choices('instruments'),
@@ -318,3 +326,96 @@ def tns_report_preview(request):
     if len(transients) > tns_report.MAX_ENTRIES:
         return JsonResponse({'error': 'TNS takes at most %d per report' % tns_report.MAX_ENTRIES}, status=400)
     return JsonResponse(dict(build_report(request.POST, transients), target=settings.TNS_TARGET))
+
+
+# --- submitting and results (stage 3, amendment 29) --------------------------
+
+def _bots():
+    """[(bot, has a key here)] of the active bots, for "Report as": one without a key is shown, greyed out."""
+    return [(bot, tns_client.has_key(bot)) for bot in TNSBot.objects.filter(active=True)]
+
+
+@tns_reporter_required
+@require_POST
+def tns_report_submit(request):
+    """Send the details form's report to TNS as the chosen bot. JSON: {'results': url} once it is
+    started (whatever TNS then said, the results page shows), or {'error'} (400 or 409) when nothing
+    was started."""
+    ids = _ids(request.POST.getlist('t'))
+    found = {t.pk: t for t in Transient.objects.filter(pk__in=ids).select_related('obs_group', 'host')}
+    transients = [found[i] for i in ids if i in found]
+    if not transients:
+        return JsonResponse({'error': 'no transients were posted'}, status=400)
+    if len(transients) > tns_report.MAX_ENTRIES:
+        return JsonResponse({'error': 'TNS takes at most %d per report' % tns_report.MAX_ENTRIES}, status=400)
+    if settings.TNS_TARGET == 'production' and request.POST.get('confirm') != 'PRODUCTION':
+        return JsonResponse({'error': 'type PRODUCTION to send to the production TNS'}, status=400)
+    bot = TNSBot.objects.filter(pk=request.POST.get('bot') or None, active=True).first()
+    if bot is None:
+        return JsonResponse({'error': 'choose a bot to report as'}, status=400)
+    if not tns_client.has_key(bot):
+        return JsonResponse({'error': 'settings.ini has no %s key for %s' % (settings.TNS_TARGET, bot)}, status=400)
+    report = build_report(request.POST, transients)  # rebuilt here: never trust a payload from the page
+    if not report['ok']:
+        return JsonResponse({'error': 'the report has problems; see the preview'}, status=400)
+    entries = [report['payload']['at_report'][str(i)] for i in range(len(transients))]
+    try:
+        batch = tns_attempts.start(list(zip(transients, entries)), bot, request.user)
+    except tns_attempts.Blocked as e:
+        return JsonResponse({'error': 'Not sent. %s.' % e}, status=409)
+    tns_attempts.send(batch)
+    return JsonResponse({'results': reverse('tns_report_results', args=[batch])})
+
+
+def _batch_attempts(batch):
+    attempts = list(TNSReportAttempt.objects.filter(batch=batch).select_related('transient', 'bot', 'created_by')
+                    .order_by('id'))
+    if not attempts:
+        raise Http404('No such TNS submission')
+    return attempts
+
+
+def _state(attempt):
+    """What a results row shows: a status word and its badge colour."""
+    if attempt.unknown:
+        return 'unknown', 'danger'
+    return {TNSReportAttempt.PENDING: ('pending', 'warning'), TNSReportAttempt.REPORTED: ('reported', 'success'),
+            TNSReportAttempt.NAME_DIFFERS: ('name differs', 'danger'), TNSReportAttempt.FAILED: ('failed', 'danger'),
+            TNSReportAttempt.ABANDONED: ('abandoned', 'default')}[attempt.status]
+
+
+@tns_reporter_required
+def tns_report_results(request, batch):
+    """One submission: each transient's status, the IAU name, TNS's message, and the payload sent."""
+    attempts = _batch_attempts(batch)
+    first = attempts[0]
+    rows = [dict(attempt=a, state=_state(a), payload=json.dumps(json.loads(a.payload), indent=1),
+                 stale=a.status == TNSReportAttempt.PENDING and timezone.now() - a.created_date > tns_attempts.STALE_AFTER)
+            for a in attempts]
+    checkable = any(a.status == TNSReportAttempt.PENDING and a.report_id for a in attempts)
+    return render(request, 'YSE_App/tns_report_results.html', dict(
+        _target(), rows=rows, first=first, batch=batch, checkable=checkable,
+        sent_to=first.target, gap=int(tns_attempts.CHECK_GAP.total_seconds())))
+
+
+@tns_reporter_required
+@require_POST
+def tns_report_check(request, batch):
+    """JSON: ask TNS for a submission's outcome (rate-limited per submission), and the statuses after."""
+    _batch_attempts(batch)
+    state, wait = tns_attempts.check(batch, request.user)
+    statuses = {a.pk: _state(a)[0] for a in TNSReportAttempt.objects.filter(batch=batch)}
+    return JsonResponse({'state': state, 'wait': wait, 'statuses': statuses,
+                         'pending': sum(s in ('pending', 'unknown') for s in statuses.values())})
+
+
+@tns_reporter_required
+def tns_report_history(request):
+    """Every submission, newest first, with its counts by status: the way back to a submission's results."""
+    batches = {}
+    for a in (TNSReportAttempt.objects.select_related('bot', 'created_by').order_by('-created_date', 'id')[:2000]):
+        b = batches.setdefault(a.batch, {'batch': a.batch, 'first': a, 'counts': defaultdict(int), 'n': 0})
+        b['counts'][_state(a)[0]] += 1
+        b['n'] += 1
+    rows = [dict(b, counts=sorted(b['counts'].items())) for b in batches.values()]
+    return render(request, 'YSE_App/tns_report_history.html', dict(_target(), batches=rows))

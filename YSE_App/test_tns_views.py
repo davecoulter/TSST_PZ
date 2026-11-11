@@ -56,6 +56,18 @@ class TnsPagesTestBase(TestCase):
 	def login(self, user):
 		self.client.force_login(user)
 
+	def report_form(self, for_transient, first_point, **row):
+		"""A complete details form for one transient, sending first_point as its discovery; `row` overrides
+		its values (the parameter names keep clear of the form's own, e.g. 'discovery')."""
+		data = {'t': [for_transient.pk], 'reporting_groupid': '171', 'data_source_groupid': '171',
+		        'reporter': 'A. Reporter', 'at_type': '1', 'flux_unitid': '1', 'archiveid': '0',
+		        'archival_remarks': 'Not in the reference.'}
+		values = {'discovery': first_point.pk, 'phot': [first_point.pk], 'host_name': '', 'host_redshift': '',
+		          'host_redshift_source': tns_report.HOST_PHOTO_Z, 'remarks': ''}
+		values.update(row)
+		data.update({'r%d-%s' % (for_transient.pk, k): v for k, v in values.items()})
+		return data
+
 
 class TnsPermissionTests(TnsPagesTestBase):
 	"""Only the TNS Reporters group; everyone else, superusers included, gets 403 (amendment 19)."""
@@ -177,15 +189,7 @@ class TnsPreviewTests(TnsPagesTestBase):
 		self.login(self.reporter)
 
 	def form(self, **row):
-		data = {'t': [self.t.pk], 'reporting_groupid': '171', 'data_source_groupid': '171',
-		        'reporter': 'A. Reporter', 'at_type': '1', 'flux_unitid': '1', 'archiveid': '0',
-		        'archival_remarks': 'Not in the reference.'}
-		prefix = 'r%d-' % self.t.pk
-		values = {'discovery': self.f356.pk, 'phot': [self.f356.pk], 'host_name': '', 'host_redshift': '',
-		          'host_redshift_source': tns_report.HOST_PHOTO_Z, 'remarks': ''}
-		values.update(row)
-		data.update({prefix + k: v for k, v in values.items()})
-		return data
+		return self.report_form(self.t, self.f356, **row)
 
 	def preview(self, **row):
 		response = self.client.post(reverse('tns_report_preview'), self.form(**row))

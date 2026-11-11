@@ -54,17 +54,19 @@
   </div>
   <div class="box-body table-responsive no-padding">
     <table class="table table-hover table-condensed tns-table">
-      <thead><tr><th></th><th>Name</th><th>Discovered</th><th class="num">Max S/N</th><th>Filters &ge;3&sigma;</th><th class="num">Host z</th><th>Tags</th></tr></thead>
+      <thead><tr><th></th><th>Name</th><th>Discovered</th><th class="num">Max S/N</th><th>Filters &ge;3&sigma;</th><th class="num">Host z</th><th>Tags</th><th>TNS</th></tr></thead>
       <tbody>
       {% for r in g.rows %}
         <tr>
-          <td><input type="checkbox" name="t" value="{{ r.transient.pk }}" class="tns-pick" data-group="{{ forloop.parentloop.counter }}"></td>
+          {# a transient with a report in flight (pending or unknown) cannot be reported again (amendments 1, 29) #}
+          <td><input type="checkbox" name="t" value="{{ r.transient.pk }}" class="tns-pick" data-group="{{ forloop.parentloop.counter }}"{% if r.blocked %} disabled title="A TNS report of it is in flight"{% endif %}></td>
           <td><a href="{% url 'candidate_detail' r.transient.slug %}" target="_blank"><b>{{ r.transient.name }}</b></a></td>
           <td>{% if r.transient.disc_date %}{{ r.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
           <td class="num">{% if r.max_snr is not None %}{{ r.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</td>
           <td>{% if r.filters %}{{ r.filters|join:", " }}{% else %}&ndash;{% endif %}</td>
           <td class="num">{% if r.z %}{{ r.z }} <small class="text-muted">{{ r.z_source }}</small>{% else %}&ndash;{% endif %}</td>
           <td>{% for name in r.tags %}<span class="label label-default tns-tag-chip">{{ name }}</span>{% endfor %}</td>
+          <td>{% include 'YSE_App/tns_attempt_badge.html' with attempt=r.attempt %}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -96,12 +98,12 @@ $(function () {
     $('#tns-too-many').toggle(n > max);
     $('#tns-continue').prop('disabled', n === 0 || n > max);
     $('.tns-all').each(function () {
-      var g = $(this).data('group'), all = $('.tns-pick[data-group="' + g + '"]');
+      var g = $(this).data('group'), all = $('.tns-pick[data-group="' + g + '"]:not(:disabled)');
       $(this).prop('checked', all.length > 0 && all.filter(':checked').length === all.length);
     });
   }
   $('.tns-all').on('change', function () {
-    $('.tns-pick[data-group="' + $(this).data('group') + '"]').prop('checked', this.checked);
+    $('.tns-pick[data-group="' + $(this).data('group') + '"]:not(:disabled)').prop('checked', this.checked);
     update();
   });
   $('.tns-pick').on('change', update);
