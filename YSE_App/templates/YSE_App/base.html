@@ -2,6 +2,7 @@
 {% load admin_urls %}
 {% load user_extras %}
 {% load candidate_extras %}
+{% load tns_extras %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -87,6 +88,8 @@
 				<li><a href="{% url 'candidate_dashboard' %}"><i class="fa fa-star-o"></i> <span>Candidates</span>{% if n_new_candidates %}<span class="pull-right-container"><small class="label pull-right bg-yellow" title="{{ n_new_candidates }} new candidate{{ n_new_candidates|pluralize }} to review">{{ n_new_candidates }}</small></span>{% endif %}</a></li>
 				{% archived_count as n_archived %}
 				<li><a href="{% url 'archived_dashboard' %}"><i class="fa fa-archive"></i> <span>Archived</span>{% if n_archived %}<span class="pull-right-container"><small class="label pull-right bg-gray">{{ n_archived }}</small></span>{% endif %}</a></li>
+				{% if user|is_tns_reporter %}<li><a href="{% url 'tns_report_select' %}"><i class="fa fa-paper-plane"></i> <span>Report to TNS</span></a></li>
+				<li><a href="{% url 'tns_report_history' %}"><i class="fa fa-history"></i> <span>TNS reports</span></a></li>{% endif %}
 				<li><a href="{% url 'personaldashboard' %}"><i class="fa fa-id-card"></i> <span>{{ user.first_name }}'s Dashboard</span></a></li>
 {#				<li><a href="{% url 'followup' %}"><i class="fa fa-binoculars"></i> <span>Follow Requests</span></a></li>#}
 {#				<li><a href="{% url 'calendar' %}"><i class="fa fa-calendar"></i> <span>On-Call Calendar</span></a></li>#}

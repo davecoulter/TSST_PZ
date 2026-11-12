@@ -23,7 +23,15 @@ class TransientSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Transient
         fields = "__all__"
-        
+
+    def validate_iau_name(self, value):
+        """No change to the IAU name while a TNS report of the transient is in flight (#52, amendment 2)."""
+        from YSE_App import tns_attempts
+        current = self.instance.iau_name if self.instance is not None else None
+        if ((value or '').strip() or None) != current and tns_attempts.in_flight(self.instance):
+            raise serializers.ValidationError('A TNS report of this transient is in flight; its IAU name is set when TNS answers.')
+        return value
+
     def create(self, validated_data):
 
         tags_exist = 'tags' in validated_data.keys()

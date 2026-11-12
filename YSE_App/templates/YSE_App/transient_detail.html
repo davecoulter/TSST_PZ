@@ -2,6 +2,7 @@
 {% load static %}
 {% load transient_detail_extras %}
 {% load candidate_extras %}
+{% load tns_extras %}
 {% load widget_tweaks %}
 
 {% block styles %}
@@ -15,9 +16,9 @@
 <!-- Content Header (Page header) -->
 {% block content_header %}
     <h1>{% if 'YSE' in transient.tags|tags_list or 'YSE Forced Phot' in transient.tags|tags_list %}
-        {{transient.display_name}}   <b>(YSE)</b> {% include 'YSE_App/transient_admin_edit.html' %}<br/>
+        {{transient.display_name}}   <b>(YSE)</b> {% include 'YSE_App/transient_admin_edit.html' %} {% tns_badge transient %}<br/>
         {% else %}
-        {{transient.display_name}} {% include 'YSE_App/transient_admin_edit.html' %}<br/>
+        {{transient.display_name}} {% include 'YSE_App/transient_admin_edit.html' %} {% tns_badge transient %}<br/>
         {% endif %}
         {% if transient.iau_name %}<small>Internal name: {{ transient.name }}</small><br/>{% endif %}
         <small><a href="{% url 'index' %}">Back</a></small>
@@ -54,6 +55,7 @@
                 <div class="tab-content">
                     <div class="active tab-pane" id="summary_tab">
                         {% if candidate_pointer %}{% include "YSE_App/candidate_pointer.html" %}{% endif %}
+                        {% tns_reports transient %}
                         <div class="row">
                             <div class="col-xs-6">
                                 <div class="box box-primary">

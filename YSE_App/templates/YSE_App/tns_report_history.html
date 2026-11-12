@@ -1,0 +1,37 @@
+{% extends 'YSE_App/base.html' %}
+{# Every TNS submission, newest first (#52, amendment 29): the way back to a submission's results. #}
+
+{% block content_header %}
+    <h1>TNS reports</h1>
+    <ol class="breadcrumb">
+        <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li><a href="{% url 'tns_report_select' %}">Report to TNS</a></li>
+        <li class="active">TNS reports</li>
+    </ol>
+{% endblock %}
+
+{% block content %}
+{% include 'YSE_App/tns_banner.html' %}
+<div class="box box-default">
+  <div class="box-body table-responsive no-padding">
+    <table class="table table-hover table-condensed">
+      <thead><tr><th>Sent (UTC)</th><th>By</th><th>As</th><th>To</th><th>TNS report id</th><th class="text-right">Transients</th><th>Outcome</th></tr></thead>
+      <tbody>
+      {% for b in batches %}
+        <tr>
+          <td><a href="{% url 'tns_report_results' b.batch %}">{{ b.first.created_date|date:"Y-m-d H:i" }}</a></td>
+          <td>{{ b.first.created_by.username }}</td>
+          <td>{{ b.first.bot.name }}</td>
+          <td>{% if b.first.target == 'production' %}<span class="label label-danger">production</span>{% else %}<span class="label label-warning">sandbox</span>{% endif %}</td>
+          <td>{% if b.first.report_id %}{{ b.first.report_id }}{% else %}&ndash;{% endif %}</td>
+          <td class="text-right">{{ b.n }}</td>
+          <td>{% for state, count in b.counts %}<span class="label label-{% if state == 'reported' %}success{% elif state == 'pending' %}warning{% elif state == 'abandoned' %}default{% else %}danger{% endif %}" style="margin-right:4px">{{ count }} {{ state }}</span>{% endfor %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="text-muted">No submissions yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
