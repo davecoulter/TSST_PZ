@@ -151,5 +151,12 @@ def submit(bot, data):
 
 
 def reply(bot, report_id):
-    """TNS's reply for a report, as it sent it (NotReady until there is one)."""
-    return _post(bot, REPLY, {'report_id': str(report_id)})
+    """TNS's reply for a report, as it sent it (NotReady until there is one). A report TNS processed and
+    refused comes back as HTTP 400 with the per-entry feedback in its body (sandbox, 2026-11-12): that
+    is the outcome, so it is returned like a 200; a 400 without feedback is still an error."""
+    try:
+        return _post(bot, REPLY, {'report_id': str(report_id)})
+    except TNSError as e:
+        if e.status == 400 and isinstance(e.response, dict) and ((e.response.get('data') or {}).get('feedback')):
+            return e.response
+        raise

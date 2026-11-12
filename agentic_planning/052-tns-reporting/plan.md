@@ -172,19 +172,19 @@ These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of sc
 
 ## Acceptance criteria
 
-- [ ] Only TNS reporters see the nav entry and can open the pages; others get 403.
-- [ ] Selecting several candidates, filling the form, confirming and submitting sends one bulk report to the configured TNS (sandbox by default).
-- [ ] Each reported transient gets its `iau_name` (and its URL moves); each failure is recorded with TNS's message and flagged on the detail page.
-- [ ] Pending reports resolve without a page reload or a restart.
-- [ ] Dropdowns use the TNS values table, refreshed from TNS on demand; nothing hardcodes our group or authors.
-- [ ] No TNS credential in the DB, UI or repo.
-- [ ] End-to-end test on the TNS sandbox: report two candidates, one valid and one deliberately broken, and see one IAU name and one flagged failure.
-- [ ] A transient with a pending attempt cannot be selected, and cannot have its IAU name changed from the admin or the API; two simultaneous submissions send it once.
-- [ ] "Check again" cannot be hammered (server-enforced gap); an unresolved attempt can be abandoned; the TNS key never appears in the DB, the logs or a stored payload.
-- [ ] The details form previews the exact payload, with enumeration labels, before anything is sent; every TNS page shows the sandbox or production banner.
-- [ ] The lock holds under concurrent submissions (unit test on MySQL), and the flow passes once by hand against the real sandbox (amendment 30).
-- [ ] `TNSReportAttempt` is not exposed through the API.
-- [ ] Migration ships in the PR; `ruff check .` passes; no dependency or image change.
+- [x] Only TNS reporters see the nav entry and can open the pages; others get 403.
+- [x] Selecting several candidates, filling the form, confirming and submitting sends one bulk report to the configured TNS (sandbox by default).
+- [x] Each reported transient gets its `iau_name` (and its URL moves); each failure is recorded with TNS's message and flagged on the detail page.
+- [x] Pending reports resolve without a page reload or a restart.
+- [x] Dropdowns use the TNS values table, refreshed from TNS on demand; nothing hardcodes our group or authors.
+- [x] No TNS credential in the DB, UI or repo.
+- [x] End-to-end test on the TNS sandbox: report two candidates, one valid and one deliberately broken, and see one IAU name and one flagged failure. (2026-11-12: TNS accepts future dates, so the deliberate failure was a bot/group mismatch, reported separately: 2026aiol reported, report 297429 failed with TNS's message.)
+- [x] A transient with a pending attempt cannot be selected, and cannot have its IAU name changed from the admin or the API; two simultaneous submissions send it once.
+- [x] "Check again" cannot be hammered (server-enforced gap); an unresolved attempt can be abandoned; the TNS key never appears in the DB, the logs or a stored payload.
+- [x] The details form previews the exact payload, with enumeration labels, before anything is sent; every TNS page shows the sandbox or production banner.
+- [x] The lock holds under concurrent submissions (unit test on MySQL), and the flow passes once by hand against the real sandbox (amendment 30).
+- [x] `TNSReportAttempt` is not exposed through the API.
+- [x] Migration ships in the PR; `ruff check .` passes; no dependency or image change.
 
 ## Verification
 
@@ -278,3 +278,18 @@ These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of sc
   - The concurrency test (amendment 30): two threads, real MySQL row locks. Removing the lock from `start` makes it fail (the second submission goes through), so it tests the lock.
   - 151 `YSE_App` tests pass; `ruff check .` passes.
 - **2026-11-11 (first real refresh, Dave's local stack, as TSST_COSMOS_bot):** 92 values added (44 groups, 23 instruments, 16 telescopes, 6 filters, 2 object types, 1 unit), 2 relabelled (NUTS2, SZCYS), none unlisted. Observation groups: 129 created, 85 linked by name, 1 skipped; 230 in all, 214 linked to TNS's 215 groups. All four TSST groups linked (TSST 171, TSST_COSMOS 157, TSST_COSMOS_3D 170, TSST_VENUS 198). The skip: TNS has two groups both named "Icarus" (213, 215); the first got the obs group, the second is left for a person, as amendment 21 says (no automatic "Icarus (215)"); the refresh summary now names each skip, so such a duplicate is visible (Dave). Dave: typing in a dropdown narrows 230 entries well enough for now.
+- **2026-11-11 (stage 4 built):** `{% tns_badge transient %}` (the latest report's status by the title) and `{% tns_reports transient %}` (every report: time, who, bot, service, status, report id, TNS's message, its submission, the payload) on the transient and candidate pages, for TNS reporters only (the links go to their pages); template tags, so the two detail views are unchanged. `tns_views._state` became the public `attempt_state`, which the tags share. The nav entry was done in stage 2. 154 `YSE_App` tests pass. Acceptance criteria checked off, except the two-candidate sandbox run (one valid, one broken).
+- **2026-11-12 (two-candidate sandbox run, as TSST_COSMOS_bot for TSST):** TNS report 297428. The plan was one valid and one broken (a discovery MJD moved to 61800, 2028-01-30), but **TNS accepts future dates**: both were inserted, `jets_12577_e1_61323_16` as 2026aiol and `jets_12577_e1_61323_175` as **2028A**. Our side handled the two-entry reply as designed (both matched by the echoed `tsst_id`, written back, promoted to New). Dave cleared `_175`'s IAU name by hand; its attempt stays "reported", as history (TNS has 2028A until the Sunday rebuild).
+  - **Fix (Dave's OK):** `tns_report.problems()` refuses a discovery, photometry or non-detection date after today (UTC), so the preview blocks it. 155 `YSE_App` tests pass.
+  - The deliberate failure is now attempted as a bot/group mismatch: TSST_VENUS_bot reporting one transient for TSST_VENUS (198) and one for TSST (171).
+- **2026-11-12 (bot/group mismatch run, TNS report 297429):** TSST_VENUS_bot reporting `jets_12577_e1_61323_248` for TSST (171). TNS accepted the submission, then answered the reply request with **HTTP 400 carrying the per-entry feedback**: `"reporting_groupid": [{"error_id": 0, "message": "Invalid. DebugNum-134"}]`. So TNS checks bot/group membership per entry, and a processed-but-refused report is a 400, not a 200. We had treated that 400 as a failed check, so the attempt stayed pending and the page kept asking. Recorded as `collab_scratch/tns_recorded/bulk_report_reply_297429_400.json`.
+  - **Fix (Dave's OK):** `tns_client.reply` returns a 400 that carries `data.feedback` as the outcome. For a refused entry, the parser collects every `message` under a field, labelled with it ("reporting_groupid: Invalid. DebugNum-134"), with a membership hint for group fields. The results page checks automatically only while TNS says it is still processing; on anything else it stops and shows the message in red, and "Check again" is the person's call (Dave: no blind retrying).
+  - **Select all** (Dave): a checkbox in each photometry table's Send header; unticking keeps the discovery point.
+  - Found, not fixed here: on the transient page, `A.aladin(...)` throws when Aladin's script fails to load from CDS, which stops the rest of the page's startup script, so the status buttons (and other handlers) are never attached. That is #70; a one-line guard could go on a hotfix branch.
+  - 157 `YSE_App` tests pass.
+- **2026-11-12 (after the fix):** report 297429 resolved to **failed** with "reporting_groupid: Invalid. DebugNum-134 (is the bot a member of this group?)": TNS's own refusal, flagged, alongside 2026aiol reported. Last acceptance criterion met. Dave set `_175` back to Candidate in the admin.
+  - Two follow-ups from Dave's test:
+    - **Select all** did nothing. Clicking the header fires "input" before "change", and the recount on "input" unticked the header before Select all read it. The header now follows the rows only when a row is ticked by hand, or a discovery point picked.
+    - **"Report again"** on the results page: per failed or abandoned row, and "Report the N failed again" at the top. Both open the details form for those transients, and only while that attempt is the transient's latest and it has no IAU name.
+  - 158 `YSE_App` tests pass.
+  - Filed #76 (prefill "Report again" with what was sent; low priority, Dave doubts it is worth the storage).

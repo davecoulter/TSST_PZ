@@ -153,6 +153,27 @@ def _codes(value):
             yield from _codes(inner)
 
 
+def _field_errors(value, path=()):
+    """Every (field, message) in a refused entry, the field being the non-numeric keys above the message.
+    TNS gives errors as a list under the field ({"reporting_groupid": [{"error_id": 0, "message": ...}]},
+    sandbox 2026-11-12) or under a numeric code ({"non_detection": {"1": {"message": ...}}})."""
+    if isinstance(value, dict):
+        if isinstance(value.get('message'), str):
+            yield '.'.join(p for p in path if not p.isdigit()), value['message']
+        for key, inner in value.items():
+            if key != 'message':
+                yield from _field_errors(inner, path + (str(key),))
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _field_errors(inner, path)
+
+
+def _error_text(field, message):
+    """'reporting_groupid: Invalid. DebugNum-134 (is the bot a member of this group?)'."""
+    hint = ' (is the bot a member of this group?)' if field.endswith('groupid') else ''
+    return '%s: %s%s' % (field, message, hint) if field else message
+
+
 def _entries(body):
     """The reply's per-entry feedback, in submission order."""
     feedback = ((body.get('data') or {}).get('feedback') or {}).get('at_report')
@@ -195,7 +216,10 @@ def parse_reply(body, attempts):
             continue
         codes = dict(_codes(entry))
         hit = next((c for c in (INSERTED, EXISTS) if codes.get(c, {}).get('objname')), None)
-        messages = [d.get('message') for c, d in _codes(entry) if d.get('message')]
+        if hit:
+            messages = [codes[hit]['message']] if codes[hit].get('message') else []
+        else:
+            messages = [_error_text(field, message) for field, message in _field_errors(entry)]
         outcomes[attempt.pk] = {
             'code': hit,
             'iau_name': _iau(codes[hit]['objname']) if hit else '',

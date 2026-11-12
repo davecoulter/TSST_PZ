@@ -133,6 +133,19 @@ class AtReportEntryTests(TestCase):
 			'non_detection.instrumentid': 'required',
 		})
 
+	def test_dates_in_the_future_are_refused(self):
+		"""TNS accepts them (a 2028 discovery became 2028A on the sandbox, 2026-11-12), so the preview refuses them."""
+		later = at(2028, 1, 30, 6)
+		point = dict(fields()['photometry'][0], obs_date=later)
+		shared = dict(SHARED, non_detection=tns_report.ND_OBSERVATION, nd_obsdate='2027-12-01', nd_limiting_flux='28.50',
+		              nd_filterid='100', nd_instrumentid='185')
+		entry = tns_report.at_report_entry(fields(discovery_date=later, photometry=[point]), shared)
+		found = tns_report.problems(entry, today='2026-11-12')
+		self.assertEqual(found['discovery_datetime'], 'in the future (2028-01-30; today is 2026-11-12)')
+		self.assertEqual(found['photometry.0.obsdate'], 'in the future (2028-01-30; today is 2026-11-12)')
+		self.assertEqual(found['non_detection.obsdate'], 'in the future (2027-12-01; today is 2026-11-12)')
+		self.assertEqual(tns_report.problems(tns_report.at_report_entry(fields(), SHARED), today='2023-12-24'), {})  # today is fine
+
 	def test_a_new_batch_must_be_filled_in(self):
 		"""default_shared leaves the per-survey values empty: the reporter supplies them."""
 		shared = tns_report.default_shared()

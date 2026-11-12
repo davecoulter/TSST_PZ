@@ -287,10 +287,11 @@ _REQUIRED_PHOTOMETRY = ('obsdate', 'flux', 'flux_unitid', 'filterid', 'instrumen
 _REQUIRED_NON_DETECTION = ('obsdate', 'limiting_flux', 'flux_unitid', 'filterid', 'instrumentid')
 
 
-def problems(entry):
+def problems(entry, today=None):
     """{path: message} for what TNS would reject in one entry (empty when it looks complete):
     missing required values, no or too much photometry, an incomplete non-detection (or one not before
-    the discovery), long remarks, an id TNS never had or no longer lists."""
+    the discovery), long remarks, an id TNS never had or no longer lists. Also a date after `today`
+    (UTC, by default now): TNS accepts those (it named a 2028 discovery "2028A"), so we refuse them."""
     found = {}
     for path, value, text in describe(entry):
         kind = _LABELLED.get(path.rsplit('.', 1)[-1])
@@ -328,4 +329,11 @@ def problems(entry):
     discovery = entry.get('discovery_datetime')
     if observed and nd.get('obsdate') and discovery and nd['obsdate'] >= discovery:
         found['non_detection.obsdate'] = 'must be before the discovery date (%s)' % discovery
+
+    today = today or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    dated = [('discovery_datetime', discovery), ('non_detection.obsdate', nd.get('obsdate') if observed else None)]
+    dated += [('photometry.%s.obsdate' % i, point.get('obsdate')) for i, point in photometry.items()]
+    for path, date in dated:
+        if date and date > today:  # YYYY-MM-DD strings compare as dates
+            found[path] = 'in the future (%s; today is %s)' % (date, today)
     return found

@@ -150,8 +150,32 @@ class CheckTests(AttemptsTestBase):
         batch = self.sent()
         self.check(batch, reply({'non_detection': {'1': {'message': 'Last non-detection should precede the discovery'}}}))
         attempt = Attempt.objects.get(batch=batch)
-        self.assertEqual((attempt.status, attempt.message), ('failed', 'Last non-detection should precede the discovery'))
+        self.assertEqual((attempt.status, attempt.message), ('failed', 'non_detection: Last non-detection should precede the discovery'))
         self.assertIsNone(Transient.objects.get(pk=self.t.pk).iau_name)
+
+    def test_a_refused_report_as_tns_sends_it_is_failed_with_the_field_and_a_hint(self):
+        """TNS's real answer for a bot reporting for a group it is not in (sandbox report 297429): HTTP 400,
+        the feedback in the body, the error as a list under the field. The client returns it as the outcome."""
+        body = {'id_code': 400, 'id_message': 'Bad request', 'data': {'feedback': {'at_report': [{
+            'reporting_groupid': [{'error_id': 0, 'message': 'Invalid. DebugNum-134'}],
+            'internal_ids': {'tsst_id': str(self.t.pk)}}]}}}
+        batch = self.sent()
+        error = tns_client.TNSError('Bad request (TNS 400)', status=400, response=body)
+        with mock.patch.object(tns_client, '_post', side_effect=error):
+            state = tns_attempts.check(batch, self.reporter)
+        self.assertEqual(state[0], 'resolved')
+        attempt = Attempt.objects.get(batch=batch)
+        self.assertEqual((attempt.status, attempt.message),
+                         ('failed', 'reporting_groupid: Invalid. DebugNum-134 (is the bot a member of this group?)'))
+        self.assertIsNone(Transient.objects.get(pk=self.t.pk).iau_name)
+
+    def test_a_400_without_feedback_stays_an_error_and_pending(self):
+        batch = self.sent()
+        error = tns_client.TNSError('Bad request (TNS 400)', status=400, response={'id_code': 400, 'id_message': 'Bad request'})
+        with mock.patch.object(tns_client, '_post', side_effect=error):
+            state = tns_attempts.check(batch, self.reporter)
+        self.assertEqual(state[0], 'error: Bad request (TNS 400)')
+        self.assertEqual(Attempt.objects.get(batch=batch).status, 'pending')
 
     def test_a_name_we_hold_is_never_overwritten(self):
         batch = self.sent()
@@ -301,6 +325,17 @@ class PagesTests(AttemptsTestBase):
         self.assertContains(page, '2026ggg')
         self.assertNotContains(page, 'Check again')
 
+    def test_a_failed_attempt_offers_report_again_until_it_is_reported_again(self):
+        batch = self.sent()
+        Attempt.objects.filter(batch=batch).update(status=Attempt.FAILED, message='reporting_groupid: Invalid.')
+        self.login(self.reporter)
+        page = self.client.get(reverse('tns_report_results', args=[batch]))
+        self.assertEqual(page.context['retry'], [self.t.pk])
+        self.assertContains(page, 'Report the 1 failed again')
+        self.assertContains(page, '%s?t=%d' % (reverse('tns_report_details'), self.t.pk))
+        self.sent()  # reported again: the old submission no longer offers it
+        self.assertEqual(self.client.get(reverse('tns_report_results', args=[batch])).context['retry'], [])
+
     def test_an_unknown_submission_says_what_to_do(self):
         batch = self.started()
         self.login(self.reporter)
@@ -321,3 +356,46 @@ class PagesTests(AttemptsTestBase):
         self.assertTrue(row['blocked'])
         self.assertContains(page, 'title="A TNS report of it is in flight"')
         self.assertContains(page, '>pending</a>')
+
+
+class DetailPagesTests(AttemptsTestBase):
+    """Stage 4: the latest report as a badge by the title, and every report in a box, for TNS reporters."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        for name in ('Following', 'Watch', 'Interesting', 'Ignore'):  # the legacy transient page needs them
+            TransientStatus.objects.get_or_create(name=name, defaults=cls.audit)
+
+    def pages(self):
+        return [reverse('transient_detail', args=[self.t.slug]), reverse('candidate_detail', args=[self.t.slug])]
+
+    def test_reporters_see_the_badge_and_every_report(self):
+        failed = self.sent()
+        Attempt.objects.filter(batch=failed).update(status=Attempt.FAILED, message='Forbidden: bot not in group')
+        self.sent()
+        self.login(self.reporter)
+        for url in self.pages():
+            page = self.client.get(url)
+            self.assertEqual(page.status_code, 200, url)
+            self.assertContains(page, '>pending</a>')  # the latest, by the title
+            self.assertContains(page, 'TNS reports <span class="badge">2</span>')
+            self.assertContains(page, 'Forbidden: bot not in group')
+            self.assertContains(page, reverse('tns_report_results', args=[failed]))
+
+    def test_a_failed_latest_report_says_retry(self):
+        Attempt.objects.filter(batch=self.sent()).update(status=Attempt.FAILED)
+        self.login(self.reporter)
+        self.assertContains(self.client.get(self.pages()[0]), 'failed: retry')
+
+    def test_others_and_unreported_transients_show_nothing(self):
+        box = 'TNS reports <span class="badge">'  # not the nav's "TNS reports" link, which reporters always have
+        self.login(self.reporter)
+        for url in self.pages():
+            self.assertNotContains(self.client.get(url), box)
+        self.sent()
+        self.login(self.admin)  # a superuser outside the TNS Reporters group
+        for url in self.pages():
+            page = self.client.get(url)
+            self.assertNotContains(page, box)
+            self.assertNotContains(page, '>pending</a>')

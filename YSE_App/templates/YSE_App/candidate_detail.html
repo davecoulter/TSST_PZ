@@ -2,6 +2,7 @@
 {% load static %}
 {% load transient_detail_extras %}
 {% load candidate_extras %}
+{% load tns_extras %}
 
 {% block styles %}
 <style>
@@ -73,6 +74,7 @@
     <h1>
         {{ transient.display_name }}
         {% include 'YSE_App/transient_admin_edit.html' %}
+        {% tns_badge transient %}
         <small>{% if transient.iau_name %}{{ transient.name }} &middot; {% endif %}candidate</small>
     </h1>
     <ol class="breadcrumb">
@@ -410,6 +412,7 @@
     </div>
   </div>
 </div>
+{% tns_reports transient %}
 {% endblock %}
 
 {% block scripts %}

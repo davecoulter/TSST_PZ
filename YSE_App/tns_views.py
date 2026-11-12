@@ -376,8 +376,8 @@ def _batch_attempts(batch):
     return attempts
 
 
-def _state(attempt):
-    """What a results row shows: a status word and its badge colour."""
+def attempt_state(attempt):
+    """(status word, badge colour) for an attempt: what the results page, history and detail pages show."""
     if attempt.unknown:
         return 'unknown', 'danger'
     return {TNSReportAttempt.PENDING: ('pending', 'warning'), TNSReportAttempt.REPORTED: ('reported', 'success'),
@@ -390,12 +390,17 @@ def tns_report_results(request, batch):
     """One submission: each transient's status, the IAU name, TNS's message, and the payload sent."""
     attempts = _batch_attempts(batch)
     first = attempts[0]
-    rows = [dict(attempt=a, state=_state(a), payload=json.dumps(json.loads(a.payload), indent=1),
-                 stale=a.status == TNSReportAttempt.PENDING and timezone.now() - a.created_date > tns_attempts.STALE_AFTER)
+    # "report again": a failed or abandoned attempt that is still its transient's latest, with no IAU name
+    latest = tns_attempts.latest([a.transient_id for a in attempts])
+    retry = [a.transient_id for a in attempts if a.status in (TNSReportAttempt.FAILED, TNSReportAttempt.ABANDONED)
+             and latest.get(a.transient_id) == a and not a.transient.iau_name]
+    rows = [dict(attempt=a, state=attempt_state(a), payload=json.dumps(json.loads(a.payload), indent=1),
+                 stale=a.status == TNSReportAttempt.PENDING and timezone.now() - a.created_date > tns_attempts.STALE_AFTER,
+                 retry=a.transient_id in retry)
             for a in attempts]
     checkable = any(a.status == TNSReportAttempt.PENDING and a.report_id for a in attempts)
     return render(request, 'YSE_App/tns_report_results.html', dict(
-        _target(), rows=rows, first=first, batch=batch, checkable=checkable,
+        _target(), rows=rows, first=first, batch=batch, checkable=checkable, retry=retry,
         sent_to=first.target, gap=int(tns_attempts.CHECK_GAP.total_seconds())))
 
 
@@ -405,7 +410,7 @@ def tns_report_check(request, batch):
     """JSON: ask TNS for a submission's outcome (rate-limited per submission), and the statuses after."""
     _batch_attempts(batch)
     state, wait = tns_attempts.check(batch, request.user)
-    statuses = {a.pk: _state(a)[0] for a in TNSReportAttempt.objects.filter(batch=batch)}
+    statuses = {a.pk: attempt_state(a)[0] for a in TNSReportAttempt.objects.filter(batch=batch)}
     return JsonResponse({'state': state, 'wait': wait, 'statuses': statuses,
                          'pending': sum(s in ('pending', 'unknown') for s in statuses.values())})
 
@@ -416,7 +421,7 @@ def tns_report_history(request):
     batches = {}
     for a in (TNSReportAttempt.objects.select_related('bot', 'created_by').order_by('-created_date', 'id')[:2000]):
         b = batches.setdefault(a.batch, {'batch': a.batch, 'first': a, 'counts': defaultdict(int), 'n': 0})
-        b['counts'][_state(a)[0]] += 1
+        b['counts'][attempt_state(a)[0]] += 1
         b['n'] += 1
     rows = [dict(b, counts=sorted(b['counts'].items())) for b in batches.values()]
     return render(request, 'YSE_App/tns_report_history.html', dict(_target(), batches=rows))

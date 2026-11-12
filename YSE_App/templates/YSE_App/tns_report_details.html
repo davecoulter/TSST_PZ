@@ -171,7 +171,7 @@
         <table class="table table-condensed table-hover tns-phot-table">
           <thead>
             <tr class="tns-groups"><th colspan="2"></th><th colspan="4">In STZ-PZ <small class="text-muted">(read-only)</small></th><th colspan="5" class="tns-sent-start">Sent to TNS <small class="text-muted">(editable)</small></th></tr>
-            <tr><th>Send</th><th title="The discovery point: always sent, and its date is the discovery date">Discovery</th>
+            <tr><th><label style="margin:0; font-weight:inherit" title="Send every point (unticking keeps the discovery point)"><input type="checkbox" class="tns-phot-all" data-row="{{ pk }}"> Send</label></th><th title="The discovery point: always sent, and its date is the discovery date">Discovery</th>
                 <th>MJD</th><th>Band</th><th>Mag &plusmn; error</th><th class="num tns-ours-end">S/N</th>
                 <th class="tns-sent-start">MJD <small class="text-muted">&rarr; date</small></th><th>Mag &plusmn; error</th><th>Filter</th><th>Instrument</th><th></th></tr>
           </thead>
@@ -432,6 +432,23 @@ $(function () {
       });
   }
 
+  // "Send" in a table's header: tick every point, or untick all but the discovery point (always sent).
+  // The header box follows the rows only when a row is ticked by hand (and on load), never while
+  // counting: clicking the header fires "input" before "change", and a recount in between would
+  // untick it before this handler reads it.
+  $('#tns-form').on('change', '.tns-phot-all', function () {
+    var row = $(this).data('row'), all = this.checked;
+    $('.tns-phot[data-row="' + row + '"]').each(function () {
+      $(this).prop('checked', all || $(this).closest('tr').find('.tns-disc').prop('checked'));
+    });
+  });
+  function syncAll(row) {
+    var boxes = $('.tns-phot[data-row="' + row + '"]');
+    $('.tns-phot-all[data-row="' + row + '"]').prop('checked', boxes.length > 0 && boxes.filter(':checked').length === boxes.length);
+  }
+  $('#tns-form').on('change', '.tns-phot', function () { syncAll($(this).data('row')); });
+  $('.tns-phot-all').each(function () { syncAll($(this).data('row')); });
+
   function counts() {
     $('.tns-phot').map(function () { return $(this).data('row'); }).get()
       .filter(function (row, i, all) { return all.indexOf(row) === i; })
@@ -460,6 +477,7 @@ $(function () {
   });
   $('#tns-form').on('change', '.tns-disc', function () {
     $(this).closest('tr').find('.tns-phot').prop('checked', true);
+    syncAll($(this).data('row'));
     discoveryDate($(this).data('row'));
   });
   $('#tns-form').on('change', '.tns-phot', function () {

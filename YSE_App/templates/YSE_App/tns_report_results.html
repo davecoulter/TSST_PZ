@@ -31,6 +31,10 @@ few seconds for half a minute, then "Check again" does it on demand (rate-limite
     <small style="margin-left:8px">as <b>{{ first.bot.name }}</b> to the <b>{{ sent_to }}</b> TNS ({{ first.base_url }}){% if first.report_id %}, TNS report id <b>{{ first.report_id }}</b>{% endif %}</small>
   </div>
   <div class="box-body">
+    {% if retry %}
+    <p><a class="btn btn-primary btn-sm" href="{% url 'tns_report_details' %}?{% for t in retry %}t={{ t }}{% if not forloop.last %}&amp;{% endif %}{% endfor %}"><i class="fa fa-repeat"></i> Report the {{ retry|length }} failed again</a>
+      <span class="text-muted" style="margin-left:8px">opens the details form for them; fix what TNS said first</span></p>
+    {% endif %}
     {% if checkable %}
     <p>
       <button type="button" class="btn btn-default btn-sm" id="tns-check"><i class="fa fa-refresh"></i> Check again</button>
@@ -47,6 +51,7 @@ few seconds for half a minute, then "Check again" does it on demand (rate-limite
           <td>
             <span class="label label-{{ r.state.1 }}">{{ r.state.0 }}</span>
             {% if r.stale %}<span class="label label-default" title="Submitted over a day ago">pending for more than a day</span>{% endif %}
+            {% if r.retry %}<a class="btn btn-default btn-xs" style="margin-left:6px" href="{% url 'tns_report_details' %}?t={{ a.transient_id }}">report again</a>{% endif %}
           </td>
           <td>
             {% if a.iau_name %}<a href="{{ a.base_url }}/object/{{ a.iau_name }}" target="_blank">{{ a.iau_name }}</a>
@@ -73,8 +78,9 @@ few seconds for half a minute, then "Check again" does it on demand (rate-limite
 {% if checkable %}
 <script>
 $(function () {
-  // Ask every 5 s for 30 s, then leave it to the button. The server enforces its own gap ({{ gap }} s),
-  // so extra clicks cost TNS nothing. Any change of status reloads the page to show it.
+  // While TNS says it is still processing, ask every 5 s for 30 s; on anything else (an error, a rate
+  // limit) stop at once and show it: a person reads it and decides whether to "Check again". The server
+  // enforces its own gap ({{ gap }} s), so extra clicks cost TNS nothing. A change of status reloads the page.
   var url = "{% url 'tns_report_check' batch %}", tries = 0, timer = null, before = null;
 
   function check(manual) {
@@ -87,11 +93,12 @@ $(function () {
         var text = {'not ready': 'TNS is still processing the report.',
                     'too soon': 'Checked moments ago; ask again in ' + Math.ceil(reply.wait) + ' s.',
                     'rate limited': 'TNS rate limit reached; ask again in ' + Math.ceil(reply.wait) + ' s.'}[reply.state] || reply.state;
-        $('#tns-check-state').text(text);
+        var waiting = reply.state === 'not ready' || reply.state === 'too soon';
+        $('#tns-check-state').text(text).toggleClass('text-danger', !waiting).toggleClass('text-muted', waiting);
         tries += 1;
-        if (!manual && tries < 6) { timer = setTimeout(check, 5000); }
+        if (!manual && waiting && tries < 6) { timer = setTimeout(check, 5000); }
       })
-      .fail(function (xhr) { $('#tns-check-state').text('Check failed: HTTP ' + xhr.status); });
+      .fail(function (xhr) { $('#tns-check-state').text('Check failed: HTTP ' + xhr.status).addClass('text-danger'); });
   }
   $('#tns-check').on('click', function () { clearTimeout(timer); check(true); });
   timer = setTimeout(check, 5000);
