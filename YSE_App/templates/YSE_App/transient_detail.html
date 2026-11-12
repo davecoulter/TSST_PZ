@@ -6,8 +6,6 @@
 {% load widget_tweaks %}
 
 {% block styles %}
-    <!-- include Aladin Lite CSS file in the head section of your page -->
-    <link rel="stylesheet" href="//aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css" />
     <link rel="stylesheet" href="{% static 'YSE_App/bower_components/select2/dist/css/select2.min.css' %}">
     <link rel="stylesheet" href="{% static 'YSE_App/bower_components/datatables.net-bs/css/dataTables.bootstrap.min.css' %}">
 
@@ -1164,7 +1162,7 @@
 
 {% block scripts %}
 
-    <script type="text/javascript" src="//aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
+    {% include 'YSE_App/aladin_loader.html' %}
 
     <script src="{% static 'YSE_App/bower_components/datatables.net/js/jquery.dataTables.min.js' %}"></script>
     <script src="{% static 'YSE_App/bower_components/datatables.net-bs/js/dataTables.bootstrap.min.js' %}"></script>
@@ -1472,7 +1470,13 @@
             //   'autoWidth'   : false
             // })
 
-            var aladin = A.aladin('#aladin-lite-div', {survey: "P/DSS2/color", fov:0.017, target: "{{transient.ra}} {{transient.dec}}"});
+            // Aladin Lite v3 (#70): created when the library is ready, outside this setup's flow, so a
+            // library that fails to load (or a browser without WebGL2) leaves only the viewer empty
+            // The survey as an address, not a name: a name is looked up in CDS's registry, then as a path on
+            // this site, over and over while CDS is down. aladinView (aladin_loader.html) creates the viewer only
+            // if the survey answers, so a CDS outage leaves a note here, not a retry loop.
+            window.aladinView('#aladin-lite-div', {survey: "https://alasky.cds.unistra.fr/DSS/DSSColor", fov: 0.017,
+                                                   target: "{{transient.ra}} {{transient.dec}}"});
 
             $('#follow_date_range').daterangepicker({
                 timePicker24Hour: true,
