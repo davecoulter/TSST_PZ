@@ -3,6 +3,7 @@
 {% load static %}
 {% load transient_detail_extras %}
 {% load widget_tweaks %}
+{% load sky_extras %}
 {% paginate transients %}
 {% for transient in transients %}
 
@@ -210,8 +211,11 @@
                     </div>
                   </div>
                   <div class="item">
-                    <strong>DSS Footprint (Aladin)</strong>
-                    <div id="aladin-lite-div_{{transient.id}}" style="width:400px;height:400px;"></div>
+                    <strong>DSS2 (CDS)</strong>
+                    {# a static cutout, not an Aladin viewer (#70): the transient's page has the interactive one #}
+                    <a href="{% url 'transient_detail' transient.slug %}" title="Open the transient's page for the interactive sky viewer">
+                      <img src="{% hips2fits_url transient.ra transient.dec 0.017 400 400 %}" loading="lazy" width="400" height="400" alt="DSS2 around {{ transient.name }}">
+                    </a>
                   </div>
                     <div class="item">
                       <strong>Pan-STARRS Footprint</strong>
@@ -373,7 +377,6 @@
 
           $(rows).append(htmltext)
         });
-        var aladin = A.aladin('#aladin-lite-div_{{transient.id}}', {survey: "P/DSS2/color", fov:0.017, target: "{{transient.ra}} {{transient.dec}}"});
       {% endfor %}
     });
 

@@ -7,8 +7,6 @@
 {% load el_pagination_tags %}
 
 {% block styles %}
-  <!-- include Aladin Lite CSS file in the head section of your page -->
-  <link rel="stylesheet" href="//aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css" />
   <link rel="stylesheet" href="{% static 'YSE_App/bower_components/select2/dist/css/select2.min.css' %}">
   <link rel="stylesheet" href="{% static 'YSE_App/bower_components/datatables.net-bs/css/dataTables.bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'YSE_App/bower_components/bootstrap-daterangepicker/daterangepicker.css' %}">
@@ -91,7 +89,7 @@
 {% block scripts %}
 
     {{ block.super }}
-    <script src="http://code.jquery.com/jquery-latest.js"></script>
+    {# no second jQuery here: base.html loads ours, and reloading it would drop the plugins attached to it (#70) #}
     <script src="{{ STATIC_URL }}el-pagination/js/el-pagination.js"></script>
     <script type='text/javascript'>
         $.endlessPaginate({
@@ -101,7 +99,6 @@
         });
     </script>
 
-<script type="text/javascript" src="//aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
 
 <script type='text/javascript'>
 

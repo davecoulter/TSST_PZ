@@ -1,0 +1,59 @@
+{% load static %}
+{% comment %}
+Aladin Lite v3, from our own static files (#70; YSE_App/static/YSE_App/aladin-lite/3.8.2/README.md).
+
+Include once, anywhere in the page. It defines window.aladinReady, a promise of Aladin's `A` once its
+WebAssembly is ready, and window.aladinView(selector, options), which creates a viewer only if its
+survey answers (see below):
+
+    window.aladinView('#div', {survey: 'https://.../DSSColor', fov: 0.017, target: '...'});
+
+Why check the survey first: when a viewer's only survey fails (CDS down), Aladin 3.8.2 falls back to its
+default survey by name, which fails too, and falls back again, forever (`setBaseImageLayer(DEFAULT_OPTIONS
+.survey)` in a `finally`, no option turns it off). So the survey's small `properties` file is fetched once
+first, and if it doesn't answer within 5 s the box says so and Aladin is never started.
+
+The library is an ES module, so it loads deferred and never blocks rendering. If it fails to load, or
+the browser has no WebGL2, the promise is rejected (logged to the console) and nothing else on the page
+is affected: only the viewer stays empty. Sky tiles still come from CDS, after the page has rendered.
+{% endcomment %}
+<script>
+  window.aladinReady = window.aladinReady || new Promise(function (resolve, reject) {
+    window.aladinResolve = resolve;
+    window.aladinReject = reject;
+  });
+  window.aladinReady.catch(function (why) { console.warn('Aladin Lite not available:', why); });
+</script>
+<script>
+  // A viewer, only if its survey (an address, not a name) answers; else a note in its box. Always with
+  // log: false (Aladin otherwise reports this page's URL to CDS) and hipsList: [] (no built-in favourites,
+  // looked up by name).
+  window.aladinView = function (selector, options) {
+    var box = document.querySelector(selector);
+    var note = function (text) { if (box) { box.innerHTML = '<p class="text-muted small" style="padding:8px">' + text + '</p>'; } };
+    var controller = window.AbortController ? new AbortController() : null;
+    var timer = controller && setTimeout(function () { controller.abort(); }, 5000);
+    var survey = fetch(options.survey.replace(/\/$/, '') + '/properties', controller ? {signal: controller.signal} : {})
+      .then(function (response) { if (!response.ok) { throw new Error('HTTP ' + response.status); } });
+    return Promise.all([window.aladinReady, survey]).then(function (ready) {
+      clearTimeout(timer);
+      return ready[0].aladin(selector, Object.assign({log: false, hipsList: []}, options));
+    }, function (why) {
+      clearTimeout(timer);
+      note('Sky view unavailable: CDS is not responding.');
+      console.warn('Aladin viewer not created:', why);
+    });
+  };
+</script>
+<script type="module">
+  import A from "{% static 'YSE_App/aladin-lite/3.8.2/aladin.js' %}";
+  A.init.then(function () { window.aladinResolve(A); }, window.aladinReject);
+</script>
+<script>
+  // a module that fails to load never runs its body: reject so the page can tell
+  window.addEventListener('error', function (event) {
+    if (event.target && event.target.tagName === 'SCRIPT' && String(event.target.src || '').indexOf('aladin-lite') !== -1) {
+      window.aladinReject('could not load ' + event.target.src);
+    }
+  }, true);
+</script>

@@ -4,6 +4,7 @@
 <head>
     <meta charset="utf-8" />
     {% load static %}
+    {% load sky_extras %}
     <meta name="viewport" content = "width=device-width, initial-scale=1.0"/>
     <style type="text/css">
             html,
@@ -152,9 +153,6 @@
             integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49" 
             crossorigin="anonymous"></script>
 
-    <!-- Aladin -->
-    <link rel="stylesheet" href="//aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.css" />
-    <script type="text/javascript" src="//aladin.u-strasbg.fr/AladinLite/api/v2/latest/aladin.min.js" charset="utf-8"></script>
 
     <script type="text/javascript" >
         // this is gross and pollutes the global scope
@@ -407,9 +405,6 @@
             // draw the fields and the contours onload
 
             initDraw();
-            setInterval(function() {
-                        document.getElementById('backgroundSky').setAttribute('src', aladin.getViewDataURL());
-                     }, 1000);
 
         }
     </script>
@@ -447,22 +442,12 @@
 <!-- Close the main body and page -->
 
 <!-- Background canvas image -->
-<!-- Hidden aladin-lite div to run the instance -->
-<div id="aladin-lite-div" style="width:{{ viewContent.fov_x_pixels }}px;
-                                 height:{{ viewContent.fov_y_pixels }}px;
-                                 display:none;"></div>
-<script type="text/javascript">
-    //create an aladin instance, update the hidden image source every second
-    var aladin = A.aladin('#aladin-lite-div',
-                    {survey: "P/DSS2/color",
-                     target: "{{ viewContent.fov_raCenter }} {{ viewContent.fov_decCenter }}",
-                     fov: "{{ viewContent.fov_width }}",
-                     showReticle:false});
-    aladin.getBaseImageLayer().getColorMap().reverse();
-</script>
-
-<!-- Hidden image that will get mapped onto the canvas via paper.js -->
-<img id="backgroundSky" style="width:{{ viewContent.fov_x_pixels }}px;
+<!-- Hidden image that will get mapped onto the canvas via paper.js: one static DSS2 picture of the field
+     from CDS's hips2fits (#70), where a hidden Aladin viewer used to be copied every second. (Aladin also
+     reversed the colour map; the static picture does not.) -->
+<img id="backgroundSky" src="{% hips2fits_url viewContent.fov_raCenter viewContent.fov_decCenter viewContent.fov_width viewContent.fov_x_pixels viewContent.fov_y_pixels %}"
+                         crossorigin="anonymous"
+                         style="width:{{ viewContent.fov_x_pixels }}px;
                                height:{{ viewContent.fov_y_pixels }}px;
                                display:none;"></img>
 </body>
