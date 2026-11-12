@@ -101,12 +101,20 @@ class InternalSurvey(BaseModel):
 class ObservationGroup(BaseModel):
 	"""
 	A way to add a tag to data designating its external source.
-	
+
 	Attributes:
 		name (CharField): name of the source of the data.
-	
+		tns_* (#52): the TNS groups a report of this group's transients starts with; empty means
+			the reporter picks them. TNS ids, chosen in the admin from the TNS values. The reporter
+			text and the archival remark are per report, not per group. Not writable through the API.
+
 	"""
 	name = models.CharField(max_length=64)
+
+	tns_reporting_group_id = models.CharField(max_length=16, null=True, blank=True, unique=True,
+		help_text='TNS reporting group for reports of this group\'s transients')
+	tns_data_source_group_id = models.CharField(max_length=16, null=True, blank=True,
+		help_text='TNS discovery data source group')
 
 	def __str__(self):
 		return self.name

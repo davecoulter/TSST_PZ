@@ -233,6 +233,26 @@ TNSAPIKEY = config.get('main','tnsapikey')
 TNSDECAMUSER = config.get('main','tns_decam_bot_name')
 TNSDECAMID = config.get('main','tns_decam_bot_id')
 TNSDECAMAPIKEY = config.get('main','tnsdecamapikey')
+# Reporting candidates to TNS (#52): generic TNS conventions the report form starts with. They are TNS
+# labels, looked up in the TNS values snapshot (YSE_App/tns_values.py), so no TNS id is written here.
+# The TNS groups come from the transient's ObservationGroup.
+TNS_REPORT_DEFAULTS = {
+    'at_type': 'PSN',
+    'units': 'ABMag',
+    'archive': 'Other',
+}
+# Which TNS this deployment reports to (#52): 'sandbox' unless [tns] TNS_TARGET in settings.ini says
+# 'production'. Only the production server is set to production, once, at setup.
+TNS_TARGET = config.get('tns', 'TNS_TARGET', fallback='sandbox').strip().lower()
+if TNS_TARGET not in ('sandbox', 'production'):
+    raise ValueError("settings.ini [tns] TNS_TARGET must be 'sandbox' or 'production', not %r" % TNS_TARGET)
+# That service's section, [tns_sandbox] or [tns_production]: base_url, then one API key per bot, keyed
+# by the bot's TNS id (plan 052, amendment 28). Missing is fine: the site runs, and the TNS client
+# refuses to call TNS until it is there. "API" and "KEY" in the name make Django's debug page hide it.
+_tns_section = 'tns_' + TNS_TARGET
+TNS_BASE_URL = config.get(_tns_section, 'base_url', fallback='').strip()
+TNS_API_KEYS = ({name.strip(): value.strip() for name, value in config.items(_tns_section) if name != 'base_url'}
+                if config.has_section(_tns_section) else {})
 REDYSEFILTER = config.get('yse','red_yse_filter')
 ghost_path = config.get('main','ghost_path')
 

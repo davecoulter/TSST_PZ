@@ -1,0 +1,531 @@
+{% extends 'YSE_App/base.html' %}
+
+{% block styles %}
+<style>
+  .tns-phot-table td, .tns-phot-table th { vertical-align: middle !important; white-space: nowrap; }
+  .tns-phot-table .num { text-align: right; }
+  .tns-phot-table select { min-width: 150px; }
+  .tns-filter-comment { margin-top: 4px; }
+  .tns-mjd { width: 105px; display: inline-block; }
+  .tns-phot-table .tns-groups th { border-bottom: 0; }
+  .tns-phot-table .tns-sent-start { border-left: 2px solid #ddd; padding-left: 14px; }
+  .tns-phot-table .tns-ours-end { padding-right: 14px; }
+  .tns-phot-table .tns-ours { color: #555; }
+  /* red: a value sent to TNS that differs from our data */
+  .tns-phot-table .tns-changed { background: #f2dede; border-color: #a94442; color: #a94442; }
+  .tns-reset { visibility: hidden; }
+  tr.tns-edited .tns-reset { visibility: visible; }
+  .tns-mag { white-space: nowrap; }
+  .tns-mag input { width: 62px; display: inline-block; }
+  .tns-preview { font-size: 11px; margin-bottom: 0; }
+  .tns-preview > tbody > tr > td { padding: 1px 4px; line-height: 1.3; word-break: break-all; }
+  .tns-preview td:first-child { white-space: nowrap; color: #555; }
+  .tns-problems { padding-left: 18px; margin-bottom: 6px; }
+  .tns-json { max-height: 480px; overflow: auto; font-size: 12px; }
+  .tns-row-title small { margin-left: 8px; }
+  .tns-bar { position: sticky; bottom: 0; z-index: 10; background: #fff; border-top: 1px solid #ddd; padding: 10px 15px; }
+</style>
+{% endblock %}
+
+{% block content_header %}
+    <h1>
+        TNS report details
+        {% if rows %}<small>{{ rows|length }} transient{{ rows|length|pluralize }}</small>{% endif %}
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li><a href="{% url 'tns_report_select' %}">Report to TNS</a></li>
+        <li class="active">Details</li>
+    </ol>
+{% endblock %}
+
+{% block content %}
+{% include 'YSE_App/tns_banner.html' %}
+
+{% if too_many %}
+<div class="callout callout-danger">{{ too_many }} transients selected; TNS takes at most {{ max_entries }} per report. <a href="{% url 'tns_report_select' %}">Go back</a> and select fewer.</div>
+{% else %}
+<form id="tns-form" onsubmit="return false" autocomplete="off">
+{% csrf_token %}
+{% for r in rows %}<input type="hidden" name="t" value="{{ r.transient.pk }}">{% endfor %}
+
+<div class="box box-primary">
+  <div class="box-header with-border">
+    <h3 class="box-title">For the whole batch</h3>
+    <small class="text-muted" style="margin-left:8px">Group, reporter and archival remark start from the transients' observation group; a row below can override them.</small>
+  </div>
+  <div class="box-body">
+    <div class="row">
+      <div class="col-md-4 form-group">
+        <label>Reporting group</label>
+        <select name="reporting_groupid" class="form-control input-sm">
+          <option value="">-- select --</option>
+          {% for id, label in group_choices %}<option value="{{ id }}" {% if id == batch.reporting_groupid %}selected{% endif %}>{{ label }} ({{ id }})</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4 form-group">
+        <label>Data source group</label>
+        <select name="data_source_groupid" class="form-control input-sm">
+          <option value="">-- select --</option>
+          {% for id, label in group_choices %}<option value="{{ id }}" {% if id == batch.data_source_groupid %}selected{% endif %}>{{ label }} ({{ id }})</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 form-group">
+        <label>AT type</label>
+        <select name="at_type" class="form-control input-sm">
+          <option value="">-- select --</option>
+          {% for id, label in at_type_choices %}<option value="{{ id }}" {% if id == batch.at_type %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2 form-group">
+        <label>Units</label>
+        <select name="flux_unitid" class="form-control input-sm">
+          <option value="">-- select --</option>
+          {% for id, label in unit_choices %}<option value="{{ id }}" {% if id == batch.flux_unitid %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col-md-5 form-group">
+        <label>Reporter</label>
+        <textarea name="reporter" rows="2" class="form-control input-sm" placeholder="A. Name, on behalf of the Survey team.">{{ batch.reporter }}</textarea>
+      </div>
+      <div class="col-md-7 tns-nd" id="nd-batch">
+        <label>Non-detection</label>
+        <label class="radio-inline"><input type="radio" name="non_detection" value="{{ nd_archival }}" {% if batch.non_detection == nd_archival %}checked{% endif %}> Archival</label>
+        <label class="radio-inline"><input type="radio" name="non_detection" value="{{ nd_observation }}" {% if batch.non_detection == nd_observation %}checked{% endif %}> Last non-detection</label>
+        <div class="row nd-archival" style="margin-top:6px">
+          <div class="col-sm-3 form-group">
+            <label>Archive</label>
+            <select name="archiveid" class="form-control input-sm">
+              <option value="">-- select --</option>
+              {% for id, label in archive_choices %}<option value="{{ id }}" {% if id == batch.archiveid %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-9 form-group">
+            <label>Archival remark</label>
+            <textarea name="archival_remarks" rows="2" class="form-control input-sm" placeholder="Not detected in the reference images of ...">{{ batch.archival_remarks }}</textarea>
+          </div>
+        </div>
+        <div class="row nd-observation" style="margin-top:6px">
+          <div class="col-sm-3 form-group"><label>Date</label><input type="text" name="nd_obsdate" class="form-control input-sm" placeholder="YYYY-MM-DD"></div>
+          <div class="col-sm-3 form-group"><label>Limiting mag</label><input type="text" name="nd_limiting_flux" class="form-control input-sm"></div>
+          <div class="col-sm-3 form-group">
+            <label>Filter</label>
+            <select name="nd_filterid" class="form-control input-sm">
+              <option value="">-- select --</option>
+              {% for id, label in filter_choices %}<option value="{{ id }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-3 form-group">
+            <label>Instrument</label>
+            <select name="nd_instrumentid" class="form-control input-sm">
+              <option value="">-- select --</option>
+              {% for id, label in instrument_choices %}<option value="{{ id }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% for r in rows %}
+{% with t=r.transient f=r.fields pk=r.transient.pk %}
+<div class="box box-default">
+  <div class="box-header with-border">
+    <h3 class="box-title tns-row-title">
+      <a href="{% url 'candidate_detail' t.slug %}" target="_blank">{{ t.name }}</a>
+      <small>{{ t.obs_group.name }} &middot; {{ f.ra|floatformat:5 }}, {{ f.dec|floatformat:5 }}</small>
+    </h3>
+  </div>
+  <div class="box-body">
+    <div class="row">
+      <div class="col-md-8">
+        <div class="row">
+          <div class="col-sm-4 form-group">
+            <label>Discovery date <small class="text-muted">(the discovery point's)</small></label>
+            <p class="form-control-static" id="disc-date-{{ pk }}">{% if r.discovery_date %}{{ r.discovery_date }}{% else %}<span class="text-danger">pick a discovery point</span>{% endif %}</p>
+          </div>
+          <div class="col-sm-4 form-group">
+            <label>Host name</label>
+            <input type="text" name="r{{ pk }}-host_name" value="{{ f.host_name }}" class="form-control input-sm">
+          </div>
+          <div class="col-sm-4 form-group">
+            <label>Host redshift</label>
+            <div class="input-group input-group-sm">
+              <input type="text" name="r{{ pk }}-host_redshift" value="{{ r.host_redshift }}" class="form-control">
+              <span class="input-group-btn" style="width:auto">
+                <select name="r{{ pk }}-host_redshift_source" class="form-control input-sm" style="width:auto">
+                  {% for source in z_sources %}<option value="{{ source }}" {% if source == f.host_redshift_source %}selected{% endif %}>{{ source }}</option>{% endfor %}
+                </select>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <label>Photometry to send <small class="text-muted">(at most {{ max_photometry }}; <span id="phot-count-{{ pk }}">0</span> picked; one must be the discovery point, which is sent first)</small></label>
+        {% if r.detections %}
+        {# Each point: our record (read-only) beside what goes to TNS (starts as ours, editable, amber where it differs). #}
+        <div class="table-responsive">
+        <table class="table table-condensed table-hover tns-phot-table">
+          <thead>
+            <tr class="tns-groups"><th colspan="2"></th><th colspan="4">In STZ-PZ <small class="text-muted">(read-only)</small></th><th colspan="5" class="tns-sent-start">Sent to TNS <small class="text-muted">(editable)</small></th></tr>
+            <tr><th><label style="margin:0; font-weight:inherit" title="Send every point (unticking keeps the discovery point)"><input type="checkbox" class="tns-phot-all" data-row="{{ pk }}"> Send</label></th><th title="The discovery point: always sent, and its date is the discovery date">Discovery</th>
+                <th>MJD</th><th>Band</th><th>Mag &plusmn; error</th><th class="num tns-ours-end">S/N</th>
+                <th class="tns-sent-start">MJD <small class="text-muted">&rarr; date</small></th><th>Mag &plusmn; error</th><th>Filter</th><th>Instrument</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for d in r.detections %}
+            <tr>
+              <td><input type="checkbox" class="tns-phot" data-row="{{ pk }}" name="r{{ pk }}-phot" value="{{ d.id }}" {% if d.picked %}checked{% endif %}></td>
+              <td><input type="radio" class="tns-disc" data-row="{{ pk }}" data-date="{{ d.date }}" name="r{{ pk }}-discovery" value="{{ d.id }}" {% if d.id == r.discovery_id %}checked{% endif %}></td>
+              {# ours #}
+              <td class="tns-ours">{{ d.mjd|floatformat:5 }}</td>
+              <td class="tns-ours">{{ d.band }}</td>
+              <td class="tns-ours">{{ d.mag|floatformat:2 }}{% if d.mag_err is not None %} &plusmn; {{ d.mag_err|floatformat:2 }}{% endif %}</td>
+              <td class="tns-ours tns-ours-end num">{% if d.snr is not None %}{{ d.snr|floatformat:1 }}{% else %}&ndash;{% endif %}</td>
+              {# sent to TNS: editable (amendment 26); LOCK_MEASUREMENTS below makes the measurements read-only #}
+              <td class="tns-sent-start">
+                <input type="text" name="r{{ pk }}-p{{ d.id }}-mjd" value="{{ d.mjd|floatformat:5 }}" data-row="{{ pk }}" class="form-control input-sm tns-sent tns-measured tns-mjd">
+                <small class="text-muted">&rarr; <span class="tns-date">{{ d.date }}</span></small>
+              </td>
+              <td class="tns-mag">
+                <input type="text" name="r{{ pk }}-p{{ d.id }}-mag" value="{{ d.mag|floatformat:2 }}" class="form-control input-sm tns-sent tns-measured" title="AB magnitude">
+                <span>&plusmn;</span>
+                <input type="text" name="r{{ pk }}-p{{ d.id }}-mag_err" value="{% if d.mag_err is not None %}{{ d.mag_err|floatformat:2 }}{% endif %}" class="form-control input-sm tns-sent tns-measured" title="Magnitude error (optional)">
+              </td>
+              {# Both dropdowns start from what the band and instrument map to, and copy the full TNS lists when first opened. #}
+              <td>
+                <select name="r{{ pk }}-p{{ d.id }}-filterid" data-copy="nd_filterid" class="form-control input-sm tns-sent tns-filter">
+                  <option value="">-- select --</option>
+                  {% if d.filter_label %}<option value="{{ d.filterid }}" selected>{{ d.filter_label }}</option>{% endif %}
+                </select>
+                <input type="text" name="r{{ pk }}-p{{ d.id }}-comments" value="{{ d.filter_comment }}" class="form-control input-sm tns-sent tns-filter-comment" placeholder="Name the filter" title="Sent with filter Other">
+              </td>
+              <td>
+                <select name="r{{ pk }}-p{{ d.id }}-instrumentid" data-copy="nd_instrumentid" class="form-control input-sm tns-sent">
+                  <option value="">-- select --</option>
+                  {% if d.instrument_label %}<option value="{{ d.instrumentid }}" selected>{{ d.instrument_label }}</option>{% endif %}
+                </select>
+              </td>
+              <td><a href="#" class="tns-reset" title="Reset what is sent to our values"><i class="fa fa-undo"></i></a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-danger">No current detection to report.</p>
+        {% endif %}
+
+        <div class="form-group">
+          <label>Remarks <small class="text-muted"><span id="remarks-count-{{ pk }}">0</span> / {{ remarks_max }}</small></label>
+          <textarea name="r{{ pk }}-remarks" rows="2" maxlength="{{ remarks_max }}" class="form-control input-sm tns-remarks" data-row="{{ pk }}"></textarea>
+        </div>
+
+        <a data-toggle="collapse" href="#survey-{{ pk }}"><small>Survey and non-detection values for this transient only{% if r.override.reporting_groupid or r.override.data_source_groupid %} (set from {{ t.obs_group.name }}){% endif %}</small></a>
+        <div id="survey-{{ pk }}" class="collapse{% if r.override.reporting_groupid or r.override.data_source_groupid %} in{% endif %}" style="margin-top:6px">
+          <div class="row">
+            <div class="col-sm-6 form-group">
+              <label><small>Reporting group</small></label>
+              <select name="r{{ pk }}-reporting_groupid" class="form-control input-sm">
+                <option value="">the batch's</option>
+                {% for id, label in group_choices %}<option value="{{ id }}" {% if id == r.override.reporting_groupid %}selected{% endif %}>{{ label }} ({{ id }})</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-6 form-group">
+              <label><small>Data source group</small></label>
+              <select name="r{{ pk }}-data_source_groupid" class="form-control input-sm">
+                <option value="">the batch's</option>
+                {% for id, label in group_choices %}<option value="{{ id }}" {% if id == r.override.data_source_groupid %}selected{% endif %}>{{ label }} ({{ id }})</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-sm-6 form-group">
+              <label><small>Non-detection</small></label>
+              <select name="r{{ pk }}-non_detection" class="form-control input-sm">
+                <option value="">the batch's</option>
+                <option value="{{ nd_archival }}">Archival</option>
+                <option value="{{ nd_observation }}">Last non-detection</option>
+              </select>
+            </div>
+          </div>
+          <div class="tns-nd" id="nd-row-{{ pk }}" data-row="{{ pk }}">
+            <div class="row nd-archival">
+              <div class="col-sm-3 form-group">
+                <label><small>Archive</small></label>
+                <select name="r{{ pk }}-archiveid" class="form-control input-sm">
+                  <option value="">the batch's</option>
+                  {% for id, label in archive_choices %}<option value="{{ id }}">{{ label }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-9 form-group">
+                <label><small>Archival remark</small></label>
+                <textarea name="r{{ pk }}-archival_remarks" rows="2" class="form-control input-sm" placeholder="the batch's"></textarea>
+              </div>
+            </div>
+            <div class="row nd-observation">
+              <div class="col-sm-3 form-group"><label><small>Date</small></label><input type="text" name="r{{ pk }}-nd_obsdate" class="form-control input-sm" placeholder="the batch's"></div>
+              <div class="col-sm-3 form-group"><label><small>Limiting mag</small></label><input type="text" name="r{{ pk }}-nd_limiting_flux" class="form-control input-sm" placeholder="the batch's"></div>
+              {# filled from the batch's dropdown when first opened: ~400 options per row otherwise #}
+              <div class="col-sm-3 form-group"><label><small>Filter</small></label><select name="r{{ pk }}-nd_filterid" data-copy="nd_filterid" class="form-control input-sm"><option value="">the batch's</option></select></div>
+              <div class="col-sm-3 form-group"><label><small>Instrument</small></label><select name="r{{ pk }}-nd_instrumentid" data-copy="nd_instrumentid" class="form-control input-sm"><option value="">the batch's</option></select></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <label>What TNS will get</label>
+        <div id="preview-{{ pk }}"><p class="text-muted">Building the preview&hellip;</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endwith %}
+{% endfor %}
+
+<div class="box box-default">
+  <div class="box-header with-border"><h3 class="box-title">The report, as sent to TNS</h3>
+    <small class="text-muted" style="margin-left:8px">the <code>data</code> field of one bulk report</small></div>
+  <div class="box-body"><pre class="tns-json" id="tns-json"></pre></div>
+</div>
+
+<div class="tns-bar form-inline">
+  <b id="tns-ready">&hellip;</b>
+  {# one bot per submission (amendment 28); a bot with no key for this TNS is shown but cannot be chosen #}
+  <label style="margin-left:20px">Report as
+    <select name="bot" id="tns-bot" class="form-control input-sm">
+      <option value="">-- select --</option>
+      {% for bot, has_key in bots %}<option value="{{ bot.pk }}"{% if not has_key %} disabled{% endif %}>{{ bot.name }}{% if not has_key %} (no {{ tns_target }} key){% endif %}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="button" id="tns-send" class="btn btn-sm {% if tns_production %}btn-danger{% else %}btn-primary{% endif %}" style="margin-left:10px" disabled>Send to the {{ tns_target }} TNS&hellip;</button>
+</div>
+</form>
+
+<div class="modal fade" id="tns-confirm" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header {% if tns_production %}bg-red{% else %}bg-yellow{% endif %}">
+        <h4 class="modal-title">Send to the {% if tns_production %}PRODUCTION{% else %}SANDBOX{% endif %} TNS?</h4>
+      </div>
+      <div class="modal-body">
+        <p><b id="tns-c-count"></b> to <b>{{ tns_host }}</b> as <b id="tns-c-bot"></b>, reporting group <b id="tns-c-group"></b>:</p>
+        <ul id="tns-c-names"></ul>
+        {% if tns_production %}
+        <p class="text-danger"><b>Reports on the production TNS are public and cannot be withdrawn.</b></p>
+        <label>Type PRODUCTION to enable Send <input type="text" id="tns-c-typed" class="form-control" autocomplete="off"></label>
+        {% endif %}
+        <p class="text-danger" id="tns-c-error"></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        <button type="button" id="tns-c-send" class="btn {% if tns_production %}btn-danger{% else %}btn-primary{% endif %}"{% if tns_production %} disabled{% endif %}>Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+{% if rows %}
+<script>
+$(function () {
+  var url = "{% url 'tns_report_preview' %}", maxPhot = {{ max_photometry }}, timer = null;
+  // true: the measured values (MJD, magnitude, error) are shown read-only and sent as they are in our data
+  var LOCK_MEASUREMENTS = false;
+  $('.tns-measured').prop('readonly', LOCK_MEASUREMENTS);
+
+  // What is sent starts as ours: remember each field's value as the server rendered it (not what the
+  // browser may have refilled after a reload), as an attribute so jQuery does not turn "61323.09630"
+  // into a number. Then mark the fields that differ, and reset a point to it.
+  function rendered(el) {
+    if (el.tagName !== 'SELECT') { return el.defaultValue; }
+    var option = $(el).find('option').filter(function () { return this.defaultSelected; });
+    return option.length ? option.val() : '';
+  }
+  $('.tns-sent').each(function () { $(this).attr('data-ours', rendered(this)); });
+  function markChanged() {
+    $('.tns-sent').each(function () { $(this).toggleClass('tns-changed', $(this).val() !== $(this).attr('data-ours')); });
+    $('.tns-phot-table tbody tr').each(function () { $(this).toggleClass('tns-edited', $(this).find('.tns-changed').length > 0); });
+  }
+  $('#tns-form').on('click', '.tns-reset', function (e) {
+    e.preventDefault();
+    var tr = $(this).closest('tr');
+    tr.find('.tns-sent').each(function () { $(this).val($(this).attr('data-ours')); });
+    tr.find('.tns-mjd').trigger('input');  // moves the date back, and refreshes the preview
+  });
+
+  var lastReport = null;  // the latest preview: Send needs it ready, and the modal lists it
+
+  function render(data) {
+    lastReport = data;
+    sendable();
+    $('#tns-json').text(JSON.stringify(data.payload, null, 1));
+    var ready = 0;
+    data.entries.forEach(function (e) {
+      var box = $('#preview-' + e.transient_id).empty(), paths = Object.keys(e.problems);
+      if (paths.length) {
+        var ul = $('<ul class="text-danger tns-problems"></ul>');
+        paths.forEach(function (p) { ul.append($('<li></li>').text(p + ': ' + e.problems[p])); });
+        box.append(ul);
+      } else {
+        ready += 1;
+        box.append($('<p class="text-success"></p>').text('Ready: nothing TNS would reject.'));
+      }
+      var table = $('<table class="table table-condensed tns-preview"></table>');
+      e.rows.forEach(function (row) {
+        var tr = $('<tr></tr>').toggleClass('danger', !!e.problems[row[0]]);
+        var label = row[2] === null ? 'not in the TNS list' : row[2];
+        tr.append($('<td></td>').text(row[0]), $('<td></td>').text(row[1]), $('<td class="text-muted"></td>').text(label));
+        table.append(tr);
+      });
+      box.append(table);
+    });
+    $('#tns-ready').text(ready + ' of ' + data.entries.length + ' ready')
+      .toggleClass('text-success', ready === data.entries.length).toggleClass('text-danger', ready !== data.entries.length);
+  }
+
+  // Send: enabled once the preview has no problems and a bot is chosen; it opens the confirmation,
+  // which posts the form to the submit view and goes to the submission's results page.
+  function sendable() {
+    $('#tns-send').prop('disabled', !(lastReport && lastReport.ok && $('#tns-bot').val()));
+  }
+  $('#tns-send').on('click', function () {
+    var groups = {};
+    lastReport.entries.forEach(function (e) {
+      e.rows.forEach(function (row) { if (row[0] === 'reporting_groupid') { groups[row[2] || row[1]] = true; } });
+    });
+    var n = lastReport.entries.length;
+    $('#tns-c-count').text(n + ' transient' + (n === 1 ? '' : 's'));
+    $('#tns-c-bot').text($('#tns-bot option:selected').text());
+    $('#tns-c-group').text(Object.keys(groups).join(', '));
+    $('#tns-c-names').empty();
+    lastReport.entries.forEach(function (e) { $('#tns-c-names').append($('<li></li>').text(e.name)); });
+    $('#tns-c-error').text('');
+    $('#tns-c-typed').val('');
+    {% if tns_production %}$('#tns-c-send').prop('disabled', true);{% endif %}
+    $('#tns-confirm').modal('show');
+  });
+  $('#tns-c-typed').on('input', function () { $('#tns-c-send').prop('disabled', this.value !== 'PRODUCTION'); });
+  $('#tns-c-send').on('click', function () {
+    var button = $(this).prop('disabled', true).text('Sending\u2026');
+    var data = $('#tns-form').serialize() + '&confirm=' + encodeURIComponent($('#tns-c-typed').val() || '');
+    $.ajax({url: "{% url 'tns_report_submit' %}", type: 'POST', data: data, headers: {'X-CSRFToken': '{{ csrf_token }}'}})
+      .done(function (reply) { window.location = reply.results; })
+      .fail(function (xhr) {
+        $('#tns-c-error').text((xhr.responseJSON && xhr.responseJSON.error) || ('Failed: HTTP ' + xhr.status));
+        button.prop('disabled', false).text('Send');
+      });
+  });
+
+  function refresh() {
+    $.ajax({url: url, type: 'POST', data: $('#tns-form').serialize(), headers: {'X-CSRFToken': '{{ csrf_token }}'}})
+      .done(render)
+      .fail(function (xhr) {
+        $('#tns-ready').text('Preview failed: ' + ((xhr.responseJSON && xhr.responseJSON.error) || xhr.status)).addClass('text-danger');
+      });
+  }
+
+  // "Send" in a table's header: tick every point, or untick all but the discovery point (always sent).
+  // The header box follows the rows only when a row is ticked by hand (and on load), never while
+  // counting: clicking the header fires "input" before "change", and a recount in between would
+  // untick it before this handler reads it.
+  $('#tns-form').on('change', '.tns-phot-all', function () {
+    var row = $(this).data('row'), all = this.checked;
+    $('.tns-phot[data-row="' + row + '"]').each(function () {
+      $(this).prop('checked', all || $(this).closest('tr').find('.tns-disc').prop('checked'));
+    });
+  });
+  function syncAll(row) {
+    var boxes = $('.tns-phot[data-row="' + row + '"]');
+    $('.tns-phot-all[data-row="' + row + '"]').prop('checked', boxes.length > 0 && boxes.filter(':checked').length === boxes.length);
+  }
+  $('#tns-form').on('change', '.tns-phot', function () { syncAll($(this).data('row')); });
+  $('.tns-phot-all').each(function () { syncAll($(this).data('row')); });
+
+  function counts() {
+    $('.tns-phot').map(function () { return $(this).data('row'); }).get()
+      .filter(function (row, i, all) { return all.indexOf(row) === i; })
+      .forEach(function (row) {
+        var n = $('.tns-phot[data-row="' + row + '"]:checked').length;
+        $('#phot-count-' + row).text(n).toggleClass('text-danger', n > maxPhot);
+      });
+    $('.tns-remarks').each(function () { $('#remarks-count-' + $(this).data('row')).text(this.value.length); });
+  }
+
+  // The discovery point is always sent: picking it ticks its box, and unticking its box clears the
+  // pick, so another one must be chosen. The discovery date shown is the picked point's.
+  function discoveryDate(row) {
+    var picked = $('.tns-disc[data-row="' + row + '"]:checked');
+    $('#disc-date-' + row).html(picked.length ? $('<span></span>').text(picked.data('date'))
+                                              : '<span class="text-danger">pick a discovery point</span>');
+  }
+  // Editing an MJD moves the point's TNS date (and the discovery date, for the discovery point).
+  $('#tns-form').on('input', '.tns-mjd', function () {
+    var mjd = parseFloat(this.value), date = '?';
+    if (isFinite(mjd) && Math.abs(mjd) < 1e6) { date = new Date((mjd - 40587) * 86400000).toISOString().slice(0, 10); }
+    var tr = $(this).closest('tr');
+    tr.find('.tns-date').text(date);
+    tr.find('.tns-disc').data('date', date);
+    discoveryDate($(this).data('row'));
+  });
+  $('#tns-form').on('change', '.tns-disc', function () {
+    $(this).closest('tr').find('.tns-phot').prop('checked', true);
+    syncAll($(this).data('row'));
+    discoveryDate($(this).data('row'));
+  });
+  $('#tns-form').on('change', '.tns-phot', function () {
+    if (!this.checked) {
+      $(this).closest('tr').find('.tns-disc').prop('checked', false);
+      discoveryDate($(this).data('row'));
+    }
+  });
+
+  // Non-detection: show the archival or the observation fields, for the batch and for each row
+  // (a row follows the batch unless it picks its own kind).
+  function nonDetection() {
+    var batch = $('input[name="non_detection"]:checked').val();
+    $('.tns-nd').each(function () {
+      var row = $(this).data('row'), mode = row ? ($('select[name="r' + row + '-non_detection"]').val() || batch) : batch;
+      $(this).find('.nd-archival').toggle(mode === '{{ nd_archival }}');
+      $(this).find('.nd-observation').toggle(mode === '{{ nd_observation }}');
+    });
+  }
+  // Per-row and per-point filter and instrument dropdowns copy the batch's full TNS list when first
+  // opened, keeping their first option and what they had selected (~400 options each otherwise).
+  $('#tns-form').on('focus mousedown', 'select[data-copy]', function () {
+    var select = $(this), value = select.val();
+    if (select.data('filled')) { return; }
+    select.find('option').slice(1).remove();
+    $('select[name="' + select.data('copy') + '"] option').slice(1).clone().appendTo(select);
+    select.val(value).data('filled', true);
+  });
+  // A point's comment is shown, and sent, only with filter "Other".
+  function filterComments() {
+    $('select.tns-filter').each(function () {
+      $(this).siblings('.tns-filter-comment').toggle($(this).val() === '{{ other_filter }}');
+    });
+  }
+
+  $('#tns-form').on('input change', ':input', function () {
+    nonDetection();
+    filterComments();
+    markChanged();
+    counts();
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 400);
+  });
+  nonDetection();
+  filterComments();
+  counts();
+  refresh();
+});
+</script>
+{% endif %}
+{% endblock %}

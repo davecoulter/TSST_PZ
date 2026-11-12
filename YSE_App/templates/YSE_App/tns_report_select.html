@@ -1,0 +1,136 @@
+{% extends 'YSE_App/base.html' %}
+
+{% block styles %}
+<style>
+  .tns-table td, .tns-table th { vertical-align: middle !important; white-space: nowrap; }
+  .tns-table .num { text-align: right; }
+  .tns-tag-chip { display: inline-block; margin-right: 3px; }
+  .tns-bar { position: sticky; bottom: 0; z-index: 10; background: #fff; border-top: 1px solid #ddd; padding: 10px 15px; }
+</style>
+{% endblock %}
+
+{% block content_header %}
+    <h1>
+        Report to TNS
+        <small>{{ n }} without an IAU name</small>
+    </h1>
+    <ol class="breadcrumb">
+        <li><a href="{% url 'dashboard' %}"><i class="fa fa-dashboard"></i> Home</a></li>
+        <li class="active">Report to TNS</li>
+    </ol>
+{% endblock %}
+
+{% block content %}
+{% include 'YSE_App/tns_banner.html' %}
+
+<div class="box box-default">
+  <div class="box-header with-border">
+    <form method="get" class="form-inline">
+      <label>Status
+        <select name="status" class="form-control input-sm">
+          {% for s in statuses %}<option value="{{ s }}" {% if s|lower == status|lower %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select>
+      </label>
+      <label style="margin-left:10px">Candidate tag
+        <select name="tag" class="form-control input-sm">
+          <option value="">any</option>
+          {% for name in tag_names %}<option value="{{ name }}" {% if name|lower == tag|lower %}selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-default btn-sm">Filter</button>
+    </form>
+    {# TNS's groups, filters, ... as of the date in the banner; a refresh also links TNS groups to obs groups #}
+    <div class="box-tools form-inline" style="top:8px">
+      <select id="tns-refresh-bot" class="form-control input-sm" title="The bot whose key the request uses">
+        {% for bot, has_key in bots %}<option value="{{ bot.pk }}"{% if not has_key %} disabled{% endif %}>{{ bot.name }}{% if not has_key %} (no {{ tns_target }} key){% endif %}</option>{% endfor %}
+      </select>
+      <button type="button" id="tns-refresh" class="btn btn-default btn-sm"><i class="fa fa-refresh"></i> Refresh from TNS</button>
+    </div>
+    <p id="tns-refresh-state" class="small" style="margin:6px 0 0"></p>
+  </div>
+</div>
+
+<form method="get" action="{% url 'tns_report_details' %}" id="tns-select">
+{% for g in groups %}
+<div class="box box-default">
+  <div class="box-header with-border">
+    <h3 class="box-title">
+      <label style="margin:0"><input type="checkbox" class="tns-all" data-group="{{ forloop.counter }}"> {{ g.group.name }}</label>
+      <span class="badge">{{ g.rows|length }}</span>
+    </h3>
+    {% if not g.has_tns %}<small class="text-muted" style="margin-left:8px">no TNS values set for this observation group: the details form will ask for them</small>{% endif %}
+  </div>
+  <div class="box-body table-responsive no-padding">
+    <table class="table table-hover table-condensed tns-table">
+      <thead><tr><th></th><th>Name</th><th>Discovered</th><th class="num">Max S/N</th><th>Filters &ge;3&sigma;</th><th class="num">Host z</th><th>Tags</th><th>TNS</th></tr></thead>
+      <tbody>
+      {% for r in g.rows %}
+        <tr>
+          {# a transient with a report in flight (pending or unknown) cannot be reported again (amendments 1, 29) #}
+          <td><input type="checkbox" name="t" value="{{ r.transient.pk }}" class="tns-pick" data-group="{{ forloop.parentloop.counter }}"{% if r.blocked %} disabled title="A TNS report of it is in flight"{% endif %}></td>
+          <td><a href="{% url 'candidate_detail' r.transient.slug %}" target="_blank"><b>{{ r.transient.name }}</b></a></td>
+          <td>{% if r.transient.disc_date %}{{ r.transient.disc_date|date:"Y-m-d" }}{% else %}&ndash;{% endif %}</td>
+          <td class="num">{% if r.max_snr is not None %}{{ r.max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</td>
+          <td>{% if r.filters %}{{ r.filters|join:", " }}{% else %}&ndash;{% endif %}</td>
+          <td class="num">{% if r.z %}{{ r.z }} <small class="text-muted">{{ r.z_source }}</small>{% else %}&ndash;{% endif %}</td>
+          <td>{% for name in r.tags %}<span class="label label-default tns-tag-chip">{{ name }}</span>{% endfor %}</td>
+          <td>{% include 'YSE_App/tns_attempt_badge.html' with attempt=r.attempt %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% empty %}
+<div class="box box-default"><div class="box-body">Nothing to report: no transient with status {{ status }}{% if tag %} and tag {{ tag }}{% endif %} is without an IAU name.</div></div>
+{% endfor %}
+
+{% if groups %}
+<div class="tns-bar">
+  <button type="submit" class="btn btn-primary" id="tns-continue" disabled>Continue with <span id="tns-count">0</span> selected</button>
+  <span class="text-muted" style="margin-left:10px">TNS takes at most {{ max_entries }} per report.</span>
+  <span class="text-danger" id="tns-too-many" style="display:none; margin-left:10px">Too many selected.</span>
+</div>
+{% endif %}
+</form>
+{% endblock %}
+
+{% block scripts %}
+{{ block.super }}
+<script>
+$(function () {
+  var max = {{ max_entries }};
+  function update() {
+    var n = $('.tns-pick:checked').length;
+    $('#tns-count').text(n);
+    $('#tns-too-many').toggle(n > max);
+    $('#tns-continue').prop('disabled', n === 0 || n > max);
+    $('.tns-all').each(function () {
+      var g = $(this).data('group'), all = $('.tns-pick[data-group="' + g + '"]:not(:disabled)');
+      $(this).prop('checked', all.length > 0 && all.filter(':checked').length === all.length);
+    });
+  }
+  $('.tns-all').on('change', function () {
+    $('.tns-pick[data-group="' + $(this).data('group') + '"]:not(:disabled)').prop('checked', this.checked);
+    update();
+  });
+  $('.tns-pick').on('change', update);
+  update();
+
+  $('#tns-refresh').on('click', function () {
+    var button = $(this).prop('disabled', true);
+    $('#tns-refresh-state').removeClass('text-danger text-success').text('Asking TNS\u2026');
+    $.ajax({url: "{% url 'tns_values_refresh' %}", type: 'POST', data: {bot: $('#tns-refresh-bot').val()},
+            headers: {'X-CSRFToken': '{{ csrf_token }}'}})
+      .done(function (reply) {
+        $('#tns-refresh-state').addClass('text-success').text('Refreshed: ' + reply.text + '. Reloading\u2026');
+        setTimeout(function () { window.location.reload(); }, 2500);
+      })
+      .fail(function (xhr) {
+        $('#tns-refresh-state').addClass('text-danger').text((xhr.responseJSON && xhr.responseJSON.error) || ('Failed: HTTP ' + xhr.status));
+        button.prop('disabled', false);
+      });
+  });
+});
+</script>
+{% endblock %}

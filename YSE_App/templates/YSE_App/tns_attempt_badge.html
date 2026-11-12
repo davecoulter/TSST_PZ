@@ -1,0 +1,15 @@
+{% comment %}
+A transient's latest TNS report as a badge linking to its submission's results (#52, amendment 29):
+pending (TNS has it, outcome not yet fetched), unknown (no answer: TNS may or may not have it),
+failed (can be reported again), reported, name differs, abandoned. Nothing for no attempt.
+{% endcomment %}
+{% if attempt %}
+{% url 'tns_report_results' attempt.batch as results %}
+{% if attempt.unknown %}<a href="{{ results }}" class="label label-danger" title="{{ attempt.message }}">unknown</a>
+{% elif attempt.status == 'pending' %}<a href="{{ results }}" class="label label-warning" title="Submitted to the {{ attempt.target }} TNS; outcome not fetched yet">pending</a>
+{% elif attempt.status == 'failed' %}<a href="{{ results }}" class="label label-danger" title="{{ attempt.message }}">failed: retry</a>
+{% elif attempt.status == 'reported' %}<a href="{{ results }}" class="label label-success">reported</a>
+{% elif attempt.status == 'name_differs' %}<a href="{{ results }}" class="label label-danger" title="{{ attempt.message }}">name differs</a>
+{% elif attempt.status == 'abandoned' %}<a href="{{ results }}" class="label label-default" title="Abandoned: can be reported again">abandoned</a>
+{% endif %}
+{% endif %}

@@ -1,0 +1,295 @@
+# 052: Report candidates to TNS in bulk
+
+- **Issue:** #52 (part of #16)
+- **Branch:** `52-tns-reporting` (merged with `master` 2026-10-20, which has #29's `Transient.iau_name` and #22's forms fix). Local Claude is the writer from 2026-10-20.
+- **Status:** Approved by Dave 2026-10-20 with the amendments below; building in stages (one PR)
+
+## Why
+
+Discoveries are reported to TNS one at a time today, by hand or with the legacy `YSE_App/util/submit_to_tns.py` (hardcoded DECam payload, author lists, group 83). TSST needs to report a batch of JWST candidates from the app, get back their IAU names, and see what failed.
+
+## Flow
+
+1. **Select** (`/tns/report/`): "Report to TNS" in the left nav, visible only to TNS reporters (decision 1). A grid of candidates with no `iau_name`, filterable by candidate tag and status, with a checkbox per row and "select all in this group".
+2. **Details** (`/tns/report/details/`): one form for the shared fields, then one row per selected transient with its prefilled, editable values (decision 3 for which fields).
+3. **Confirm:** a modal lists what will be sent: count, names, sandbox or production, reporting group.
+4. **Submit:** one TNS bulk report for the whole batch (TNS accepts several AT reports in one submission and returns one report ID).
+5. **Results** (`/tns/report/<attempt batch>/`): each transient as reported (with its new IAU name), pending, or failed (with TNS's message). Pending ones resolve on their own (decision 4).
+
+## Scope
+
+| # | Deliverable | Notes |
+|---|---|---|
+| 1 | **Payload builder** `YSE_App/tns_report.py` | Pure function: transient + shared fields → one `at_report` entry. RA/Dec (sexagesimal), discovery date, discovery photometry, last non-detection (or "archival" when there is none), reporter list, group, AT type, internal name (`Transient.name`), host name and z, remarks. Unit-tested on its own; no hardcoded authors or groups. Replaces nothing yet: the legacy `submit_to_tns.py` stays untouched. |
+| 2 | **TNS client** `YSE_App/tns_client.py` | Small, tested client for the TNS 2.0 API as Dave's bot script uses it: `POST /api/set/bulk-report` (form fields `api_key`, `data` = the JSON), `POST /api/get/bulk-report-reply` (`api_key`, `report_id`; 404 means not ready yet), `POST /api/get/values`, all with the `User-Agent: tns_marker{"tns_id": ..., "type": "bot", "name": ...}` header. The legacy `YSE_App/util/tnsAPI.py` posts to the older URL shapes, so it isn't reused. Two targets, each with its own bot ID, name and key in the server ini: `[tns_sandbox]` and `[tns_production]`. |
+| 3 | **`TNSReportAttempt` model** + migration | transient, created_by, created_date, base URL used, report ID, status (pending / reported / failed), payload sent, response received (both as JSON text, so no jsonfield dependency), error message, IAU name returned. One row per transient per submission. |
+| 4 | **Writing back** | On "reported": set `transient.iau_name` through `save()`, which moves the slug and keeps the old URL working (#29). |
+| 5 | **Failure flag** | The detail page and candidate page show a "TNS report failed" label while the latest attempt failed, and a "TNS reports" box listing every attempt (time, who, status, report ID, TNS's message, payload on click). |
+| 6 | **Pages and nav** | Select, details, confirm modal, results. Same look as the candidate pages. |
+| 6b | **TNS values** | `manage.py sync_tns_values [--target sandbox\|production]` calls `/api/get/values` and writes `YSE_App/data/tns_values.json` (committed; starts from Dave's 2025-06-18 download). Forms read the file, so page loads never call TNS. |
+| 7 | **Tests** | Payload builder (dates, photometry choice, non-detection fallback, remarks), the TNS reply parser (success, per-entry error, still processing) with recorded responses, permission checks on the pages, write-back of `iau_name`. No live TNS calls in unit tests. |
+
+Out of scope:
+- Classification reports (TNS "classification" type) and FRBs: AT reports only.
+- Retiring the legacy `submit_to_tns.py` and its URL. Separate cleanup issue once this is in use.
+- The CI job against the TNS sandbox (#53). Until then, the sandbox test is manual.
+
+## Design notes
+
+- **Credentials.** Reports go out as a TSST bot account. The key stays in the server ini (never the DB or the UI); hashing can't work because TNS needs the raw key with each request. Sandbox and production need separate bot accounts.
+- **Discovery photometry.** Default: the first detection at S/N ≥ 5 (superseded points excluded), reported as AB magnitude, with the band mapped to TNS's filter ID. The last point before it below the detection threshold is the non-detection, with its limiting magnitude. Both are editable on the details form.
+- **Dates.** TNS takes `YYYY-MM-DD.ddddd` (fractional day). This is a tested helper. The legacy code pads the fraction wrongly: 0.05 of a day becomes `.50`. Inferred from `submit_to_tns.py`, not verified against TNS's records.
+- **Remarks.** Prefilled from the candidate's comments on its detail page (the newest first, trimmed to TNS's length limit) and editable per transient.
+- **Asynchronous reply, handled synchronously.** TNS returns a report ID right away and the outcome later. After submitting, the request asks for the reply every 5 s for up to 30 s (Dave's script's values; a 404 means "not ready"), and stops early on a rate-limit response. Anything still pending shows a "Check again" button. Nothing runs on a timer (Dave: TNS throttles strictly).
+- **Defaults from Dave's bot code.** Reporting and data-source group: `TSST_COSMOS_3D` (TNS group 170). AT type: PSN. Instrument: `JWST - NIRCam` (185). Units: ABMag. Filters are looked up by name (`F200W-JWST`, ...); a band TNS doesn't list (e.g. F090W) is sent as filter "Other" (0) with the comment `Filter is JWST-NIRCam-F090W`, as his script does. Non-detection is either an observation (date, filter, instrument, limiting mag) or archival (archive "Other" plus a remark, e.g. the PRIMER sentence his script used). All IDs come from the values snapshot, not from code.
+- **Photometry.** Like his script, the report carries every band measured at the discovery epoch, with the discovery band first.
+
+## Decisions
+
+1. **Reporters** (Dave): a free-text reporters field on the form, prefilled with `D. A. Coulter, on behalf of the TSST and COSMOS 3D teams.` (from his script) and editable. **Who can open the page** (Dave): a "TNS Reporters" group plus superusers.
+2. **Enumerations** (resolved): TNS publishes them at `/api/get/values`, so a sync command refreshes a committed snapshot, as in 6b.
+3. **Shared vs per-transient fields** (Dave): shared are reporting group, data-source group, reporters, AT type, instrument, units, and the non-detection method with its default archival remark. Per transient: discovery date and photometry (prefilled from our data, editable), non-detection details when it's an observation, host name and z, and remarks. The internal name is always `Transient.name`.
+4. **Pending replies** (Dave): synchronous polling plus a "Check again" button; no cron.
+5. **Target** (Dave, revised 2026-10-20): each deployment decides. A setting `TNS_TARGET = sandbox | production` (default sandbox) selects which `[tns_sandbox]` or `[tns_production]` keys are used; there is no dropdown. A local stack and any test site post to the sandbox; only the production server is set to production, once, at setup. Every TNS page shows a prominent SANDBOX or PRODUCTION banner, and the confirmation modal repeats it (red for production). A dropdown fed by the configured sections can come later if needed.
+
+## Amendments (2026-10-20, after review with Dave)
+
+1. **A report in flight blocks a second one.** The select grid leaves out transients whose latest attempt is pending. Submitting re-checks and locks the selected rows inside one transaction, so two reporters at once cannot send the same transient twice.
+2. **While an attempt is pending, `iau_name` cannot be changed by hand.** The admin "(edit transient, admin only)" form shows it read-only with the reason, and the API refuses a change (serializer validation). The write-back never overwrites a name that was set meanwhile: it marks the attempt "reported, name differs" (TNS's name and ours both shown) for a person to resolve.
+3. **"Check again"** asks TNS for the reply of one pending attempt, any number of times. It is rate-limited on the server (`last_checked` on the attempt; a minimum gap between checks, so repeated clicks do nothing and TNS is not hammered). An attempt that never resolves can be marked **abandoned** by a superuser (admin action), and a pending attempt older than a day shows a "pending for more than a day" label. Status values: pending, reported, failed, abandoned.
+4. **The key is sent, never stored.** TNS takes two form fields: `api_key` and `data`. What we store as "payload sent" is the `data` JSON (no key in it) and the reply TNS returned. The whole request is never logged.
+5. **Not an API.** This is a workflow for people. `TNSReportAttempt` gets no serializer and no `/api/` route (the "API parity" rule in `CLAUDE.md`: not exposed, on purpose), so we do not shadow TNS's own API.
+6. **Live payload preview.** The details form shows, beside the fields, exactly what will be sent: a table with the TNS enumeration labels (not just ids) and the raw JSON, built by the same function that builds the real submission, with missing required fields flagged. The confirmation modal shows it again.
+7. **Build in stages, one PR.** Commits in this order, so a reviewer can read them one at a time:
+   1. The TNS values snapshot and its loader (the enumerations), then the payload builder as a tested pure function.
+   2. The select grid and the details form with the live preview, and the page permission ("TNS Reporters" group plus superusers). **No submit yet:** Dave looks at the payload and says which fields are wrong or missing.
+   3. The TNS client, sandbox submit, `TNSReportAttempt`, polling, "Check again", and the IAU write-back.
+   4. The failure flag and attempt history on the detail pages, and the nav entry.
+8. **Integration tests, not only unit tests.** A small fake TNS server (started by the tests, replaying real sandbox responses, including "not ready" 404s, per-entry errors and a rate limit) lets the whole flow run in `tests/integration` against the live stack with no internet or credentials: select, preview, submit, poll, write back, lock. The base URL is configurable for this. A manual run against the real sandbox, from Dave's local stack, confirms the fake matches reality; the recorded responses come from that run. (The automated sandbox job is #53.)
+
+## Amendments, part 2 (2026-10-20, stage 1 review with Dave)
+
+These replace the "Defaults from Dave's bot code" and "Discovery photometry" design notes, the prefilled reporter in decision 1, and the shared vs per-transient split in decision 3, wherever they disagree.
+
+9. **Defaults come from our data, otherwise a prompt.** Dave's script values (PRIMER, `TSST_COSMOS_3D`, the COSMOS 3D reporter text) belonged to particular runs. They are not defaults.
+   - **Generic TNS conventions** stay in `settings.TNS_REPORT_DEFAULTS`: AT type PSN, units ABMag, archive "Other".
+   - **Per-survey values** go on `ObservationGroup` as four nullable fields: `tns_reporting_group_id`, `tns_data_source_group_id`, `tns_reporter`, `tns_archival_remarks`.
+     - An empty field gives an empty form field that the reporter must fill in.
+     - They are edited in the admin. The group fields are dropdowns from the TNS values snapshot and store the TNS id.
+     - **API parity:** shown read-only in API responses, never writable through the API.
+     - They ship in stage 2, with their migration.
+   - **Instrument and filter** come from each photometry point: our telescope + instrument name gives the TNS instrument ("JWST - NIRCam"), and the band gives the filter. The instrument is left blank and prompted when TNS lists no match; a filter TNS lacks is sent as "Other" plus a comment, as before.
+   - **Batch values:** the groups, reporter and archival remark are entered once for the batch and can be overridden per row, because a batch can mix surveys.
+10. **Photometry:** the reporter picks at most 10 points (TNS's limit; TNS is a clearing house, not the system of record). The discovery point is preselected: the highest-S/N detection on the UTC day of the first S/N >= 5 point, since a JWST visit's filters share the day. The picker lists detections, by the app's existing rule (S/N >= 3, or a magnitude with no flux).
+11. **Redshift:** `host_redshift` is the transient's spec-z, else the host's spec-z, else the host's photo-z. The preview says which one was used. A photo-z is sent to 2 decimals and a spec-z to 4, since more digits read as spectroscopic. TNS's AT report has no transient-redshift field.
+12. **Non-detection: archival only**, with archive "Other" and the remark from the obs group or prompted. The automatic search for the last limit is dropped: we do archival differences, not rolling surveys.
+13. **Remarks:** an open field, empty by default, of at most 512 characters; the form rejects longer text. Candidate comments are not used: they judge whether a candidate is real, which is not what a TNS remark is for.
+14. **Dates:** whole days (`YYYY-MM-DD`). All the transients from one JWST exposure share a date, and sub-day precision does not matter here.
+15. **Internal ids:**
+    - `internal_name` is always `Transient.name`. TNS stores it, so our records and TNS's can be cross-referenced without an RA/Dec match.
+    - `internal_ids: {"tsst_id": "<pk>"}` is returned unchanged in TNS's reply, so stage 3 can match each result to its transient.
+16. **One coordinate helper.**
+    - `common/utilities.GetSexigesimalString` gets fixed (seconds carry, RA wrap, no "-00") on its own issue branch from `master`, first: #61, PR #64, merged 2026-10-20 and merged into this branch.
+    - `tns_report` calls it, with no copy of its own, and `master` is merged back into this branch.
+    - Coordinates that legacy scripts format by hand go to a tech-debt issue: #62.
+17. **Follow-ups, each its own issue:**
+    - Ingest (transients and candidates) must carry the survey/obs group that TNS reports need (#63). Today candidates get a group named after the telescope, or "Unknown".
+    - Dave fills in existing rows' obs groups and TNS fields by hand (SQL or admin) after the deploy.
+
+Stage 2 in amendment 7 therefore also carries the `ObservationGroup` fields, their migration and their admin.
+
+## Amendments, part 3 (2026-11-10, stage 2 review with Dave)
+
+These replace amendment 12, the "plus superusers" in decision 1, and the committed file in 6b, wherever they disagree.
+
+18. **Non-detection: archival or observed, by radio button** (stage 2).
+    - Set once for the batch; a row can override it, like the survey values.
+    - **Archival** (the default): the archive is required (Other by default; TNS also lists SDSS and DSS), and so is the remark.
+    - **Last non-detection:** date, limiting magnitude (in the batch's units), filter and instrument, all required. The date must be before the discovery date (TNS's blocking error 1).
+      - TNS 2.0 keys: `obsdate`, `limiting_flux`, `flux_unitid`, `filterid`, `instrumentid`. `limiting_flux` is from Dave's older script; the sandbox run confirms it.
+    - Our data has no reference-image date or depth yet, so an observed non-detection starts blank. Candidate ingest carrying reference-image metadata is #73; its prefill stays editable, since the transient can be in the reference (high-z).
+19. **Access is the "TNS Reporters" group only.** Superusers are not let in by default, since the local copy of the legacy DB has 25 of them, and a report goes out under the TSST bot's name. The nav entry moves from stage 4 to stage 2.
+20. **TNS values live in a database table, not a committed file** (stage 3).
+    - Seeded from the 2025-06-18 snapshot; each value has a last-updated time.
+    - Refreshed by `manage.py sync_tns_values` and by a "Refresh from TNS" button on the TNS pages, for TNS reporters, rate-limited on the server. The form shows "TNS values as of <date>".
+    - A refresh adds and updates; it never deletes (a value TNS stops listing is marked as such, and the preview keeps flagging it).
+    - No scheduled run for now: a tested cron for local, test and production comes with #51.
+    - Not exposed through the API: it mirrors TNS.
+21. **One obs group per TNS group** (stage 3, part of the sync). For each TNS group:
+    1. an obs group already linked to its TNS id is left alone;
+    2. otherwise the obs group with exactly its name is linked;
+    3. otherwise an obs group with its name is created and linked.
+
+    Never deletes or renames. `tns_reporting_group_id` becomes unique (new migration). The data source group defaults to the same id but can differ; the reporter text and archival remark are per report (amendment 22). The legacy TNS ingest already names obs groups after TNS reporting groups (`data_ingest/TNS_uploads.py:259`); 86 of the 101 local obs groups match a TNS group name.
+22. **`ObservationGroup` keeps only the two TNS group ids** (stage 2; replaces part of amendment 9). The reporter text and the archival remark are per report: typed for the batch, and the archival remark can be overridden per row along with the rest of the non-detection. The reporter is batch-only. Migration 0010 is rewritten to add only the two ids (it is not on `master` yet). **API parity:** the two ids stay read-only in API responses.
+23. **Every prefilled value is editable, with TNS values as dropdowns** (stage 2).
+    - Each photometry point's TNS filter and instrument are dropdowns of every TNS value, preselected from the band and instrument mapping.
+    - Picking filter "Other" shows a comment field, required and prefilled with "Filter is <telescope>-<camera>-<band>."; a comment is sent only with "Other".
+    - Every dropdown starts with "-- select --" under a bold label.
+24. **One redshift format** (stage 2): `tns_report.format_redshift` (photo-z 2 decimals, spec-z 4) is used by the payload, the details form's prefill and the select grid.
+25. **Setting a candidate's obs group** (stage 2): until ingest carries it (#63), staff use the detail pages' admin popup, relabelled from "(edit name)" to "(edit transient, admin only)". It is shown only to staff, and the admin checks permissions again.
+26. **The measurements are editable too** (stage 2; Dave: for power users, everything editable until that causes trouble). Each point's MJD, magnitude and error are prefilled and editable; the TNS date (and the discovery date, for the discovery point) follows the MJD. A value that does not parse is flagged and ours is kept. One flag in the page, `LOCK_MEASUREMENTS`, makes them read-only, and then our data is sent unchanged.
+27. **Ours beside what is sent** (stage 2). Each photometry row has two column groups: "In STZ-PZ (read-only)" (MJD, band, magnitude and error, S/N) and "Sent to TNS (editable)" (MJD with the TNS date under it, magnitude and error, filter with its comment, instrument). A sent value that differs from ours is red (Dave: a deliberate, risky choice), and a reset icon puts the point back to ours. The form does not let the browser refill it after a reload.
+
+## Amendments, part 4 (2026-11-11, before stage 3, with Dave)
+
+These replace the single-bot `[tns_sandbox]` / `[tns_production]` sections of scope item 2 and decision 5.
+
+28. **Several bot identities, one per submission** (stage 3).
+    - **The service** is still chosen per deployment by `[tns] TNS_TARGET` (decision 5). Its section, `[tns_sandbox]` or `[tns_production]`, holds `base_url` and one API key per bot, keyed by the bot's **TNS id**:
+      ```ini
+      [tns]
+      TNS_TARGET = sandbox
+
+      [tns_sandbox]
+      base_url = https://sandbox.wis-tns.org
+      ; TSST_COSMOS_bot
+      193638 = <sandbox key>
+      ```
+      Comments go on their own lines (the ini reader keeps a trailing `; ...` as part of the value). Settings holds the keys as `TNS_API_KEYS`, a name Django's debug page blanks out. No `[tns_production]` on a laptop or test site.
+    - **`TNSBot` table:** TNS id (unique), name exactly as on TNS (the `User-Agent: tns_marker{...}` header needs it), description, active. Edited in the admin; **not exposed through the API**. The id is how a bot finds its key: the database names the key, the ini holds it.
+    - **"Report as"** on the details page: a required dropdown, no default. Bots without a key for the current service are greyed out ("no sandbox key"). A submission uses one bot; to report as another, start a new report from the select page.
+    - **Bot and group are two levels.** TNS keeps each bot's group memberships; we do not copy them. The reporting and data source groups are chosen as before, and a group the bot may not post to fails fast: the attempt is marked failed with TNS's message, and nothing retries it.
+    - **Everyone in TNS Reporters can use every bot**, for now.
+    - Each attempt records its bot and service; "Check again" uses the same bot; "Refresh from TNS" uses the bot picked on the page.
+    - **Keys:** the existing keys are used on the sandbox only. Regenerating them (they were in a shared script) is a precondition for any production use.
+
+29. **Submitting, asynchronously, with a consistent state** (stage 3, chunk C; replaces decision 4's in-request polling).
+    - **The state lives in the database.** Before calling TNS, each transient's attempt is saved as pending with its exact payload entry. TNS's report id is saved the moment TNS returns it. The outcome is fetched later, by anyone, any time: TNS keeps the reply.
+    - **Submit returns at once** to the results page (`/tns/report/<batch>/`), which asks our server to check with TNS every 5 s for up to 30 s, filling rows in as answers come, then offers "Check again". At least **10 s** between checks of one submission, or longer when TNS says it is rate limited (30 requests per 60 s per bot).
+    - **What each failure leaves:**
+      - TNS answered with a refusal (HTTP 4xx, or no report id) → **failed**, with TNS's message; the transient can be selected again.
+      - The request certainly never reached TNS (no connection, or no key configured) → **failed**.
+      - No answer, or a TNS server error (timeout, dropped connection, HTTP 5xx) → **unknown**: pending with no report id, since TNS may have it. A person checks TNS, then a superuser marks it **abandoned** in the admin.
+    - **Badges:** the select grid shows each transient's latest attempt (pending, unknown, failed: retry), and pending or unknown rows cannot be selected. A **history** page (`/tns/report/history/`) lists every submission with its counts and links to its results; it sits beside "Report to TNS". The detail pages get theirs in stage 4.
+    - **Reply codes:** 100 (inserted) is **reported**. 101 (object exists) is also **reported**, with TNS's name written back and the matched object and its separation shown, since TNS may have matched a nearby unrelated object. Anything else is **failed** with TNS's messages. A name we already hold that differs is **name differs** (amendment 2).
+    - **Production** (TNS_TARGET = production): the confirmation modal enables Submit only once `PRODUCTION` is typed. The sandbox stays one click.
+    - **The first real submission** is one candidate to the sandbox (`jets_12577_e1_61323_158`, as TSST_COSMOS_bot for group TSST), sent by Dave from the page; its reply settles the reply parser.
+
+30. **No fake TNS server; integration testing waits for a test environment** (replaces amendment 8; Dave, 2026-11-11). A fake encodes our assumptions about TNS, so it cannot catch TNS changing its contract, which is the failure that matters. Instead:
+    - **The lock under real concurrency** is a unit test: two threads call `tns_attempts.start` for the same transient in real MySQL transactions (`TransactionTestCase`). One succeeds, and the other waits on the row lock, then is refused as in flight.
+    - **Contract drift** is caught against the real sandbox, from a test environment once one exists (today there are only local dev and production). There, D's `sync_tns_values` checks every bot's key read-only, and one report goes to the sandbox as a deploy-checklist step. Until then, that is done by hand from local dev, as on 2026-11-11.
+
+## Acceptance criteria
+
+- [x] Only TNS reporters see the nav entry and can open the pages; others get 403.
+- [x] Selecting several candidates, filling the form, confirming and submitting sends one bulk report to the configured TNS (sandbox by default).
+- [x] Each reported transient gets its `iau_name` (and its URL moves); each failure is recorded with TNS's message and flagged on the detail page.
+- [x] Pending reports resolve without a page reload or a restart.
+- [x] Dropdowns use the TNS values table, refreshed from TNS on demand; nothing hardcodes our group or authors.
+- [x] No TNS credential in the DB, UI or repo.
+- [x] End-to-end test on the TNS sandbox: report two candidates, one valid and one deliberately broken, and see one IAU name and one flagged failure. (2026-11-12: TNS accepts future dates, so the deliberate failure was a bot/group mismatch, reported separately: 2026aiol reported, report 297429 failed with TNS's message.)
+- [x] A transient with a pending attempt cannot be selected, and cannot have its IAU name changed from the admin or the API; two simultaneous submissions send it once.
+- [x] "Check again" cannot be hammered (server-enforced gap); an unresolved attempt can be abandoned; the TNS key never appears in the DB, the logs or a stored payload.
+- [x] The details form previews the exact payload, with enumeration labels, before anything is sent; every TNS page shows the sandbox or production banner.
+- [x] The lock holds under concurrent submissions (unit test on MySQL), and the flow passes once by hand against the real sandbox (amendment 30).
+- [x] `TNSReportAttempt` is not exposed through the API.
+- [x] Migration ships in the PR; `ruff check .` passes; no dependency or image change.
+
+## Verification
+
+- Unit tests: `python manage.py test YSE_App` (#22 is merged; locally this needs the one-time test-database grant in `docker/README.md`), and the integration tests in `tests/integration` against the fake TNS server.
+- Sandbox run on the local stack with the sandbox bot in `settings.ini`, as in the last acceptance criterion.
+
+## Log
+- **2026-10-18:** Plan drafted, so it's ready for Dave's session tonight with the AZ collaborators.
+- **2026-10-19:** Revised from Dave's answers and his TNS bot code (`tns_api_bulk_report.py`, `make_json_dave_edit.py`, `values.json`): TNS 2.0 endpoints, the values endpoint, group 170, JWST IDs, the filter-"Other" convention, and 5 s / 30 s reply polling. Cron dropped.
+- **2026-10-19:** Dave confirmed decision 3 (shared vs per-transient split as proposed) and page access ("TNS Reporters" group plus superusers). Dave will regenerate the TNS bot keys that were in his shared script.
+- **2026-10-20:** Dave approved the plan with amendments (the section above): a pending-report guard and row lock that also covers the manual and API name edits, a rate-limited "Check again" with an abandon action, the key sent but never stored, no API exposure, the target chosen by the deployment (`TNS_TARGET`), a live payload preview, one PR built in four stages with a checkpoint where Dave reviews the payload before anything can be sent, and integration tests against a fake TNS server plus a manual sandbox run. Project Claude is not needed for the build (it needs Dave's local stack and sandbox bot); it can review the PR at the end. Model and effort for the build: Opus 5.5 at high (a report to TNS cannot be unsent).
+- **2026-10-20 (stage 1 built):** values snapshot `YSE_App/data/tns_values.json` + loader `YSE_App/tns_values.py`; payload builder `YSE_App/tns_report.py`; tests `YSE_App/test_tns_report.py`. Decisions for Dave's review:
+  - Form defaults live in `settings.TNS_REPORT_DEFAULTS` as TNS *labels* (group, AT type, instrument, units, archive, reporter text, PRIMER remark); the snapshot turns them into ids. No TNS id or author is in the code.
+  - The builder is two halves: `transient_fields(transient)` reads our data (the values the form will prefill), and `at_report_entry(fields, shared)` is pure (preview and submission both use it). `problems(entry)` flags what TNS would reject.
+  - Discovery: the first current point with a magnitude at S/N >= 5. Other bands: each band's best detection (the app's S/N >= 3 rule) within 1 day *after* the discovery, at most 10 points in all (TNS's limit).
+  - Non-detection: the last point before the discovery below S/N 5 that has a flux error and zero point; limiting mag = zp - 2.5 log10(5 x flux_err). 5 sigma because ingest does not store each limit's own sigma, and 5 is the discovery threshold.
+  - `host_redshift` is the host's spec-z only (photo-z is not sent).
+  - Remarks: the transient's comments, newest first, joined by "; ". For a candidate Save-dialog comment, only its notes are kept, without the quality flag. **Not trimmed:** the TNS manual (Jan 2025) gives no length limit, so the sandbox run will tell us.
+  - Dates are `YYYY-MM-DD.ddddd` (5 decimals, about 0.9 s). Dave's script sent whole days, so the sandbox run will confirm TNS keeps the fraction.
+  - Coordinates use a new helper: `common/utilities.GetSexigesimalString` can print RA seconds as `60.00`, and astropy's `to_string` prints 360° as `24:00:00`. The legacy helper is untouched (tech-debt candidate).
+  - Compared with Dave's bot code (`collab_scratch/TNS_Bot/`, scrubbed of keys): the structure and ids match. It differs in three ways, all for Dave to decide. (a) His reports sent the host **photo-z** as `host_redshift` (`securephotoz`/`questionable_photoz` inputs); the builder sends spec-z only. (b) His reporter text says "COSMOS-3D", while the plan says "COSMOS 3D". (c) His filter comment was "Filter is NIRCam-F090W."; the builder writes "Filter is JWST-NIRCam-F090W.". His outputs are catalogs, not TNS replies, so stage 3's recorded replies must come from a sandbox run.
+  - Superseded the same day by "Amendments, part 2" (Dave's review): see below for what changed.
+  - Tests: the local MySQL user lacks the test-database grant, so the DB tests ran on a throwaway SQLite settings file in `collab_scratch/`: 21 TNS tests, and all 43 `YSE_App` tests, pass. `ruff check .` passes.
+
+- **2026-10-20 (stage 1 review):** Dave's feedback became "Amendments, part 2" (9–17).
+  - Survey values move to nullable `ObservationGroup` fields (stage 2).
+  - Photometry becomes a pick list of at most 10 points.
+  - Redshift: transient spec-z, then host spec-z, then host photo-z.
+  - Non-detections are archival only; remarks are capped at 512; dates are whole days; `internal_ids` is added.
+  - One coordinate helper, fixed on its own branch first.
+  - Follow-up issues: ingest must carry the survey/obs group, and existing rows are backfilled by hand.
+  - Rebuilt to match: 20 TNS tests, and all 42 `YSE_App` tests, pass on throwaway SQLite settings in `collab_scratch/`; `ruff check .` passes.
+- **2026-10-20:** Discovery rule (Dave): the highest-S/N detection on the UTC day of the first S/N >= 5 point. A JWST visit's filters share the day, and the strongest one is what the candidate search found. 21 TNS tests, and all 43 `YSE_App` tests, pass on SQLite and on local MySQL (as a dedicated local test account with ALL on `test\_YSE` only).
+- **2026-10-20 (Dave's code review):**
+  - Remarks are an open field, no longer filled from candidate comments.
+  - A photo-z is sent to 2 decimals, a spec-z to 4.
+  - Magnitudes stay at 2 decimals; the picker uses the app's detection rule.
+  - Local unit tests now run as `local_test_account` through a git-ignored `YSE_PZ/local_test_settings.py` (see `docker/README.md`, "6. Tests"). The SQLite stand-in is retired.
+  - 42 tests pass on MySQL.
+- **2026-10-20:** Issues #61 (coordinate rounding; fixed by PR #64, merged into this branch), #62 (hand-written coordinate formatting, tech debt) and #63 (ingest carries the survey/obs group).
+- **2026-10-20 (stage 2 built, for Dave's payload review):**
+  - **Data:** `ObservationGroup` gets four nullable TNS fields (migration 0010), and migration 0011 creates the "TNS Reporters" group. In the admin, the group fields are dropdowns from the snapshot, and empty is stored as NULL. **API parity:** the serializer marks the four fields read-only (shown, never written).
+  - **Pages** (`tns_views.py`, all limited to TNS Reporters plus superusers, 403 otherwise):
+    - `/tns/report/`: transients without an IAU name, by status and candidate tag, one box per obs group, with "select all" and a 100-transient cap.
+    - `/tns/report/details/`: the batch values (per-survey ones start from the obs group, or a row overrides them); per row, the discovery date, host name/z and its source, the photometry picker (discovery preselected) and remarks.
+    - `/tns/report/preview/`: `build_report()`, the function stage 3 will submit with, run as the form is edited. It shows a table of TNS labels, the problems, and the raw JSON.
+  - **Target:** `TNS_TARGET` (settings.ini `[tns]`, default sandbox) drives the banner on every TNS page.
+  - **Builder:** `describe()` gives each value's label; `problems()` also flags an id the snapshot lacks.
+  - **Not yet:** submitting, attempts, the pending-attempt exclusion (stage 3); the nav entry (stage 4). Photometry values themselves are not editable, only which points are sent.
+  - **Tests:** 73 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 1):**
+  - Migrations 0010 and 0011 applied on Dave's local stack; the select and details pages load.
+  - **Discovery point is required** (Dave): each detection has a "Discovery" radio button. The picked point is always sent, as entry 0. The discovery date is that point's date, shown read-only, no longer typed. Unticking the discovery point's box clears the pick, and the preview flags the row until another is chosen.
+  - **MJD column** in the photometry picker (via `common/utilities.date_to_mjd`), to order points within one day. TNS still gets whole days (amendment 14).
+  - **Nav entry moved from stage 4 to stage 2** (Dave): "Report to TNS" in the left nav, shown by the `is_tns_reporter` template filter (`templatetags/tns_extras.py`), which calls the same check as the pages.
+  - **Group ids TNS no longer lists** (Dave): keep as built. Our data is never changed; the admin refuses to save such an id, and the preview flags it, so it is never sent.
+  - **Obs group vs TNS group** (Dave): in the problem domain they are one concept, linked by hand in the admin. New TNS groups come in through `sync_tns_values` (6b, not built yet; it needs the TNS client, so it lands in stage 3). Nothing pushes groups to TNS.
+  - Tests: 77 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 2):** Amendments, part 3 (18-21).
+  - Built for stage 2: the non-detection radio button (archival or last non-detection, batch with per-row override), and group-only access (nav and pages). A row's filter and instrument dropdowns copy the batch's options when first opened, so a 100-row batch does not render ~40,000 options.
+  - Filed #72 (TNS classification reports with spectra; SN types need a spectrum) and #73 (candidate ingest carries reference-image metadata, to prefill the last non-detection).
+  - Tests: 83 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 3):** Amendments 22-25.
+  - `ObservationGroup.tns_reporter` and `tns_archival_remarks` are dropped. Dave rolled his local DB back to 0009 and migration 0010 was rewritten to add only the two ids; `makemigrations --check` finds no changes.
+  - Per-point filter and instrument dropdowns (they copy the batch's full TNS lists when first opened), with a required comment for "Other".
+  - Redshift shown as sent; "-- select --" and bold labels on every dropdown; the admin popup link renamed.
+  - Tests: 87 `YSE_App` tests pass on local MySQL; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 4):** Amendment 26: MJD, magnitude and error editable, behind a `LOCK_MEASUREMENTS` flag. Dave re-applied the rewritten 0010 and 0011 locally. 90 `YSE_App` tests pass; `ruff check .` passes.
+- **2026-11-10 (stage 2 review with Dave, part 5):** Amendment 27: the photometry table shows our record beside what is sent, with changed values highlighted and a per-point reset. 90 tests pass; the page's script parses (esprima).
+- **2026-11-11:** Amendment 28 (several bots, keyed by TNS id; no obs-group default bot, at Dave's call). Stage 3 starts: Opus 5.5 at high, agreed 2026-11-10.
+- **2026-11-11 (stage 3, part 1):** settings read this deployment's `[tns_<target>]` into `TNS_BASE_URL` and `TNS_API_KEYS` (absent is fine until a call). `TNSBot` table (migration 0012) with its admin, which shows whether each bot has a key here; a shared `AuditedAdmin` fills the audit fields. `tns_client.py`: `values`, `submit`, `reply`, with `NotConfigured`, `NotReady` (reply 404), `RateLimited` (429 with `x-rate-limit-reset`) and TNS's own `id_message` kept on errors. The key is never logged or raised, and the client's functions are marked `sensitive_variables` for Django's error reports. 13 client tests with `requests.post` mocked; 103 `YSE_App` tests pass; `ruff check .` passes.
+- **2026-11-11 (first live calls, sandbox):** `/api/get/values` works as both bots (TSST_COSMOS_bot 193638, TSST_VENUS_bot 197899) after Dave regenerated their sandbox keys (the keys on disk were refused with 401; TNS gives no detail beyond "Unauthorized"). TNS keys are 33 characters and contain a dot. The `tns_marker` id is now sent as a number, as TNS's bot page shows it. TNS's rate limit: 30 requests per 60 s (`x-rate-limit-*` headers). Values now vs the 2025-06-18 snapshot: 215 groups (171), TSST_VENUS is 198; two groups relabelled (28 NUTS to NUTS2, 167 GGCYSS to SZCYS), none removed, so the sync must update labels too (amendment 20). Replies recorded in `collab_scratch/tns_recorded/` for the tests.
+- **2026-11-11 (stage 3, chunk C built; amendment 29):**
+  - `TNSReportAttempt` (migration 0013) and `tns_attempts.py`: `start` (row locks and re-check in one transaction), `send` (TNS called outside it; report id saved at once), `check` (one at a time per submission, 10 s apart, longer when rate limited), `parse_reply` (TNS codes 100 and 101 found anywhere in an entry; matched by the echoed `tsst_id`, else by position), the write-back (only into an empty `iau_name`; a name we hold, or one another transient has, since `iau_name` is unique, makes it name_differs), `abandon`, `in_flight`.
+  - The client tells a refusal (failed) from a request that never left (`NotSent`: failed) from no answer (`NoAnswer`, HTTP 5xx included: unknown). Checked against a real refused connection and an unresolvable host.
+  - Pages: "Report as" and Send with the confirmation modal (PRODUCTION typed on production), `/tns/report/submit/` (rebuilds the payload on the server), results with automatic checks then "Check again", history, the select grid's badges and lock. Admin: attempts read-only, abandon for superusers; the transient admin and the API keep `iau_name` while a report is in flight.
+  - Tests: 135 `YSE_App` tests pass (32 new; TNS mocked); `ruff check .` passes; the pages' scripts parse.
+  - Not yet: the real sandbox submission (Dave, one candidate) to confirm the reply's shape.
+- **2026-11-11 (first real submission):** Dave reported `jets_12577_e1_61323_158` to the sandbox as TSST_COSMOS_bot for group TSST: TNS report 297425, resolved about 19 s later as **2026aioi**, written back (the slug moved). TNS's reply matched the parser's assumptions exactly: `data.feedback.at_report` is a list; the entry has code `100` with `objname` and `message`, and echoes `internal_ids.tsst_id`. Recorded as `collab_scratch/tns_recorded/bulk_report_reply_297425.json`.
+- **2026-11-11 (Dave, after it):**
+  - **A reported candidate becomes a transient:** when the write-back succeeds (100 or 101), status Candidate becomes `New`, saved with the name; name differs leaves the status. Untagged, it shows in the main dashboard's Needs review grid (#40), so no extra tag for now.
+  - Unrelated fix, at Dave's request: the transient page's candidate banner (`candidate_pointer.html`, #27) had white-on-white "View in field" and "Permalink" buttons (AdminLTE colours links in a callout white); they are orange now, like "Candidate page".
+  - 136 `YSE_App` tests pass.
+  - Filed #74 (TNS reporting at scale; diffpype schedules, STZ executes) and #75 (a transient lifecycle model: statuses vs tags).
+- **2026-11-11:** Amendment 30: no fake TNS server (it cannot catch TNS changing its contract). A concurrency unit test instead; sandbox smoke and integration testing wait for a test environment.
+- **2026-11-11 (stage 3, chunk D built; amendments 20, 21, 30):**
+  - `TNSValue` and `TNSValueSync` (migration 0014, which also makes `ObservationGroup.tns_reporting_group_id` unique); migration 0015 seeds `TNSValue` from the 2025-06-18 snapshot, which stays in the repo only as that seed.
+  - `tns_values` reads the table through a per-process copy at most 60 s old (cleared by a refresh in the same process); the lookups keep their names, so no caller changed. The JSON loader is gone.
+  - `refresh(bot, user)`: TNS's values as one bot, at most once per 10 min site-wide (failed refreshes count); `apply` adds, relabels, unlists (never deletes) and relists, leaving kinds TNS omitted alone; `link_obs_groups` is amendment 21's decision tree, matching names by `candidate_ingest.name_key` (now shared with `find_by_name`). The preview flags an id TNS no longer lists; dropdowns offer listed values only.
+  - "Refresh from TNS" (bot picker and button) on the select page, `/tns/values/refresh/`, "TNS values as of ..." in the banner, and `manage.py sync_tns_values --bot --user` (no 10-minute spacing).
+  - The concurrency test (amendment 30): two threads, real MySQL row locks. Removing the lock from `start` makes it fail (the second submission goes through), so it tests the lock.
+  - 151 `YSE_App` tests pass; `ruff check .` passes.
+- **2026-11-11 (first real refresh, Dave's local stack, as TSST_COSMOS_bot):** 92 values added (44 groups, 23 instruments, 16 telescopes, 6 filters, 2 object types, 1 unit), 2 relabelled (NUTS2, SZCYS), none unlisted. Observation groups: 129 created, 85 linked by name, 1 skipped; 230 in all, 214 linked to TNS's 215 groups. All four TSST groups linked (TSST 171, TSST_COSMOS 157, TSST_COSMOS_3D 170, TSST_VENUS 198). The skip: TNS has two groups both named "Icarus" (213, 215); the first got the obs group, the second is left for a person, as amendment 21 says (no automatic "Icarus (215)"); the refresh summary now names each skip, so such a duplicate is visible (Dave). Dave: typing in a dropdown narrows 230 entries well enough for now.
+- **2026-11-11 (stage 4 built):** `{% tns_badge transient %}` (the latest report's status by the title) and `{% tns_reports transient %}` (every report: time, who, bot, service, status, report id, TNS's message, its submission, the payload) on the transient and candidate pages, for TNS reporters only (the links go to their pages); template tags, so the two detail views are unchanged. `tns_views._state` became the public `attempt_state`, which the tags share. The nav entry was done in stage 2. 154 `YSE_App` tests pass. Acceptance criteria checked off, except the two-candidate sandbox run (one valid, one broken).
+- **2026-11-12 (two-candidate sandbox run, as TSST_COSMOS_bot for TSST):** TNS report 297428. The plan was one valid and one broken (a discovery MJD moved to 61800, 2028-01-30), but **TNS accepts future dates**: both were inserted, `jets_12577_e1_61323_16` as 2026aiol and `jets_12577_e1_61323_175` as **2028A**. Our side handled the two-entry reply as designed (both matched by the echoed `tsst_id`, written back, promoted to New). Dave cleared `_175`'s IAU name by hand; its attempt stays "reported", as history (TNS has 2028A until the Sunday rebuild).
+  - **Fix (Dave's OK):** `tns_report.problems()` refuses a discovery, photometry or non-detection date after today (UTC), so the preview blocks it. 155 `YSE_App` tests pass.
+  - The deliberate failure is now attempted as a bot/group mismatch: TSST_VENUS_bot reporting one transient for TSST_VENUS (198) and one for TSST (171).
+- **2026-11-12 (bot/group mismatch run, TNS report 297429):** TSST_VENUS_bot reporting `jets_12577_e1_61323_248` for TSST (171). TNS accepted the submission, then answered the reply request with **HTTP 400 carrying the per-entry feedback**: `"reporting_groupid": [{"error_id": 0, "message": "Invalid. DebugNum-134"}]`. So TNS checks bot/group membership per entry, and a processed-but-refused report is a 400, not a 200. We had treated that 400 as a failed check, so the attempt stayed pending and the page kept asking. Recorded as `collab_scratch/tns_recorded/bulk_report_reply_297429_400.json`.
+  - **Fix (Dave's OK):** `tns_client.reply` returns a 400 that carries `data.feedback` as the outcome. For a refused entry, the parser collects every `message` under a field, labelled with it ("reporting_groupid: Invalid. DebugNum-134"), with a membership hint for group fields. The results page checks automatically only while TNS says it is still processing; on anything else it stops and shows the message in red, and "Check again" is the person's call (Dave: no blind retrying).
+  - **Select all** (Dave): a checkbox in each photometry table's Send header; unticking keeps the discovery point.
+  - Found, not fixed here: on the transient page, `A.aladin(...)` throws when Aladin's script fails to load from CDS, which stops the rest of the page's startup script, so the status buttons (and other handlers) are never attached. That is #70; a one-line guard could go on a hotfix branch.
+  - 157 `YSE_App` tests pass.
+- **2026-11-12 (after the fix):** report 297429 resolved to **failed** with "reporting_groupid: Invalid. DebugNum-134 (is the bot a member of this group?)": TNS's own refusal, flagged, alongside 2026aiol reported. Last acceptance criterion met. Dave set `_175` back to Candidate in the admin.
+  - Two follow-ups from Dave's test:
+    - **Select all** did nothing. Clicking the header fires "input" before "change", and the recount on "input" unticked the header before Select all read it. The header now follows the rows only when a row is ticked by hand, or a discovery point picked.
+    - **"Report again"** on the results page: per failed or abandoned row, and "Report the N failed again" at the top. Both open the details form for those transients, and only while that attempt is the transient's latest and it has no IAU name.
+  - 158 `YSE_App` tests pass.
+  - Filed #76 (prefill "Report again" with what was sent; low priority, Dave doubts it is worth the storage).
