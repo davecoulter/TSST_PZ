@@ -46,6 +46,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:8080',
     'http://localhost:8000',   # web container direct port
     'http://127.0.0.1:8000',
+    'https://stzpz.stsci.edu',  # production (until per-environment config, #51)
 ]
 
 
