@@ -40,15 +40,16 @@ def basename(value):
     return (value or '').rstrip('/').rsplit('/', 1)[-1]
 
 
-@register.simple_tag
-def archived_count():
-    """Number of archived transients, for the sidebar."""
+@register.simple_tag(takes_context=True)
+def archived_count(context):
+    """Number of archived transients the viewer may see (#86), for the sidebar."""
     from ..dashboard_sets import archived_count as _count
-    return _count()
+    return _count(context['request'].user)
 
 
-@register.simple_tag
-def candidate_count():
+@register.simple_tag(takes_context=True)
+def candidate_count(context):
     """Number of NEW candidates (still tagged New), for the sidebar badge; classifying them clears it."""
     from ..dashboard_sets import new_candidates
-    return new_candidates().count()
+    from ..data import TransientService
+    return TransientService.visible_transients(context['request'].user, new_candidates()).count()

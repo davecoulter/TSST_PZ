@@ -94,6 +94,14 @@ def find_visible_transient(user, slug, queryset=None):
     return find_transient(slug, visible_transients(user, queryset))
 
 
+def filter_query_results(user, rows):
+    """The transients a saved query returned (rows whose first column is the transient's name) that
+    `user` may see. Only the names are read back from the query's SQL, never its other columns, and the
+    result is narrowed by the rule like any other list."""
+    names = {row[0] for row in rows}
+    return visible_transients(user, Transient.objects.filter(name__in=names))
+
+
 def filter_by_transient(queryset, user, field='transient', level=FULL):
     """Rows of anything hanging off a transient (comments, follow-ups, images, tags, ...) whose
     transient, reached through `field`, `user` may see at `level` (FULL, or TNS_OBJECT for either)."""

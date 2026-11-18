@@ -206,47 +206,6 @@ class Transient(BaseModel):
 		date_format = '%m/%d/%Y'
 		return self.disc_date.strftime(date_format)
 
-	def disc_mag(self):
-
-		transient_query = Q(transient=self.id)
-		all_phot = yse_models.TransientPhotometry.objects.filter(transient_query)
-		phot_ids = all_phot.values('id')
-		phot_data_query = Q(photometry__id__in=phot_ids)
-		disc_query = Q(discovery_point = 1)
-		disc_mag = yse_models.TransientPhotData.objects.exclude(data_quality__isnull=False).filter(phot_data_query & disc_query)
-		if len(disc_mag):
-			return disc_mag[0].mag
-		else:
-			return None
-
-	def recent_mag(self):
-		date_format = '%m/%d/%Y'
-
-		transient_query = Q(transient=self.id)
-		all_phot = yse_models.TransientPhotometry.objects.filter(transient_query)
-		phot_ids = all_phot.values('id')
-		phot_data_query = Q(photometry__id__in=phot_ids)
-		recent_mag = yse_models.TransientPhotData.objects.exclude(data_quality__isnull=False).filter(mag__isnull=False).filter(phot_data_query).order_by('-obs_date')
-
-		if len(recent_mag):
-			return '%.2f'%(recent_mag[0].mag)
-		else:
-			return None
-
-	def recent_magdate(self):
-		date_format = '%m/%d/%Y'
-
-		transient_query = Q(transient=self.id)
-		all_phot = yse_models.TransientPhotometry.objects.filter(transient_query)
-		phot_ids = all_phot.values('id')
-		phot_data_query = Q(photometry__id__in=phot_ids)
-		recent_mag = yse_models.TransientPhotData.objects.exclude(data_quality__isnull=False).filter(phot_data_query).order_by('-obs_date')
-
-		if len(recent_mag):
-			return '%s'%(recent_mag[0].obs_date.strftime(date_format))
-		else:
-			return None
-
 	def z_or_hostz(self):
 		if self.redshift:
 			return self.redshift

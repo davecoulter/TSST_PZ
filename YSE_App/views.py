@@ -54,7 +54,7 @@ from astroplan import moon_illumination
 from astropy.time import Time
 from .common.utilities import getRADecBox
 
-from .table_utils import TransientTable,YSETransientTable,YSEFullTransientTable,YSERisingTransientTable,NewTransientTable,ObsNightFollowupTable,FollowupTable,TransientFilter,FollowupFilter,YSEObsNightTable,ToOFollowupTable
+from .table_utils import visible_rows, visible_followup_rows, TransientTable,YSETransientTable,YSEFullTransientTable,YSERisingTransientTable,NewTransientTable,ObsNightFollowupTable,FollowupTable,TransientFilter,FollowupFilter,YSEObsNightTable,ToOFollowupTable
 from .queries.yse_python_queries import *
 from .queries import yse_python_queries
 import django_tables2 as tables
@@ -119,7 +119,7 @@ def dashboard(request):
     # A transient is always somewhere (#40): a tag box, the Needs review grid (no tag yet), the
     # candidate list, or the Archived page. Needs review comes first; candidate-kind tags get no box.
     hidden = dashboard_sets.hidden_statuses()
-    review = dashboard_sets.needs_review()
+    review = visible_rows(request.user, dashboard_sets.needs_review())
     if review.exists():
         review_filter = TransientFilter(request.GET, queryset=review, prefix='needsreview')
         review_table = TransientTable(review_filter.qs, prefix='needsreview')
@@ -127,7 +127,7 @@ def dashboard(request):
         transient_categories += [(review_table, 'Needs review', 'needsreview', review_filter),]
     for tagname in dashboard_sets.transient_tags().order_by('name').values_list('name', flat=True).distinct():
         prefix = ''.join(ch for ch in tagname.lower() if ch.isalnum())
-        transients = Transient.objects.filter(tags__name=tagname).exclude(status__in=hidden)
+        transients = visible_rows(request.user, Transient.objects.filter(tags__name=tagname).exclude(status__in=hidden))
         transients = transients.order_by('-disc_date')
         # omit tags with no matching transients from the dashboard grid
         if not transients.exists():
@@ -153,11 +153,11 @@ def dashboard(request):
 @login_required
 def archived_dashboard(request):
     """Archived transients (#40): kept, out of the way; changing the status brings one back."""
-    archived = dashboard_sets.archived()
+    archived = TransientService.visible_transients(request.user, dashboard_sets.archived())
     categories = []
 
     def add(rows, title, anchor, prefix):
-        transientfilter = TransientFilter(request.GET, queryset=rows, prefix=prefix)
+        transientfilter = TransientFilter(request.GET, queryset=visible_rows(request.user, rows), prefix=prefix)
         table = dashboard_sets.ArchivedTable(transientfilter.qs, prefix=prefix)
         RequestConfig(request, paginate={'per_page': 25}).configure(table)
         categories.append((table, title, anchor, transientfilter))
@@ -200,10 +200,10 @@ def personaldashboard(request):
 
                 cursor = connections['explorer'].cursor()
                 cursor.execute(q.query.sql.replace('%','%%'), ())
-                transients = Transient.objects.filter(name__in=(x[0] for x in cursor)).order_by('-disc_date')
+                transients = TransientService.filter_query_results(request.user, cursor.fetchall()).order_by('-disc_date')  # names only, narrowed to what the user may see (#86)
                 cursor.close()
 
-                transientfilter = TransientFilter(request.GET, queryset=transients, prefix=q.query.title.replace(' ',''))
+                transientfilter = TransientFilter(request.GET, queryset=visible_rows(request.user, transients), prefix=q.query.title.replace(' ',''))
                 table = TransientTable(transientfilter.qs, prefix=q.query.title.replace(' ',''))
                 RequestConfig(request, paginate={'per_page': 10}).configure(table)
                 tables += [(table, q.query.title, q.query.title.replace(' ', ''), transientfilter, q.id, len(transients))]
@@ -212,7 +212,7 @@ def personaldashboard(request):
                 tables += [(Transient.objects.none(), q.query.title + ' [QUERY ID %s IS BROKEN]' % q.query_id, q.query.title.replace(' ', ''), Transient.objects.none(), q.id, len(transients))]
                 pass
         elif q.python_query:
-            transients = getattr(yse_python_queries, q.python_query)()
+            transients = visible_rows(request.user, getattr(yse_python_queries, q.python_query)())
 
             transientfilter = TransientFilter(request.GET, queryset=transients,prefix=q.python_query)
             table = TransientTable(transientfilter.qs,prefix=q.python_query)
@@ -282,7 +282,7 @@ def transient_summary(request,status_or_query_name,
                 if not query.sql.lower().startswith('select'): return Http404('Invalid Query')
                 cursor = connections['explorer'].cursor()
                 cursor.execute(query.sql.replace('%','%%'), ())
-                transients = Transient.objects.filter(name__in=(x[0] for x in cursor)).order_by('-disc_date')
+                transients = TransientService.filter_query_results(request.user, cursor.fetchall()).order_by('-disc_date')  # names only, narrowed to what the user may see (#86)
                 cursor.close()
             except:
                 # Query bombed
@@ -371,7 +371,7 @@ def followup(request):
         followup_transients = TransientFollowup.objects.filter(Q(too_resource__telescope__name=t) |
                                                                Q(classical_resource__telescope__name=t) |
                                                                Q(queued_resource__telescope__name=t))
-        followuptransientfilter = FollowupFilter(request.GET, queryset=followup_transients,prefix=t)
+        followuptransientfilter = FollowupFilter(request.GET, queryset=visible_followup_rows(request.user, followup_transients),prefix=t)
         
         followup_table = FollowupTable(followuptransientfilter.qs,prefix=t)
         RequestConfig(request, paginate={'per_page': 10}).configure(followup_table)
@@ -402,7 +402,7 @@ def get_transient_tags(request):
     for id in id_str:
         ids.append(int(id))
 
-    transient_queryset = Transient.objects.filter(tags__in=ids).distinct()
+    transient_queryset = TransientService.visible_transients(request.user, Transient.objects.filter(tags__in=ids).distinct())
     transient_objs = [t for t in transient_queryset]
 
     serializer = TransientSerializer(transient_objs, context={'request': request}, many=True)
@@ -556,7 +556,7 @@ def too_requests(request, telescope, pi_name):
         filter(Q(status__name='Requested') | Q(status__name='InProcess') | Q(status__name='Failed')).select_related()
 
     followuptransientfilter = FollowupFilter(
-        request.GET, queryset=follow_requests,prefix=telescope.replace('_',''))
+        request.GET, queryset=visible_followup_rows(request.user, follow_requests),prefix=telescope.replace('_',''))
         
     followup_table = ToOFollowupTable(followuptransientfilter.qs,prefix=telescope.replace('_',''),too_resource=too_resource)
     RequestConfig(request, paginate={'per_page': 20}).configure(followup_table)
@@ -597,29 +597,29 @@ def yse_home(request):
     classical_resource_form = ClassicalResourceForm()
     too_resource_form = ToOResourceForm()
 
-    fastrising_transients = fastrising_transient_queryset(ndays=7).filter(tags__name='YSE')
+    fastrising_transients = visible_rows(request.user, fastrising_transient_queryset(ndays=7).filter(tags__name='YSE'))
     fastrisingtransientfilter = TransientFilter(request.GET, queryset=fastrising_transients,prefix='ysefastrise')
     table_fastrising = YSERisingTransientTable(fastrisingtransientfilter.qs,prefix='ysefastrise')
     RequestConfig(request, paginate={'per_page': 10}).configure(table_fastrising)
 
-    rising_transients = rising_transient_queryset(ndays=7).filter(tags__name='YSE')
+    rising_transients = visible_rows(request.user, rising_transient_queryset(ndays=7).filter(tags__name='YSE'))
     risingtransientfilter = TransientFilter(request.GET, queryset=rising_transients,prefix='yserise')
     table_rising = YSERisingTransientTable(risingtransientfilter.qs,prefix='yserise')
     RequestConfig(request, paginate={'per_page': 10}).configure(table_rising)
 
     
-    transients = Transient.objects.filter(tags__name='YSE').filter(~Q(status__name='Ignore')).order_by('-disc_date')
+    transients = visible_rows(request.user, Transient.objects.filter(tags__name='YSE').filter(~Q(status__name='Ignore'))).order_by('-disc_date')
     transientfilter = TransientFilter(request.GET, queryset=transients,prefix='yse')
     table = YSEFullTransientTable(transientfilter.qs,prefix='yse')
     RequestConfig(request, paginate={'per_page': 10}).configure(table)
 
-    ztftransients = Transient.objects.filter(tags__name='ZTF in YSE Fields').filter(~Q(status__name='Ignore')).order_by('-disc_date')
+    ztftransients = visible_rows(request.user, Transient.objects.filter(tags__name='ZTF in YSE Fields').filter(~Q(status__name='Ignore'))).order_by('-disc_date')
     ztftransientfilter = TransientFilter(request.GET, queryset=ztftransients,prefix='yseztf')
     ztftable = YSEFullTransientTable(ztftransientfilter.qs,prefix='yseztf')
     RequestConfig(request, paginate={'per_page': 10}).configure(ztftable)
 
     
-    transients_follow = Transient.objects.filter(tags__name='YSE').order_by('-disc_date').filter(Q(status__name='FollowupRequested') | Q(status__name='Following'))
+    transients_follow = visible_rows(request.user, Transient.objects.filter(tags__name='YSE').order_by('-disc_date').filter(Q(status__name='FollowupRequested') | Q(status__name='Following')))
     transientfilter_follow = TransientFilter(request.GET, queryset=transients_follow,prefix='yse_follow')
     table_follow = YSETransientTable(transientfilter_follow.qs,prefix='yse_follow')
     RequestConfig(request, paginate={'per_page': 10}).configure(table_follow)
@@ -847,7 +847,7 @@ def observing_night(request, telescope, obs_date, pi_name):
         filter(valid_start__lte = classical_obs_date[0].resource.begin_date_valid).\
         filter(valid_stop__gte = classical_obs_date[0].resource.end_date_valid).select_related()
 
-    followuptransientfilter = FollowupFilter(request.GET, queryset=follow_requests,prefix=telescope)
+    followuptransientfilter = FollowupFilter(request.GET, queryset=visible_followup_rows(request.user, follow_requests),prefix=telescope)
         
     followup_table = ObsNightFollowupTable(followuptransientfilter.qs,prefix=telescope,classical_obs_date=classical_obs_date)
     RequestConfig(request, paginate={'per_page': 20}).configure(followup_table)
@@ -938,7 +938,7 @@ def download_target_list(request, telescope, obs_date):
 
     # get follow requests for telescope/date
     classical_obs_date = ClassicalObservingDate.objects.filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' '))
-    follow_requests = TransientFollowup.objects.filter(classical_resource = classical_obs_date[0].resource).filter(valid_start__lte = classical_obs_date[0].obs_date).filter(valid_stop__gte = classical_obs_date[0].obs_date)
+    follow_requests = visible_followup_rows(request.user, TransientFollowup.objects.filter(classical_resource = classical_obs_date[0].resource).filter(valid_start__lte = classical_obs_date[0].obs_date).filter(valid_stop__gte = classical_obs_date[0].obs_date))
 
     location = EarthLocation.from_geodetic(
         classical_obs_date[0].resource.telescope.longitude*u.deg,classical_obs_date[0].resource.telescope.latitude*u.deg,
@@ -950,10 +950,10 @@ def download_target_list(request, telescope, obs_date):
     content = "!Data {name %20} ra_h ra_m ra_s dec_d dec_m dec_s equinox {comment *}\n"
     for f in follow_requests:
         comments = ';'.join([l.comment for l in Log.objects.filter(transient_followup=f)])
-        if f.transient.recent_mag():
+        if f.recent_mag:
             content += "%s  %s %s 2000 mag = %.2f comment = %s\n"%(
                 f.transient.name.ljust(20),f.transient.CoordString()[0].replace(':',' '),
-                f.transient.CoordString()[1].replace(':',' '),float(f.transient.recent_mag()),comments)
+                f.transient.CoordString()[1].replace(':',' '),float(f.recent_mag),comments)
 
         else:
             content += "%s  %s %s 2000 comment = %s\n"%(
@@ -969,7 +969,7 @@ def download_targets_and_finders(request, telescope, obs_date):
 
     # get follow requests for telescope/date
     classical_obs_date = ClassicalObservingDate.objects.filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' '))
-    follow_requests = TransientFollowup.objects.filter(classical_resource = classical_obs_date[0].resource).filter(valid_start__lte = classical_obs_date[0].obs_date).filter(valid_stop__gte = classical_obs_date[0].obs_date)
+    follow_requests = visible_followup_rows(request.user, TransientFollowup.objects.filter(classical_resource = classical_obs_date[0].resource).filter(valid_start__lte = classical_obs_date[0].obs_date).filter(valid_stop__gte = classical_obs_date[0].obs_date))
 
     location = EarthLocation.from_geodetic(
         classical_obs_date[0].resource.telescope.longitude*u.deg,classical_obs_date[0].resource.telescope.latitude*u.deg,
@@ -983,7 +983,7 @@ def download_targets_and_finders(request, telescope, obs_date):
     findernamelist = []
     for f in follow_requests:
         content += "%s  %s %s 2000 mag = %.2f\n"%(
-            f.transient.name.ljust(20),f.transient.CoordString()[0].replace(':',' '),f.transient.CoordString()[1].replace(':',' '),float(f.transient.recent_mag()))
+            f.transient.name.ljust(20),f.transient.CoordString()[0].replace(':',' '),f.transient.CoordString()[1].replace(':',' '),float(f.recent_mag))
         offdictlist, findername = view_utils.finder().finderchart_noview()
         findernamelist += [findername]
         for offdict in offdictlist:
@@ -1393,7 +1393,7 @@ def download_bulk_photometry(request, query_title):
     if len(query):
         cursor = connections['explorer'].cursor()
         cursor.execute(query[0].sql.replace('%','%%'), ())
-        transients = Transient.objects.filter(name__in=(x[0] for x in cursor)).order_by('-disc_date')
+        transients = TransientService.filter_query_results(request.user, cursor.fetchall()).order_by('-disc_date')  # names only, narrowed to what the user may see (#86)
         cursor.close()
 
     elif getattr(yse_python_queries,query_title):
@@ -1619,7 +1619,7 @@ def change_status_for_query(request, query_id, status_id):
         try:
             cursor = connections['explorer'].cursor()
             cursor.execute(q.query.sql.replace('%', '%%'), ())
-            transients = Transient.objects.filter(name__in=(x[0] for x in cursor)).order_by('-disc_date')
+            transients = TransientService.filter_query_results(request.user, cursor.fetchall()).order_by('-disc_date')  # names only, narrowed to what the user may see (#86)
             cursor.close()
         except:
             # Query bombed
@@ -1682,7 +1682,7 @@ class SearchResultsView(ListView):
             transients = Transient.objects.filter(name_q(query))
         
         context = super().get_context_data()
-        transientfilter = TransientFilter(self.request.GET, queryset=transients,prefix='')
+        transientfilter = TransientFilter(self.request.GET, queryset=visible_rows(self.request.user, transients),prefix='')
         table = TransientTable(transientfilter.qs,prefix='')
         RequestConfig(self.request, paginate={'per_page': 10}).configure(table)
         context['transient_search_results'] = (table,'Search Results','Search Results',transientfilter)

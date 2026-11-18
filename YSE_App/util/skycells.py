@@ -18,7 +18,7 @@ def ZTF_TNS_YSE_matches():
 		skycell,xpos,ypos = getskycell(a.transient.ra,a.transient.dec)
 		
 			
-		print(a.transient.name,a.transient.ra,a.transient.dec,a.transient.recent_mag(),image_id,skycell,xpos,ypos)
+		print(a.transient.name,a.transient.ra,a.transient.dec,image_id,skycell,xpos,ypos)
 
 def get_recent_image_from_coord(ra,dec,debug=False):
 

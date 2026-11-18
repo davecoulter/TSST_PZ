@@ -9,10 +9,11 @@ from django.http import Http404, HttpResponse
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
+from . import table_utils
 from .access import transient_access
 from .data import PhotometryService, SpectraService, TransientService
 from .data.TransientService import FULL, PUBLIC, TNS_OBJECT
-from .models import (AlternateTransientNames, FollowupStatus, Host, HostPhotometry, Instrument, Log, Observatory,
+from .models import (AlternateTransientNames, FollowupStatus, TagKind, TransientTag, Host, HostPhotometry, Instrument, Log, Observatory,
                      ObservationGroup, PhotometricBand, Telescope, Transient, TransientDiffImage, TransientFollowup,
                      TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum, TransientStatus)
 
@@ -327,3 +328,74 @@ class TransientPagesTests(VisibilityTestBase):
 		self.client.force_login(self.user_b)
 		single = reverse('spectrumplotsingle', args=[self.t_a.pk, self.s_hidden_public.pk])
 		self.assertEqual(self.client.get(single).status_code, 404)
+
+
+class ListsTests(VisibilityTestBase):
+	"""Phase 2, part 2: lists, counts and search show only visible transients, and their photometry
+	columns only the photometry the viewer may see."""
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		# a newer, brighter point that only A may see, on the transient B sees as a TNS object
+		TransientPhotData.objects.create(photometry=cls.p_reported_a, band=cls.band, mag=21.11, mag_err=0.1,
+		                                 obs_date=datetime.datetime(2026, 2, 1, tzinfo=UTC), **cls.audit)
+		# off the candidate list and onto the main dashboard (Needs review: no tag yet)
+		watch = TransientStatus.objects.get_or_create(name='Watch', defaults=cls.audit)[0]
+		Transient.objects.filter(pk__in=[cls.t_a.pk, cls.t_b.pk, cls.t_reported.pk]).update(status=watch)
+		kind = TagKind.objects.create(name='Candidate', **cls.audit)
+		new = TransientTag.objects.create(name='New', kind=kind, **cls.audit)
+		cls.t_also_a = Transient.objects.get(name='also_a')
+		cls.t_also_a.tags.add(new)  # a new candidate only A may see
+		cls.t_public.tags.add(new)
+
+	def get(self, user, url):
+		self.client.force_login(user)
+		return self.client.get(url)
+
+	def test_photometry_columns_show_only_what_the_viewer_may_see(self):
+		rows = lambda user: {t.name: t for t in table_utils.visible_rows(user, Transient.objects.all())}
+		self.assertEqual(rows(self.user_b)['reported_a'].recent_mag, 24.0)  # B's only point is the Public one
+		self.assertEqual(rows(self.user_a)['reported_a'].recent_mag, 21.11)
+		self.assertNotIn('only_a', rows(self.user_b))
+		page = self.get(self.user_b, reverse('search') + '?q=reported_a')
+		self.assertContains(page, '24.00')
+		self.assertNotContains(page, '21.11')
+		self.assertContains(self.get(self.user_a, reverse('search') + '?q=reported_a'), '21.11')
+
+	def test_sorting_by_last_mag_uses_the_visible_values(self):
+		page = self.get(self.user_b, reverse('search') + '?q=a&sort=-recent_mag')
+		self.assertEqual(page.status_code, 200)
+		self.assertNotContains(page, '21.11')
+
+	def test_search_and_the_dashboard_leave_out_hidden_transients(self):
+		for url in (reverse('search') + '?q=only', reverse('dashboard')):
+			page = self.get(self.user_b, url)
+			self.assertContains(page, 'only_b')
+			self.assertNotContains(page, 'only_a')
+		self.assertContains(self.get(self.user_a, reverse('dashboard')), 'only_a')
+
+	def test_search_by_coordinates_leaves_out_hidden_transients(self):
+		page = self.get(self.user_b, reverse('search') + '?q=150.18,2.44')
+		self.assertContains(page, 'only_b')
+		for hidden in ('only_a', 'also_a', 'no_group'):
+			self.assertNotContains(page, hidden)
+
+	def test_the_sidebar_counts_only_visible_candidates(self):
+		from .templatetags.candidate_extras import candidate_count
+		request = RequestFactory().get('/')
+		request.user = self.user_b
+		self.assertEqual(candidate_count({'request': request}), 1)  # the public one, not A's
+		request.user = self.user_a
+		self.assertEqual(candidate_count({'request': request}), 2)
+
+	def test_search_by_tag_leaves_out_hidden_transients(self):
+		tag = TransientTag.objects.get(name='New')
+		data = self.get(self.user_b, reverse('get_transient_tags') + '?tagid=%d' % tag.pk).json()
+		self.assertEqual({row['name'] for row in data.values()}, {'public_one'})
+
+	def test_saved_query_results_are_narrowed_to_what_the_user_may_see(self):
+		rows = [('only_a', 1), ('only_b', 2), ('no_group', 3)]
+		self.assertEqual({t.name for t in TransientService.filter_query_results(self.user_b, rows)}, {'only_b'})
+		self.assertEqual({t.name for t in TransientService.filter_query_results(self.admin, rows)},
+		                 {'only_a', 'only_b', 'no_group'})

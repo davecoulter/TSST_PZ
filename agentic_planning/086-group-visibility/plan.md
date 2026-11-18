@@ -2,7 +2,7 @@
 
 - **Issue:** #86, with #88 folded in as phase 5 (the PR closes both)
 - **Branch:** `86-group-visibility`
-- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 committed; phase 2 part 1 built, in review
+- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 part 1 committed; phase 2 part 2 (first half) built, in review
 
 ## Why
 
@@ -186,3 +186,12 @@ Out of scope:
   - **`Public` is read-only for writes:** `can_edit` = superuser, or a member of one of the transient's non-`Public` groups. Staff status plays no part.
   - **Every endpoint needs a login** (a legacy mistake that it doesn't): `@login_required` on every view, plus `@transient_access` on views that take a transient (part 2). The URL sweep also requests every URL logged out and expects a login redirect or 401/403, with a short list of exceptions, each with a reason (login and logout, password reset, the static survey pages). Django 5.1's `LoginRequiredMiddleware` would be the native way, but we're on 4.0, and upgrading is a dependency change.
   - **API:** the default permission becomes `IsAuthenticated` (today `DjangoModelPermissionsOrAnonReadOnly` gives anonymous users read access), and the schema/docs view and API root get `AllowAny`. Anyone can see what the API offers; using it needs credentials (part 3).
+- **2026-11-17 (phase 2, part 2, first half: dashboards, counts, search):**
+  - **Photometry columns:** `PhotometryService.AnnotatePhotometrySummary(queryset, user)` gives each row `recent_mag`, `recent_magdate` and `disc_mag` as `Subquery`/`OuterRef` annotations over the photometry the user may see. The tables show and sort by them through two shared column helpers (`recent_mag_column`, `recent_magdate_column`), replacing:
+    - the `Transient.recent_mag()`, `recent_magdate()` and `disc_mag()` methods, now deleted;
+    - ten copies of the raw-SQL sort methods.
+    The search filters' `annotate_with_disc_mag` became `annotate_search_fields`, which uses the view's annotation; a queryset without it fails loudly rather than searching all photometry. The other callers of the deleted methods (the legacy target-list downloads and `util/skycells.py`) were moved over, and the unused `dashboard_test.html` was deleted (Dave).
+  - **Lists:** `table_utils.visible_rows()` / `visible_followup_rows()` narrow a table's rows to what the user may see and add the photometry summary. They're used by the main, archived and personal dashboards, search (by name and by coordinates), and the legacy YSE and follow-up tables. `get_transient_tags` uses `visible_transients`.
+  - **Badges:** the sidebar's new-candidate and archived counts are per user (`simple_tag(takes_context=True)`).
+  - **Saved queries:** all four places that run saved SQL (the personal dashboard, `transient_summary`, the bulk photometry download, `change_status_for_query`) go through `TransientService.filter_query_results`. It keeps only the names from the first column and narrows them to what the user may see; the plan said ids, but the existing convention is names.
+  - **Left for part 4:** the YSE-only tables' `render_*` methods (follow-up resources and comments) and `yse_views.py`'s raw-SQL `recent_mag`, because their pages become superuser-only. `table_utils.dashboard_tables` (an early view putting every transient in one table) wasn't routed in `urls.py`: deleted with its template (Dave). Saved queries keep returning names, for consistency (Dave). Every test is tracked in `tests.md`, next to this plan.

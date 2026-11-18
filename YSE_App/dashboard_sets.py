@@ -72,5 +72,7 @@ class ArchivedTable(TransientTable):
         verbose_name='Name', orderable=True, order_by='name')
 
 
-def archived_count():
-    return archived().count()
+def archived_count(user):
+    """How many archived transients `user` may see (#86)."""
+    from .data import TransientService
+    return TransientService.visible_transients(user, archived()).count()

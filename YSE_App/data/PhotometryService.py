@@ -1,5 +1,5 @@
 from YSE_App.models import *
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 from YSE_App.data import TransientService
 
 # Who may see which photometry is decided in TransientService (#86); these keep their old names.
@@ -19,6 +19,19 @@ def GetAuthorizedTransientDiffImages_ByUser(user):
     # difference images and stamps (#23) belong to a photometry point, and follow its photometry
     return TransientDiffImage.objects.filter(
         phot_data__photometry__in=GetAuthorizedTransientPhotometry_ByUser(user).values('pk'))
+
+def AnnotatePhotometrySummary(queryset, user, transient_field='pk'):
+    # Each row's recent_mag, recent_magdate and disc_mag (#86), from the good-quality points (no data
+    # quality flag) `user` may see; `transient_field` reaches the transient from the row (e.g.
+    # 'transient' for follow-ups). Replaces the Transient methods of the same names, which read all
+    # photometry, and the tables' raw-SQL sorting: the tables show and sort by these annotations.
+    good = GetAuthorizedTransientPhotData_ByUser(user, includeBadData=False).filter(
+        photometry__transient=OuterRef(transient_field)).order_by('-obs_date')
+    return queryset.annotate(
+        recent_mag=Subquery(good.filter(mag__isnull=False).values('mag')[:1]),
+        recent_magdate=Subquery(good.values('obs_date')[:1]),
+        disc_mag=Subquery(good.filter(discovery_point=1).values('mag')[:1]),
+    )
 
 def GetAuthorizedHostPhotometry_ByUser(user):
     return TransientService.authorized_data(HostPhotometry.objects.all(), user)

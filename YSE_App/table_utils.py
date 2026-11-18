@@ -9,7 +9,7 @@ from django.db.models import Count, Value, Max, Min
 from django.db.models.functions import Greatest, Coalesce
 from django_tables2 import A
 from django.db import models
-from .data import PhotometryService
+from .data import PhotometryService, TransientService
 from .transient_names import display_name_expression
 import time
 import django_filters
@@ -19,7 +19,6 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.dates import DateFormatter
 from matplotlib import rcParams
-from django.db.models.expressions import RawSQL
 rcParams['figure.figsize'] = (7,7)
 
 # #29: the Name column shows the IAU name first, with the internal name under it when there is
@@ -41,6 +40,31 @@ def order_by_display_name(prefix=''):
         return (queryset, True)
     return order
 
+def visible_rows(user, queryset):
+    """A transient table's rows for `user` (#86): only the transients they may see, each annotated with
+    the photometry summary (recent_mag, recent_magdate, disc_mag) from the photometry they may see."""
+    return PhotometryService.AnnotatePhotometrySummary(TransientService.visible_transients(user, queryset), user)
+
+def visible_followup_rows(user, queryset):
+    """A follow-up table's rows for `user`: the follow-ups they may see, annotated as visible_rows."""
+    return PhotometryService.AnnotatePhotometrySummary(TransientService.authorized_data(queryset, user), user,
+                                                       transient_field='transient')
+
+class MagColumn(tables.Column):
+    """A magnitude, to two decimals."""
+    def render(self, value):
+        return '%.2f' % value
+
+def recent_mag_column(verbose_name='Last Mag'):
+    """The latest good magnitude the viewer may see, from PhotometryService.AnnotatePhotometrySummary
+    (#86): every table's queryset is annotated with it, and the column sorts by the annotation."""
+    return MagColumn(accessor='recent_mag', verbose_name=verbose_name, orderable=True)
+
+def recent_magdate_column():
+    """The date of the latest good point the viewer may see, as recent_mag_column."""
+    return tables.DateColumn(accessor='recent_magdate', verbose_name='Last Obs. Date', orderable=True,
+                             format='m/d/Y')
+
 class TransientTable(tables.Table):
 
     name_string = name_column()
@@ -51,10 +75,8 @@ class TransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
 
@@ -98,37 +120,6 @@ class TransientTable(tables.Table):
         return (queryset, True)
 
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -162,10 +153,8 @@ class FieldTransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
     ztf_field = tables.Column(accessor='nearest_ztf_field',
@@ -217,37 +206,6 @@ class FieldTransientTable(tables.Table):
         return (queryset, True)
 
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -281,10 +239,8 @@ class AdjustFieldTransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
     yse_field = tables.Column(accessor='nearest_yse_field',
@@ -336,37 +292,6 @@ class AdjustFieldTransientTable(tables.Table):
         return (queryset, True)
 
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -401,10 +326,8 @@ class YSETransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
     requested_followup_resources = tables.Column(accessor='pk',verbose_name='Req. Followup')
@@ -495,37 +418,6 @@ class YSETransientTable(tables.Table):
         return '; '.join(np.unique(comment_list))
 
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -559,10 +451,8 @@ class YSEFullTransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
     context_class = tables.Column(accessor='context_class',
@@ -641,37 +531,6 @@ class YSEFullTransientTable(tables.Table):
         return ', '.join(np.unique(resource_list))
 
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -705,10 +564,8 @@ class YSERisingTransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
     context_class = tables.Column(accessor='context_class',
@@ -797,37 +654,6 @@ class YSERisingTransientTable(tables.Table):
 
         return '%.2f'%value/24/60/60
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -862,10 +688,8 @@ class NewTransientTable(tables.Table):
                                verbose_name='DEC',orderable=True,order_by='dec')
     disc_date_string = tables.Column(accessor='disc_date_string',
                                      verbose_name='Disc. Date',orderable=True,order_by='disc_date')
-    recent_mag = tables.Column(accessor='recent_mag',
-                               verbose_name='Last Mag',orderable=True)
-    recent_magdate = tables.Column(accessor='recent_magdate',
-                               verbose_name='Last Obs. Date',orderable=True)
+    recent_mag = recent_mag_column()
+    recent_magdate = recent_magdate_column()
     best_redshift = tables.Column(accessor='z_or_hostz',
                                   verbose_name='Redshift',orderable=True,order_by='host__redshift')
     ps_score = tables.Column(accessor='point_source_probability',
@@ -910,37 +734,6 @@ class NewTransientTable(tables.Table):
         ).order_by(('-' if is_descending else '') + 'best_redshift')
         return (queryset, True)
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
-    def order_recent_magdate(self, queryset, is_descending):
-
-        all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = queryset)
-        phot_ids = all_phot.values('id')
-
-        phot_data_query = Q(transientphotometry__id__in=phot_ids)
-        queryset = queryset.annotate(
-            recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-        ).order_by(('-' if is_descending else '') + 'recent_magdate')
-        return (queryset, True)
-
-
     class Meta:
         model = Transient
         fields = ('name_string','ra_string','dec_string','disc_date_string','recent_mag','recent_magdate','mw_ebv',
@@ -973,8 +766,7 @@ class FollowupTable(tables.Table):
                               verbose_name='RA',orderable=True,order_by='transient.ra')
     dec_string = tables.Column(accessor='transient.CoordString.1',
                                verbose_name='DEC',orderable=True,order_by='transient.dec')
-    recent_mag = tables.Column(accessor='transient.recent_mag',
-                               verbose_name='Recent Mag',orderable=True)
+    recent_mag = recent_mag_column('Recent Mag')
 
 
     observation_window = tables.Column(accessor='observation_window',
@@ -1006,25 +798,6 @@ class FollowupTable(tables.Table):
         self.base_columns['transient.status'].verbose_name = 'Transient Status'
         #self.base_columns['status'].verbose_name = 'Followup Status'
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
     class Meta:
         model = TransientFollowup
         fields = ('name_string','ra_string','dec_string','recent_mag','transient.status','observation_window','action')
@@ -1053,8 +826,7 @@ class ObsNightFollowupTable(tables.Table):
                               verbose_name='RA',orderable=True,order_by='transient.ra')
     dec_string = tables.Column(accessor='transient.CoordString.1',
                                verbose_name='DEC',orderable=True,order_by='transient.dec')
-    recent_mag = tables.Column(accessor='transient.recent_mag',
-                               verbose_name='Recent Mag',orderable=True)
+    recent_mag = recent_mag_column('Recent Mag')
 
 
     #observation_window = tables.Column(accessor='observation_window',
@@ -1148,25 +920,6 @@ class ObsNightFollowupTable(tables.Table):
         else: return ''
 
 
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
-
     class Meta:
         model = TransientFollowup
         fields = ('name_string','ra_string','dec_string','recent_mag',
@@ -1197,8 +950,7 @@ class ToOFollowupTable(tables.Table):
                               verbose_name='RA',orderable=True,order_by='transient.ra')
     dec_string = tables.Column(accessor='transient.CoordString.1',
                                verbose_name='DEC',orderable=True,order_by='transient.dec')
-    recent_mag = tables.Column(accessor='transient.recent_mag',
-                               verbose_name='Recent Mag',orderable=True)
+    recent_mag = recent_mag_column('Recent Mag')
 
 
     #observation_window = tables.Column(accessor='observation_window',
@@ -1284,25 +1036,6 @@ class ToOFollowupTable(tables.Table):
         if len(comment_list): return '; '.join(comment_list)
         else: return ''
 
-
-    def order_recent_mag(self, queryset, is_descending):
-
-        raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-
-        queryset = queryset.annotate(recent_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'recent_mag')
-
-        return (queryset, True)
 
     class Meta:
         model = TransientFollowup
@@ -1420,24 +1153,15 @@ class YSEObsNightTable(tables.Table):
             "order": [[ 2, "desc" ]],
         }
 
-def annotate_with_disc_mag(qs):
-
-    all_phot = TransientPhotometry.objects.values('transient')#.filter(transient__in = queryset)
-    phot_ids = all_phot.values('id')
-
-    phot_data_query = Q(transientphotometry__id__in=phot_ids)
-    disc_query = Q(transientphotometry__transientphotdata__discovery_point = 1)
-
-    qs = qs.annotate(
-        disc_mag=Min('transientphotometry__transientphotdata__mag',filter=phot_data_query & disc_query),
-    )
-
-    qs = qs.annotate(
+def annotate_search_fields(qs):
+    """The fields the search box matches that aren't on Transient itself. disc_mag (and recent_mag)
+    come from the view's PhotometryService.AnnotatePhotometrySummary (#86), from the photometry the
+    viewer may see; a queryset without it fails loudly here rather than search all photometry."""
+    return qs.annotate(
         obs_group_name=Min('obs_group__name'),
         host_redshift=Min('host__redshift'),
         spec_class=Min('best_spec_class__name'),
         status_name=Min('status__name'))
-    return qs
 
 class TransientFilter(django_filters.FilterSet):
 
@@ -1456,7 +1180,7 @@ class TransientFilter(django_filters.FilterSet):
     def filter_ex(self, qs, name, value):
         if value:
 
-            qs = annotate_with_disc_mag(qs)
+            qs = annotate_search_fields(qs)
 
             q_parts = value.split()
 
@@ -1503,7 +1227,7 @@ class RisingTransientFilter(django_filters.FilterSet):
     def filter_ex(self, qs, name, value):
         if value:
 
-            qs = annotate_with_disc_mag(qs)
+            qs = annotate_search_fields(qs)
 
             q_parts = value.split()
 
@@ -1575,16 +1299,3 @@ class ObsNightFollowupFilter(django_filters.FilterSet):
 
             qs = qs.filter(q_totals)
         return qs
-
-
-
-def dashboard_tables(request):
-
-    k2_transients = Transient.objects.all()
-
-    table = TransientTable(k2_transients)
-    RequestConfig(request, paginate={'per_page': 10}).configure(table)
-
-    context = {'k2_transients': table}
-
-    return render(request, 'YSE_App/dashboard_table.html', context)
