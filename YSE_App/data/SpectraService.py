@@ -1,22 +1,11 @@
 from YSE_App.models import *
 from django.db.models import Q
+from YSE_App.data import TransientService
 
-
-def GetUserGroupQuery(user):
-    user_groups = []
-    for g in user.groups.all():
-        user_groups.append(g.name)
-
-    no_group = Q(groups__isnull=True)
-    contains_group = Q(groups__name__in=user_groups)
-
-    return no_group, contains_group
+# Who may see which spectrum is decided in TransientService (#86); these keep their old names.
 
 def GetAuthorizedTransientSpectrum_ByUser(user, includeBadData=True):
-    group_query_tuple = GetUserGroupQuery(user)
-    query = Q(group_query_tuple[0] | group_query_tuple[1])
-    allowed_spec = _GetTransientSpectrum(includeBadData, query).distinct()
-    return allowed_spec
+    return TransientService.authorized_data(_GetTransientSpectrum(includeBadData, Q()), user)
 
 def GetAuthorizedTransientSpectrum_ByUser_ByTransient(user, transient_id, includeBadData=True):
 
@@ -27,11 +16,7 @@ def GetAuthorizedTransientSpectrum_ByUser_ByTransient(user, transient_id, includ
     return allowed_spec_by_group_by_transient
 
 def GetAuthorizedHostSpectrum_ByUser(user, includeBadData=True):
-    host_query_tuple = GetUserGroupQuery(user)
-    query = Q(host_query_tuple[0] | host_query_tuple[1])
-    allowed_phot = _GetHostSpectrum(includeBadData, query).distinct()
-
-    return allowed_phot
+    return TransientService.authorized_data(_GetHostSpectrum(includeBadData, Q()), user)
 
 def GetAuthorizedHostSpectrum_ByUser_ByHost(user, host_id, includeBadData=True):
     allowed_spec_by_group = GetAuthorizedHostSpectrum_ByUser(user, includeBadData)

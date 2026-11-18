@@ -1,3 +1,4 @@
+from django.contrib.auth.models import Group
 from django.db import models, transaction
 from django.db.models import Q
 from YSE_App.models.base import *
@@ -39,8 +40,11 @@ class Transient(BaseModel):
 	antares_classification = models.ForeignKey(AntaresClassification, null=True, blank=True, on_delete=models.SET_NULL)
 	internal_survey = models.ForeignKey(InternalSurvey, null=True, blank=True, on_delete=models.SET_NULL)
 	tags = models.ManyToManyField(TransientTag, blank=True)
+	# Who may see this transient (#86); the rule is in YSE_App/data/TransientService.py. No group
+	# means superusers only, never everyone: the reserved 'Public' group is how to share widely.
+	groups = models.ManyToManyField(Group, blank=True)
 
-	
+
 	### Properties ###
 	# Required
 	name = models.CharField(max_length=64) # the internal name; ingest and the API match on it

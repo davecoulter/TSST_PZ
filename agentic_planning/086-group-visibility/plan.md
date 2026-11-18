@@ -2,7 +2,7 @@
 
 - **Issue:** #86, with #88 folded in as phase 5 (the PR closes both)
 - **Branch:** `86-group-visibility`
-- **Status:** Draft, all questions decided; Dave re-reads it before approving and building
+- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later); building phase 1
 
 ## Why
 
@@ -141,3 +141,8 @@ Out of scope:
 - **2026-11-17 (plan review 2, Dave):** Dashboard-linked queries stay available, with their results filtered down to visible transients by `TransientService.filter_query_results` (Dave's idea). Legacy pages are hidden. Hosts linked only to hidden transients are omitted. Decorators and mixins apply the rule per route. Match tolerances are set empirically. On the production restore, a `Public` group already exists (the migration uses `get_or_create`), along with 12 legacy YSE groups with 1 member each. "Match TNS" is open to Full-access TNS Reporters plus superusers. The ATLAS/ZFPS rewrite is filed as #89: public data, always tagged `Public`. `personaldashboard` stays visible, because it renders the filtered queries. Catalog-only hosts stay visible to everyone. Every open question is now decided.
 - **2026-11-17 (plan review 3, Dave):** #88 ("Resolve on TNS" button) is folded in as phase 5, because "Match TNS" was most of it: one fetch, one matching rule, one page. It's a left-nav batch page plus a detail-page button. The lookup is read-only, and Apply writes: the IAU name, `Public` on ticked matches, and add-only import of ticked TNS photometry. Imported instruments and bands come from the TNS values snapshot (#52's label match reversed, creating what's missing). Photometry only; TNS spectra become a follow-up issue. It uses `tns_client.py`, not the legacy `tnsAPI.py` that #88 suggested.
 - **2026-11-17 (plan review 4, Dave):** TNS spectra import filed as #90. A "TNS Integration" submenu (Resolve, Report, Status), with a new `TNSResolveAttempt` model so the status page shows resolves next to reports. An "Admin" submenu for superusers only (Django admin, Groups & users, Explorer, Orphaned transients). The calendars stay out of it: they're YSE-era pages, hidden under #86, and come back with the follow-up/observing enhancement.
+- **2026-11-17 (phase 1 build):**
+  - Group checks are subqueries on the M2M table (`pk__in` the through rows), not joins, so no `.distinct()` is needed and the querysets stay safe to count, annotate and order.
+  - The photometry and spectra rule is `TransientService.authorized_data()`. The two services keep their public function names (about 30 call sites), and both copies of `GetUserGroupQuery` are gone.
+  - `get_visible_or_404` became `find_visible_transient(user, slug)`, which returns None like `find_transient`. Rendering the 404 page needs the request, so that's the phase 2 decorator's job.
+  - Found: `ObservingResourceService.py` has a third copy of the old rule, for telescope resources on the hidden legacy pages; left as is and filed as #91 (tech-debt). And `PhotometryService.GetAuthorizedHostPhotData_ByPhotometry` was broken (it filtered `HostPhotometry` on `photometry__id` and `HostPhotData` on `pk`, swapped) with no callers; removed (Dave). Checked on the production restore after migrating: Public reused, a non-superuser sees only the one TNS object and no photometry (fails closed), queries take about 0.01 s.
