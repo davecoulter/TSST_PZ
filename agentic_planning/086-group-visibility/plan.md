@@ -57,7 +57,16 @@ Everything here is decided (Dave, 2026-11-12 and 2026-11-17).
 - **Who:** users with Full access and the `mutate_tns_metadata` permission ("TNS Reporters"; superusers automatically).
 - Photometry only. Importing TNS spectra is #90. It uses `YSE_App/tns_client.py` (#52), not the legacy `util/tnsAPI.py`, which calls outdated URL formats.
 
-**Who can edit:** writes in the app (edit transient, tags, status, comments, follow-ups, and API `PUT`/`PATCH`) need a superuser or a member of one of the transient's groups **other than `Public`**: `Public` grants reading only, so a public transient is visible to everyone but changed only by its own team. A user who can see the transient but not change it gets a 403; one who can't see it, a 404. The rule is one function, `TransientService.can_edit(user, transient)`. Everything else is a thin adapter that only calls it: the `can_edit` template filter, the `@transient_access(level=FULL)` view decorator, a mixin for class-based form views, and a DRF permission class (`has_object_permission`). Fixing an upload someone else made is a job for an admin. Django's flags: `is_active` = can log in; `is_staff` = can enter the admin, but only for the models they've been given permissions on; `is_superuser` = every permission without being granted it (they still need `is_staff` to enter the admin).
+**The rule set for reads and writes** (Dave, 2026-11-17: set now, so every future metadata or mutating function follows it). It replaces "every write needs Full access":
+
+| Action | Needs | Examples |
+|---|---|---|
+| **Read** an item | its groups include `Public` or one of the user's, **and** its target is visible | comments, follow-ups, photometry, spectra |
+| **Add** an item to a transient | the user can **see** the transient (either level), and the item's own groups are the user's data groups and/or `Public` (at least one) | comments, follow-up requests, photometry and spectra uploads, any future annotation |
+| **Change or delete** an item | its author (`created_by`) or a superuser | editing or deleting one's own comment or follow-up request |
+| **Change the transient itself** | `can_edit`: a superuser, or a member of one of its non-`Public` groups (`Public` grants reading only) | status, tags, its fields, its groups |
+
+In `TransientService` these are `can_add_to(user, transient)`, `can_change(user, item)` and `can_edit(user, transient)`. Each gets the same thin adapters: the view decorator and form-view mixin, the template filter, and a DRF permission class. Seeing something but not being allowed to do it gives a 403; not seeing it gives a 404. Staff status plays no part. Follow-up resources offered for a request must be ones the user's groups may use; a side effect on the transient (e.g. a follow-up request setting its status to FollowupRequested) happens only if the author passes `can_edit`.
 
 ## Scope
 
@@ -201,3 +210,6 @@ Out of scope:
   - **`query_api`:** only superusers get a saved query's raw rows. Everyone else gets the transients it names that they may see, in the box searches' name/RA/Dec/id shape. This also fixes its python-query branch, which crashed (`field_vals` was never set). Dave agreed. Its only callers are YSE-era scripts (the QUB and DECam ingests, which phase 3 removes from cron, and the `get_YSE_PAs` scripts, including three dead copies in `util/`); a script that needs raw rows runs as a superuser.
   - **Deleted as unused:** `get_all_transients_box` (no URL), and the `get_ps1_image` / `lightcurveplt` template filters with their own `get_all_phot_for_transient` (no template used them; they read transients and all photometry without the rule).
   - Tests are tracked in `tests.md`.
+- **2026-11-17 (plan review 8, Dave, before part 3):**
+  - **The rule set above.** Anyone who can see a transient may add comments, follow-up requests, photometry and spectra to it, tagged only with their own data groups or `Public`. Changing the transient itself needs `can_edit`. Items are changed or deleted by their author.
+  - **Checked: the follow-up form doesn't enforce resource groups.** ToO and queued resources are shown by the old rule (the user's groups plus every ungrouped resource), classical ones without any filter. On submit, any resource and any transient is accepted, the transient's status is changed regardless of who asks, and the comment it creates gets no groups. All of this is fixed in part 3b.
