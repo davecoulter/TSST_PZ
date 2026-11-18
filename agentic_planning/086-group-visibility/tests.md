@@ -61,7 +61,10 @@ Status: ✅ done · ⏳ to write (part named) · 🧪 manual check on the produc
 | `TransientViewSet` and the viewsets hanging off transients | list and detail filtered; hidden = 404 | ⏳ |
 | Serializer related fields | can't link a comment or photometry to a hidden transient; the error doesn't reveal that it exists | ⏳ |
 | API writes (`PUT`/`PATCH`) | need `can_edit`; a TNS object = 403 | ⏳ |
-| App writes (edit transient, tags, status, comments, follow-ups) | need `can_edit`; edit controls hidden otherwise | ⏳ |
+| Curating (status, tags, fields, follow-ups) | needs `curate_transients` **and** a non-`Public` group of the transient: a group member without the role gets a 403; a curator in another group gets a 403 (or a 404 if hidden); a superuser always passes; edit controls hidden otherwise | ⏳ |
+| Comments | anyone who can see the transient may comment, tagged with their own data groups and/or `Public`; only the author or a superuser edits or deletes it | ⏳ |
+| Follow-up requests | only resources in the user's groups are offered **and** accepted; the status change happens through the curator rule | ⏳ |
+| Observing resources (#91) | follow the group rule; need a data group | ⏳ |
 | Comment and follow-up forms | group checkboxes, `Public` included, author's data groups pre-ticked, at least one required | ⏳ |
 | API parity (integration, `tests/integration`) | `groups` written and read back on transients, comments and follow-ups | ⏳ |
 
@@ -69,7 +72,7 @@ Status: ✅ done · ⏳ to write (part named) · 🧪 manual check on the produc
 
 | Surface | Checks | Status |
 |---|---|---|
-| `add_transient`, `add_transient_phot`, `add_transient_spec`, `upload_spectrum` | refused without a group, with an unknown group, a role group, or a group the uploader isn't in | ⏳ |
+| `add_transient`, `add_transient_phot`, `add_transient_spec`, `upload_spectrum` | need `curate_transients` and a group of the transient; refused without a group, with an unknown group, a role group, a group the uploader isn't in, or `Public` | ⏳ |
 | Candidate ingest endpoint and both CLIs (`--groups`) | the same | ⏳ |
 | API serializers' `create()`/`update()` | the same | ⏳ |
 | Admin | at least one group required | ⏳ |
@@ -84,6 +87,8 @@ Status: ✅ done · ⏳ to write (part named) · 🧪 manual check on the produc
 | Explorer | superuser-only | ⏳ |
 | TNS pages | `mutate_tns_metadata`; superusers pass; the select page lists only transients the user can edit | ⏳ |
 | Orphaned grid | superusers only; lists every transient with no group; bulk assign | ⏳ |
+| "Release to Public" admin action | superuser-only; adds `Public` to the transient and all its photometry, spectra and follow-ups | ⏳ |
+| Choosing `Public` for data | refused to curators on upload and on the API; allowed only through release paths and to superusers | ⏳ |
 | Navigation | the TNS Integration and Admin submenus show only to the right users | ⏳ |
 | **URL sweep, logged in** | every URL as a group-B user: A's name, slug and coordinates in no response; skips listed with reasons | ⏳ |
 | **URL sweep, logged out** | every URL: a login redirect or 401/403, except the listed exceptions | ⏳ |
