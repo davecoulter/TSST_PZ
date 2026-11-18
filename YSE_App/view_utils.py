@@ -27,6 +27,7 @@ from bokeh.embed import file_html
 from bokeh.models import Range1d,Span,LinearAxis,Label,Title,HoverTool
 from bokeh.core.properties import FontSizeSpec
 from .data import PhotometryService, SpectraService, ObservingResourceService
+from .access import transient_access
 from .serializers import *
 from rest_framework.request import Request
 from django.contrib.auth.decorators import login_required, permission_required
@@ -1409,9 +1410,11 @@ def lightcurveplot_flux(request, transient_id, salt2=False):
     g = file_html(ax,CDN,"my plot")
     return HttpResponse(g.replace('width: 90%','width: 100%'))
 
-def spectrumplot(request, transient_id):
+@login_required
+@transient_access(by='transient_id')
+def spectrumplot(request, transient):
     tstart = time.time()
-    transient = Transient.objects.get(pk=transient_id)
+    transient_id = transient.id
     dbspectra = SpectraService.GetAuthorizedTransientSpectrum_ByUser_ByTransient(request.user, transient_id, includeBadData=True).select_related()
     spectra = {}
 
@@ -1487,9 +1490,11 @@ def spectrumplot(request, transient_id):
     time.sleep(5)
     return HttpResponse(g.replace('width: 90%','width: 100%'))
 
-def spectrumplot_summary(request, transient_id):
+@login_required
+@transient_access(by='transient_id')
+def spectrumplot_summary(request, transient):
     tstart = time.time()
-    transient = Transient.objects.get(pk=transient_id)
+    transient_id = transient.id
     dbspectra = SpectraService.GetAuthorizedTransientSpectrum_ByUser_ByTransient(request.user, transient_id, includeBadData=True).select_related()
     spectra = {}
 
@@ -1600,14 +1605,16 @@ def spectrumplot_summary(request, transient_id):
 #   time.sleep(5)
 #   return HttpResponse(g.replace('width: 90%','width: 100%'))
 
-def spectrumplotsingle(request, transient_id, spec_id):
+@login_required
+@transient_access(by='transient_id')
+def spectrumplotsingle(request, transient, spec_id):
     
     #transient_id = request.GET.get('transient_id')
     #spec_id = request.GET.get('spec_id')
     
     tstart = time.time()
+    transient_id = transient.id
     print(transient_id,spec_id)
-    transient = Transient.objects.get(pk=transient_id)
     spectra = SpectraService.GetAuthorizedTransientSpectrum_ByUser_ByTransient(request.user, transient_id, includeBadData=True)
     spectrum = spectra.filter(id=spec_id)
     

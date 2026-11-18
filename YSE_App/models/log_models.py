@@ -1,3 +1,4 @@
+from django.contrib.auth.models import Group
 from django.db import models
 from YSE_App.models.base import *
 from YSE_App.models.spectra_models import *
@@ -10,6 +11,8 @@ from YSE_App.models.observation_task_models import *
 
 class Log(BaseModel):
 	### Entity relationships ###
+	# Who may read this comment (#86), as for photometry; the rule is in YSE_App/data/TransientService.py.
+	groups = models.ManyToManyField(Group, blank=True)
 	# Optional
 	transient = models.ForeignKey(Transient, null=True, blank=True, on_delete=models.CASCADE)
 	host = models.ForeignKey(Host, null=True, blank=True, on_delete=models.CASCADE)

@@ -1,6 +1,7 @@
 {% extends 'YSE_App/base.html' %}
 
-{% comment %}The 404 for a transient name that isn't in STZ-PZ (#29), from YSE_App.transient_names.transient_not_found.{% endcomment %}
+{% comment %}The 404 for a transient name that isn't in STZ-PZ (#29) or that the user may not see (#86): one page for both,
+so it can't tell them apart. From YSE_App.transient_names.transient_not_found.{% endcomment %}
 
 {% block content_header %}
     <h1>
@@ -15,7 +16,7 @@
 {% block content %}
 <div class="box box-default">
   <div class="box-body">
-    <p>There is no transient named <b>{{ name }}</b> in STZ-PZ, under either its internal name or its IAU name.</p>
+    <p>No transient <b>{{ name }}</b> that you can see, under either its internal name or its IAU name. It may not exist, or you may not have access. Ask your group admin.</p>
     <p>
       <a class="btn btn-primary" href="{{ tns_search_url }}" target="_blank" rel="noopener">Search TNS for {{ name }}</a>
       <a class="btn btn-default" href="{% url 'dashboard' %}">Back to the dashboard</a>

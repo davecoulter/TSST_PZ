@@ -8,17 +8,24 @@ A user has one of three levels of access to a transient:
   TNS_OBJECT  not FULL, but the transient has an IAU name: TNS shows it to anyone, so its TNS facts
               are visible (not our notes, tags, follow-ups, or data outside its own groups);
   None        no access at all: it must not show up anywhere for this user.
+Changing a transient (can_edit) needs more than FULL: 'Public' grants reading only, so only superusers
+and members of one of its other groups may change it.
 
-Photometry and spectra follow their own groups, and also need their transient (or host) to be
-visible, or a 'Public' point would give a hidden transient away. A host is visible if a transient
-linked to it is visible, or if no transient is linked to it (a catalog galaxy).
+Photometry, spectra, comments (Log) and follow-ups follow their own groups, and also need what
+they're attached to (a transient, host, ...) to be visible, or a 'Public' point would give a hidden
+transient away. A host is visible if a transient linked to it is visible, or if no transient is
+linked to it (a catalog galaxy). Static facts about a visible transient (its row, host, tags,
+aliases, links) are not restricted further.
+
+Only data groups go on data: a group that grants permissions is a role (e.g. "TNS Reporters").
 
 Group checks are subqueries on the M2M table rather than joins, so no row is duplicated and no
 distinct() is needed: the querysets stay safe to count, annotate and order.
 """
+from django.contrib.auth.models import Group
 from django.db.models import Q
 
-from YSE_App.models import Host, Transient
+from YSE_App.models import Host, HostPhotometry, HostSpectrum, Transient, TransientFollowup, TransientPhotometry, TransientSpectrum
 from YSE_App.transient_names import find_transient
 
 PUBLIC = 'Public'
@@ -34,6 +41,12 @@ def in_groups_q(model, user):
         Q(**{field.m2m_reverse_field_name() + '__name': PUBLIC}) |
         Q(**{field.m2m_reverse_field_name() + '__in': user.groups.all()}))
     return Q(pk__in=tagged.values(field.m2m_field_name()))
+
+
+def data_groups():
+    """The groups that may be put on data: those granting no permissions. A group that grants
+    permissions is a role, and stays one: give a team extra rights through a separate group."""
+    return Group.objects.filter(permissions__isnull=True)
 
 
 def tns_object_q(prefix=''):
@@ -64,6 +77,15 @@ def access_level(user, transient):
     if transient.iau_name:
         return TNS_OBJECT
     return None
+
+
+def can_edit(user, transient):
+    """Whether `user` may change `transient` and what hangs off it: a superuser, or a member of one of
+    its groups other than 'Public', which grants reading only. The one rule for writes; the template
+    filter, view decorator and API permission only call this."""
+    if user.is_superuser:
+        return True
+    return transient.groups.exclude(name=PUBLIC).filter(pk__in=user.groups.values('pk')).exists()
 
 
 def find_visible_transient(user, slug, queryset=None):
@@ -102,3 +124,26 @@ def authorized_data(queryset, user):
     else:
         owner = Q(host__in=visible_hosts(user).values('pk'))
     return queryset.filter(in_groups_q(model, user), owner)
+
+
+# A comment can be attached to any of these; each one that is set must be visible too.
+_LOG_TARGETS = {
+    'transient': lambda user: visible_transients(user),
+    'host': lambda user: visible_hosts(user),
+    'transient_photometry': lambda user: authorized_data(TransientPhotometry.objects.all(), user),
+    'transient_spectrum': lambda user: authorized_data(TransientSpectrum.objects.all(), user),
+    'transient_followup': lambda user: authorized_data(TransientFollowup.objects.all(), user),
+    'host_photometry': lambda user: authorized_data(HostPhotometry.objects.all(), user),
+    'host_spectrum': lambda user: authorized_data(HostSpectrum.objects.all(), user),
+}
+
+
+def authorized_logs(queryset, user):
+    """The comments (Log) in `queryset` that `user` may read: tagged 'Public' or one of their groups,
+    and everything they're attached to (of _LOG_TARGETS) visible to them."""
+    if user.is_superuser:
+        return queryset
+    q = in_groups_q(queryset.model, user)
+    for field, allowed in _LOG_TARGETS.items():
+        q &= Q(**{field: None}) | Q(**{field + '__in': allowed(user).values('pk')})
+    return queryset.filter(q)

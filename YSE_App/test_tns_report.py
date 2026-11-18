@@ -2,7 +2,7 @@
 import datetime
 import math
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.test import SimpleTestCase, TestCase
 
 from . import tns_report, tns_values
@@ -193,6 +193,8 @@ class TransientFieldsTests(TestCase):
 	@classmethod
 	def setUpTestData(cls):
 		cls.user = User.objects.create_user('tns_tester', password='pw')
+		cls.team = Group.objects.create(name='JWST team')  # #86: the reporter sees the data through it
+		cls.user.groups.add(cls.team)
 		cls.audit = dict(created_by=cls.user, modified_by=cls.user)
 		status = TransientStatus.objects.create(name='Candidate', **cls.audit)
 		cls.group = ObservationGroup.objects.create(name='JWST', **cls.audit)
@@ -205,8 +207,10 @@ class TransientFieldsTests(TestCase):
 		cls.superseded = DataQuality.objects.create(name='Superseded', **cls.audit)
 		cls.transient = Transient.objects.create(name='jwst_cand_1', ra=150.18, dec=2.44, status=status,
 		                                         obs_group=cls.group, **cls.audit)
+		cls.transient.groups.add(cls.team)
 		cls.photometry = TransientPhotometry.objects.create(transient=cls.transient, instrument=cls.nircam,
 		                                                    obs_group=cls.group, **cls.audit)
+		cls.photometry.groups.add(cls.team)
 
 	def point(self, band, day, flux, flux_err, superseded=False, photometry=None):
 		"""A point `day` days into 2026, stored as candidate ingest stores it: a detection gets a mag
@@ -231,7 +235,7 @@ class TransientFieldsTests(TestCase):
 		self.point('F090W', 20.5, 0.09, 0.01, superseded=True)
 		later = self.point('F090W', 20.6, 0.05, 0.01)
 
-		f = tns_report.transient_fields(self.transient)
+		f = tns_report.transient_fields(self.user, self.transient)
 		self.assertEqual(f['discovery_date'], discovery.obs_date)
 		self.assertEqual([p['id'] for p in f['photometry']], [discovery.pk])
 		self.assertEqual([p['id'] for p in f['detections']], [early.pk, discovery.pk, later.pk])
@@ -249,20 +253,20 @@ class TransientFieldsTests(TestCase):
 		self.point('F200W', 20, 0.06, 0.01)  # S/N 6, first over the threshold
 		strongest = self.point('F444W', 20.2, 0.12, 0.01)  # S/N 12, same UTC day
 		self.point('F150W', 21.1, 0.30, 0.01)  # S/N 30, the next day: not the discovery
-		f = tns_report.transient_fields(self.transient)
+		f = tns_report.transient_fields(self.user, self.transient)
 		self.assertEqual([p['id'] for p in f['photometry']], [strongest.pk])
 		self.assertEqual(f['discovery_date'], strongest.obs_date)
 
 	def test_superseded_points_are_ignored(self):
 		self.point('F200W', 5, 0.09, 0.01, superseded=True)
 		current = self.point('F200W', 6, 0.06, 0.01)
-		f = tns_report.transient_fields(self.transient)
+		f = tns_report.transient_fields(self.user, self.transient)
 		self.assertEqual(f['discovery_date'], current.obs_date)
 		self.assertEqual([p['id'] for p in f['detections']], [current.pk])
 
 	def test_no_point_reaches_the_threshold(self):
 		self.point('F200W', 5, 0.04, 0.01)
-		f = tns_report.transient_fields(self.transient)
+		f = tns_report.transient_fields(self.user, self.transient)
 		self.assertEqual((f['discovery_date'], f['photometry'], len(f['detections'])), (None, [], 1))
 
 	def test_an_instrument_tns_does_not_list_has_no_id(self):
@@ -271,8 +275,9 @@ class TransientFieldsTests(TestCase):
 		camera = Instrument.objects.create(name='Webcam', telescope=telescope, **self.audit)
 		photometry = TransientPhotometry.objects.create(transient=self.transient, instrument=camera,
 		                                                obs_group=self.group, **self.audit)
+		photometry.groups.add(self.team)
 		self.point('F200W', 5, 0.09, 0.01, photometry=photometry)
-		self.assertIsNone(tns_report.transient_fields(self.transient)['photometry'][0]['instrumentid'])
+		self.assertIsNone(tns_report.transient_fields(self.user, self.transient)['photometry'][0]['instrumentid'])
 
 	def test_redshift_prefers_transient_spec_z_then_host_spec_z_then_host_photo_z(self):
 		host = Host.objects.create(name=' COSMOS2020 1234 ', ra=150.18, dec=2.44, photo_z=0.6, **self.audit)
@@ -283,7 +288,7 @@ class TransientFieldsTests(TestCase):
 		self.assertEqual(tns_report.host_redshift(t), (0.55, 'host spec-z'))
 		t.redshift = 0.51
 		self.assertEqual(tns_report.host_redshift(t), (0.51, 'transient spec-z'))
-		f = tns_report.transient_fields(t)
+		f = tns_report.transient_fields(self.user, t)
 		self.assertEqual((f['host_name'], f['host_redshift'], f['host_redshift_source']),
 		                 ('COSMOS2020 1234', 0.51, 'transient spec-z'))
 		t.redshift = host.redshift = host.photo_z = -99.0  # catalog sentinels
@@ -292,7 +297,7 @@ class TransientFieldsTests(TestCase):
 	def test_identity_and_no_remarks(self):
 		"""Our comments judge whether a candidate is real; they are not TNS remarks."""
 		Log.objects.create(transient=self.transient, comment='quality_flag: 2; notes: looks real', **self.audit)
-		f = tns_report.transient_fields(self.transient)
+		f = tns_report.transient_fields(self.user, self.transient)
 		self.assertEqual((f['transient_id'], f['internal_name'], f['ra'], f['dec'], f['remarks']),
 		                 (self.transient.pk, 'jwst_cand_1', 150.18, 2.44, ''))
 

@@ -52,7 +52,8 @@ def find_transient(slug, queryset=None):
 
 
 def transient_not_found(request, name):
-    """The 404 page for a name that isn't in STZ-PZ, with a link to look it up on TNS."""
+    """The 404 page for a name that isn't in STZ-PZ or that the user may not see (#86: the same page and
+    status for both), with a link to look it up on TNS."""
     bare = _IAU_PREFIX.sub('', name.strip())
     # TNS searches IAU designations and reporters' internal names as separate fields
     field = 'name' if _IAU_DESIGNATION.match(bare) else 'internal_name'

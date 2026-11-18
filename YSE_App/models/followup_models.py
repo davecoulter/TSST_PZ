@@ -1,3 +1,4 @@
+from django.contrib.auth.models import Group
 from django.db import models
 from YSE_App.models.base import *
 from YSE_App.models.enum_models import *
@@ -43,6 +44,8 @@ class TransientFollowup(Followup):
 	### Entity relationships ###
 	# Required
 	transient = models.ForeignKey(Transient, on_delete=models.CASCADE)
+	# Who may see this follow-up and its observation tasks (#86); the rule is in YSE_App/data/TransientService.py.
+	groups = models.ManyToManyField(Group, blank=True)
 
 	def __str__(self):
 		return "Transient Followup: [%s]; Valid: %s to %s" % (self.transient.name, self.valid_start.strftime('%m/%d/%Y'), self.valid_stop.strftime('%m/%d/%Y'))

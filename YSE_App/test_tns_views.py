@@ -25,6 +25,9 @@ class TnsPagesTestBase(TestCase):
 		cls.reporter = User.objects.create_user('tns_reporter', password='pw')
 		cls.reporter.groups.add(Group.objects.get(name=tns_views.TNS_REPORTERS))  # made by migration 0011
 		cls.other = User.objects.create_user('not_a_reporter', password='pw')
+		cls.team = Group.objects.create(name='TSST team')  # #86: both see the data through it
+		for user in (cls.reporter, cls.other):
+			user.groups.add(cls.team)
 		cls.admin = User.objects.create_superuser('tns_admin', password='pw')
 		cls.audit = dict(created_by=cls.admin, modified_by=cls.admin)
 		cls.candidate = TransientStatus.objects.get_or_create(name='Candidate', defaults=cls.audit)[0]
@@ -42,8 +45,10 @@ class TnsPagesTestBase(TestCase):
 	def make(self, name, group=None, **fields):
 		t = Transient.objects.create(name=name, ra=150.18, dec=2.44, status=self.candidate,
 		                             obs_group=group or self.survey, **dict(self.audit, **fields))
+		t.groups.add(self.team)
 		t.photometry_header = TransientPhotometry.objects.create(transient=t, instrument=self.nircam,
 		                                                         obs_group=t.obs_group, **self.audit)
+		t.photometry_header.groups.add(self.team)
 		return t
 
 	def point(self, t, band, day, flux, flux_err=0.01):

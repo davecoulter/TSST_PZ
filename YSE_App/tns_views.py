@@ -96,7 +96,7 @@ def tns_report_select(request):
         found = found.filter(tags__name__iexact=tag_name).distinct()
     transients = list(found.select_related('obs_group', 'host').order_by('-disc_date', 'name'))
     ids = [t.pk for t in transients]
-    stats = candidate_stats(ids)
+    stats = candidate_stats(request.user, ids)
     tags = defaultdict(list)
     for transient_id, name in (Transient.tags.through.objects.filter(transient_id__in=ids)
                                .values_list('transient_id', 'transienttag__name')):
@@ -165,7 +165,7 @@ def tns_report_details(request):
     batch, overrides = initial_values(transients)
     rows = []
     for t, override in zip(transients, overrides):
-        fields = tns_report.transient_fields(t)
+        fields = tns_report.transient_fields(request.user, t)
         picked = {p['id'] for p in fields['photometry']}
         rows.append({
             'transient': t, 'fields': fields, 'override': override,
@@ -229,10 +229,10 @@ def _chosen(post, prefix, point):
     return point, errors
 
 
-def _row(post, transient):
+def _row(user, post, transient):
     """(fields, overrides, errors) for one transient: our data with the form's values on top."""
     prefix = 'r%d-' % transient.pk
-    fields = tns_report.transient_fields(transient)
+    fields = tns_report.transient_fields(user, transient)
     errors = {}
 
     current = {str(d['id']): d for d in fields['detections']}
@@ -300,14 +300,14 @@ def _non_detection(values):
     return values, errors
 
 
-def build_report(post, transients):
+def build_report(user, post, transients):
     """The report the details form describes: {'ok', 'payload', 'entries'}, where each entry is
     {'transient_id', 'name', 'rows' (tns_report.describe), 'problems' ({path: message})}. The preview
     shows it; stage 3's submission sends `payload` only when `ok`."""
     shared = _batch(post)
     entries, out = [], []
     for t in transients:
-        fields, overrides, errors = _row(post, t)
+        fields, overrides, errors = _row(user, post, t)
         values, nd_errors = _non_detection(dict(shared, **overrides))
         errors.update(nd_errors)
         entry = tns_report.at_report_entry(fields, values)
@@ -326,7 +326,7 @@ def tns_report_preview(request):
         return JsonResponse({'error': 'no transients without an IAU name were posted'}, status=400)
     if len(transients) > tns_report.MAX_ENTRIES:
         return JsonResponse({'error': 'TNS takes at most %d per report' % tns_report.MAX_ENTRIES}, status=400)
-    return JsonResponse(dict(build_report(request.POST, transients), target=settings.TNS_TARGET))
+    return JsonResponse(dict(build_report(request.user, request.POST, transients), target=settings.TNS_TARGET))
 
 
 # --- submitting and results (stage 3, amendment 29) --------------------------
@@ -356,7 +356,7 @@ def tns_report_submit(request):
         return JsonResponse({'error': 'choose a bot to report as'}, status=400)
     if not tns_client.has_key(bot):
         return JsonResponse({'error': 'settings.ini has no %s key for %s' % (settings.TNS_TARGET, bot)}, status=400)
-    report = build_report(request.POST, transients)  # rebuilt here: never trust a payload from the page
+    report = build_report(request.user, request.POST, transients)  # rebuilt here: never trust a payload from the page
     if not report['ok']:
         return JsonResponse({'error': 'the report has problems; see the preview'}, status=400)
     entries = [report['payload']['at_report'][str(i)] for i in range(len(transients))]

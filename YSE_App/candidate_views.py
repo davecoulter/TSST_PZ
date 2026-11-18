@@ -22,7 +22,9 @@ from django.views.decorators.http import require_POST
 from . import dashboard_sets, view_utils
 from .candidate_ingest import CANDIDATE, DEFAULT_SOURCE, RUN_SEPARATOR, SUPERSEDED, _candidate_tags, find_by_name
 from .forms import TransientCommentForm
-from .transient_names import find_transient, name_q, transient_not_found
+from .access import transient_access
+from .data import PhotometryService, TransientService
+from .transient_names import name_q
 from .common.utilities import angular_separation_arcsec
 from .models import (
     AlternateTransientNames, Log, TagKind, Transient, TransientDiffImage, TransientPhotData,
@@ -76,8 +78,8 @@ def _host_z(host):
     return None
 
 
-def candidate_stats(transient_ids):
-    """Per-transient stats from stored photometry, superseded points excluded.
+def candidate_stats(user, transient_ids):
+    """Per-transient stats from the photometry `user` may see (#86), superseded points excluded.
 
     Returns {transient_id: {'max_snr', 'filters', 'n_detections', 'best_diff',
     'best_sci'}}, where best_* are the stamps of the highest-S/N detection that
@@ -86,11 +88,11 @@ def candidate_stats(transient_ids):
     stats = defaultdict(lambda: {'max_snr': None, 'filters': set(), 'n_detections': 0,
                                  'best_diff': None, 'best_sci': None, '_best_stamp_snr': None,
                                  'last_date': None})
-    points = (TransientPhotData.objects
+    points = (PhotometryService.GetAuthorizedTransientPhotData_ByUser(user)
               .filter(photometry__transient_id__in=transient_ids)
               .exclude(data_quality__name=SUPERSEDED)
               .values('id', 'photometry__transient_id', 'band__name', 'flux', 'flux_err', 'mag', 'obs_date'))
-    stamps = {d['phot_data_id']: d for d in TransientDiffImage.objects
+    stamps = {d['phot_data_id']: d for d in PhotometryService.GetAuthorizedTransientDiffImages_ByUser(user)
               .filter(phot_data__photometry__transient_id__in=transient_ids)
               .values('phot_data_id', 'postage_stamp_diff', 'postage_stamp_file')}
     for p in points:
@@ -115,11 +117,11 @@ def candidate_stats(transient_ids):
     return stats
 
 
-def candidate_quality(ids):
+def candidate_quality(user, ids):
     """{transient_id: (average, reporters)} of the quality flag (1 definite, 2 probable, 3 possible):
-    each reporter's latest `quality_flag: N` comment counts once."""
+    each reporter's latest `quality_flag: N` comment that `user` may read (#86) counts once."""
     latest = {}
-    for transient_id, user_id, comment in (Log.objects
+    for transient_id, user_id, comment in (TransientService.authorized_logs(Log.objects, user)
                                            .filter(transient_id__in=ids, comment__startswith='quality_flag:')
                                            .order_by('id')
                                            .values_list('transient_id', 'created_by_id', 'comment')):
@@ -173,13 +175,13 @@ def candidate_dashboard(request):
 
     candidates = []
     if status is not None:
-        found = Transient.objects.filter(status=status)
+        found = TransientService.visible_transients(request.user, Transient.objects.filter(status=status))
         if query:
             found = found.filter(name_q(query))
         transients = list(found.select_related('host'))
         ids = [t.id for t in transients]
-        stats = candidate_stats(ids)
-        quality = candidate_quality(ids)
+        stats = candidate_stats(request.user, ids)
+        quality = candidate_quality(request.user, ids)
         alias_counts = defaultdict(int)
         internal_names = {t.id: t.name for t in transients}
         for transient_id, alias_name in AlternateTransientNames.objects.filter(
@@ -187,7 +189,7 @@ def candidate_dashboard(request):
             if alias_name != internal_names[transient_id]:  # the old slug kept on renaming (#29)
                 alias_counts[transient_id] += 1
         reporters = defaultdict(set)  # who sent each candidate in: the rows' creators
-        for transient_id, user_id in (TransientPhotData.objects
+        for transient_id, user_id in (PhotometryService.GetAuthorizedTransientPhotData_ByUser(request.user)
                                       .filter(photometry__transient_id__in=ids)
                                       .values_list('photometry__transient_id', 'created_by_id').distinct()):
             reporters[transient_id].add(user_id)
@@ -264,9 +266,10 @@ def candidate_dashboard(request):
     return render(request, 'YSE_App/candidate_dashboard.html', context)
 
 
-def candidate_section_context(transient):
+def candidate_section_context(user, transient):
     """Context for the detail page's "Candidate data" section, or {} when the
-    transient has no candidate-pipeline data and isn't a candidate."""
+    transient has no candidate-pipeline data and isn't a candidate. Images and who
+    flagged it come from the photometry `user` may see (#86)."""
     resources = [r for r in TransientWebResource.objects.filter(transient=transient)
                  .select_related('information_source').order_by('id')
                  if _source_is_candidate_pipeline(r.information_source.name)]
@@ -292,7 +295,7 @@ def candidate_section_context(transient):
     runs += [{'name': n, 'permalinks': urls, 'detail': details.get(n, '')} for n, urls in permalinks.items()]
 
     images = []
-    for d in (TransientDiffImage.objects
+    for d in (PhotometryService.GetAuthorizedTransientDiffImages_ByUser(user)
               .filter(phot_data__photometry__transient=transient)
               .select_related('phot_data__band__instrument')
               .prefetch_related('phot_data__data_quality')
@@ -311,7 +314,7 @@ def candidate_section_context(transient):
     # Who flagged it: every POST adds photometry rows created by the poster
     # (re-posts too, as new rows that supersede the old ones), so the rows'
     # created_by covers everyone who sent this candidate in.
-    flagged_by = list(TransientPhotData.objects
+    flagged_by = list(PhotometryService.GetAuthorizedTransientPhotData_ByUser(user)
                       .filter(photometry__transient=transient)
                       .values('created_by__username', 'created_by__first_name',
                               'created_by__last_name')
@@ -402,10 +405,10 @@ def _epoch_grid(images):
     return grid
 
 
-def photometry_epochs(transient):
-    """Current (not superseded) photometry grouped into epochs, points within EPOCH_GAP_DAYS of the
-    epoch's first point, newest epoch first."""
-    points = (TransientPhotData.objects.filter(photometry__transient=transient)
+def photometry_epochs(user, transient):
+    """Current (not superseded) photometry `user` may see (#86) grouped into epochs, points within
+    EPOCH_GAP_DAYS of the epoch's first point, newest epoch first."""
+    points = (PhotometryService.GetAuthorizedTransientPhotData_ByUser(user).filter(photometry__transient=transient)
               .exclude(data_quality__name=SUPERSEDED).select_related('band').order_by('obs_date'))
     epochs = []
     for p in points:
@@ -416,21 +419,21 @@ def photometry_epochs(transient):
     return list(reversed(epochs))
 
 
-def candidate_pointer_context(transient):
+def candidate_pointer_context(user, transient):
     """What the transient page needs to point at the candidate page: {} when the
     object has no candidate-pipeline data and is not a candidate."""
     is_candidate = (transient.status.name or '').strip().lower() == CANDIDATE.lower()
     links = _links(transient)
-    has_data = links['permalink'] is not None or TransientDiffImage.objects.filter(
-        phot_data__photometry__transient=transient).exists()
+    has_data = links['permalink'] is not None or PhotometryService.GetAuthorizedTransientDiffImages_ByUser(
+        user).filter(phot_data__photometry__transient=transient).exists()
     if not (is_candidate or has_data):
         return {}
     return {'candidate_pointer': True, 'candidate_links': links}
 
 
-def candidate_page_context(transient):
-    """Everything the candidate page shows, or {} when the object has no candidate data."""
-    ctx = candidate_section_context(transient)
+def candidate_page_context(user, transient):
+    """Everything the candidate page shows `user`, or {} when the object has no candidate data."""
+    ctx = candidate_section_context(user, transient)
     if not ctx:
         return {}
     images = ctx['candidate_images']
@@ -472,7 +475,7 @@ def candidate_page_context(transient):
         host_band = next((r['band'] for r in refs.values() if r['ref'] == host_image), None)
     ctx.update({
         'candidate_epochs': _epoch_grid(images),
-        'candidate_epoch_options': [(i, ep[0].obs_date) for i, ep in enumerate(photometry_epochs(transient))],
+        'candidate_epoch_options': [(i, ep[0].obs_date) for i, ep in enumerate(photometry_epochs(user, transient))],
         'candidate_host_image_band': host_band,
         'candidate_best': _triplet(best),
         'candidate_best_is_latest': bool(best and latest and best['phot'].id == latest['phot'].id),
@@ -493,15 +496,10 @@ def candidate_page_context(transient):
 
 
 @login_required
-def candidate_detail(request, slug):
-    # an old slug (alias) or a name typed into the URL redirects to the current slug (#29)
-    transient = find_transient(slug, Transient.objects.select_related('host__catalog', 'status'))
-    if transient is None:
-        return transient_not_found(request, slug)
-    if transient.slug and transient.slug != slug:
-        return redirect('candidate_detail', slug=transient.slug)
-
-    context = candidate_page_context(transient)
+@transient_access()
+def candidate_detail(request, transient):
+    # @transient_access found it through the visibility rule (#86), and redirected an old slug (#29)
+    context = candidate_page_context(request.user, transient)
     if not context:
         # nothing from the candidate pipeline: the regular page is the page for this object
         return redirect('transient_detail', slug=transient.slug or transient.name)
@@ -509,21 +507,23 @@ def candidate_detail(request, slug):
     candidate_kind = find_by_name(TagKind, 'Candidate')
     statuses = TransientStatus.objects
     # the backlog, newest first, as on the Candidates page: where Mark triaged and Skip lead
-    new_slugs = list(dashboard_sets.new_candidates().order_by('-disc_date', 'id').values_list('slug', flat=True))
+    new_slugs = list(TransientService.visible_transients(request.user, dashboard_sets.new_candidates())
+                     .order_by('-disc_date', 'id').values_list('slug', flat=True))
     is_new = transient.slug in new_slugs
     next_new = None
     if is_new:
         at = new_slugs.index(transient.slug)
         following = new_slugs[at + 1:] + new_slugs[:at]
         next_new = following[0] if following else None
-    quality = candidate_quality([transient.id])
+    quality = candidate_quality(request.user, [transient.id])
     context.update({
         'candidate_is_new': is_new,
         'candidate_next_new': next_new,
         'candidate_quality': quality.get(transient.id),
         'candidate_quality_help': QUALITY_HELP,
         'transient': transient,
-        'logs': Log.objects.filter(transient=transient).select_related('created_by').order_by('id'),
+        'logs': TransientService.authorized_logs(Log.objects.filter(transient=transient), request.user)
+                .select_related('created_by').order_by('id'),
         'transient_comment_form': TransientCommentForm(),
         'candidate_tags_assigned': transient.tags.filter(kind=candidate_kind).select_related('color').order_by('name') if candidate_kind else [],
         'candidate_tags_available': TransientTag.objects.filter(kind=candidate_kind).select_related('color').order_by('name') if candidate_kind else [],
@@ -558,7 +558,8 @@ def _transient_host_z(transient):
 
 
 @login_required
-def candidate_sed(request, transient_id):
+@transient_access(by='transient_id')
+def candidate_sed(request, transient):
     """Observed and rest-frame SED of one epoch (?epoch=N, 0 is the latest) as Bokeh HTML, like the
     light curve: magnitude against wavelength, limits drawn at the 3-sigma limiting magnitude."""
     import math
@@ -570,10 +571,7 @@ def candidate_sed(request, transient_id):
     from bokeh.plotting import figure
     from bokeh.resources import CDN
 
-    transient = Transient.objects.filter(pk=transient_id).select_related('host').first()
-    if transient is None:
-        raise Http404('Candidate not found')
-    epochs = photometry_epochs(transient)
+    epochs = photometry_epochs(request.user, transient)
     if not epochs:
         return HttpResponse('<p class="text-muted">No photometry.</p>')
     try:

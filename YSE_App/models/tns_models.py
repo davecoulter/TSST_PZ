@@ -73,6 +73,9 @@ class TNSReportAttempt(BaseModel):
 
 	class Meta:
 		ordering = ('-created_date', 'id')
+		# The TNS role (#86): reporting to TNS and resolving on it (setting IAU names, releasing matched
+		# data). Given to the "TNS Reporters" group by migration 0019; superusers have every permission.
+		permissions = [('mutate_tns_metadata', 'Can mutate TNS metadata')]
 
 	@property
 	def unknown(self):

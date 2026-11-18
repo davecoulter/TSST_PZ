@@ -1,16 +1,20 @@
-"""#86 phase 1: the visibility rule in TransientService, and the photometry and spectra services that
-call it. Users in group A, group B, no group, and a superuser, against transients restricted to A,
-to B, reported to TNS, public, and with no group at all."""
+"""#86: the visibility rule in TransientService (phase 1), and the pages for one transient that go
+through it (phase 2, part 1). Users in group A, group B, no group, and a superuser, against transients
+restricted to A, to B, reported to TNS, public, and with no group at all."""
 import datetime
 
 from django.contrib.auth.models import AnonymousUser, Group, User
-from django.test import TestCase
+from django.core.exceptions import PermissionDenied
+from django.http import Http404, HttpResponse
+from django.test import RequestFactory, TestCase
+from django.urls import reverse
 
+from .access import transient_access
 from .data import PhotometryService, SpectraService, TransientService
 from .data.TransientService import FULL, PUBLIC, TNS_OBJECT
-from .models import (AlternateTransientNames, Host, HostPhotometry, Instrument, Observatory, ObservationGroup,
-                     PhotometricBand, Telescope, Transient, TransientPhotData, TransientPhotometry,
-                     TransientSpectrum, TransientStatus)
+from .models import (AlternateTransientNames, FollowupStatus, Host, HostPhotometry, Instrument, Log, Observatory,
+                     ObservationGroup, PhotometricBand, Telescope, Transient, TransientDiffImage, TransientFollowup,
+                     TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum, TransientStatus)
 
 UTC = datetime.timezone.utc
 
@@ -39,7 +43,8 @@ class VisibilityTestBase(TestCase):
 		cls.band = PhotometricBand.objects.create(name='F200W', instrument=cls.nircam, **cls.audit)
 
 		cls.host_a = Host.objects.create(name='host of A', ra=150.0, dec=2.0, **cls.audit)
-		cls.host_shared = Host.objects.create(name='host of A and the public one', ra=150.1, dec=2.1, **cls.audit)
+		# at the transients' position, so the detail page lists the transients near it
+		cls.host_shared = Host.objects.create(name='host of A and the public one', ra=150.18, dec=2.44, **cls.audit)
 		cls.host_catalog = Host.objects.create(name='catalog galaxy', ra=150.2, dec=2.2, **cls.audit)
 
 		def transient(name, groups, **fields):
@@ -75,6 +80,9 @@ class VisibilityTestBase(TestCase):
 			                                     dec=t.dec, obs_date=datetime.datetime(2026, 1, 2, tzinfo=UTC),
 			                                     **cls.audit)
 			s.groups.set(groups)
+			TransientSpecData.objects.bulk_create([  # the plots smooth the spectrum, so they need a few points
+				TransientSpecData(spectrum=s, wavelength=10000.0 + 200 * i, flux=1e-17 * (1 + i % 5), **cls.audit)
+				for i in range(50)])
 			return s
 
 		cls.s_reported_public = spectrum(cls.t_reported, [cls.public])
@@ -116,6 +124,16 @@ class TransientRuleTests(VisibilityTestBase):
 		self.assertEqual(level(self.user_b, self.t_public), FULL)
 		self.assertIsNone(level(self.user_a, self.t_orphan))
 		self.assertEqual(level(self.admin, self.t_orphan), FULL)
+
+	def test_public_grants_reading_only(self):
+		can_edit = TransientService.can_edit
+		self.assertEqual(TransientService.access_level(self.user_b, self.t_public), FULL)
+		self.assertFalse(can_edit(self.user_b, self.t_public))  # everyone reads it; nobody's team owns it
+		self.assertFalse(can_edit(self.user_b, self.t_a_and_public))
+		self.assertTrue(can_edit(self.user_a, self.t_a_and_public))
+		self.assertFalse(can_edit(self.user_b, self.t_reported))  # a TNS object, read-only to B
+		self.assertTrue(can_edit(self.user_a, self.t_reported))
+		self.assertTrue(can_edit(self.admin, self.t_public))
 
 	def test_no_duplicate_rows_for_a_transient_in_several_of_the_users_groups(self):
 		visible = TransientService.visible_transients(self.user_a).filter(name='a_and_public')
@@ -179,3 +197,133 @@ class HostRuleTests(VisibilityTestBase):
 	def test_host_photometry_needs_a_visible_host(self):
 		self.assertFalse(PhotometryService.GetAuthorizedHostPhotometry_ByUser(self.user_b).exists())
 		self.assertEqual(list(PhotometryService.GetAuthorizedHostPhotometry_ByUser(self.user_a)), [self.hp_host_a])
+
+
+class RolesTests(VisibilityTestBase):
+
+	def test_groups_that_grant_permissions_are_roles_not_data_groups(self):
+		names = set(TransientService.data_groups().values_list('name', flat=True))
+		self.assertTrue({'Team A', 'Team B', PUBLIC} <= names)
+		self.assertNotIn('TNS Reporters', names)  # granted mutate_tns_metadata by migration 0019
+
+	def test_the_tns_permission_comes_from_the_group_and_superusers_have_it(self):
+		reporter = User.objects.create_user('reporter', password='pw')
+		reporter.groups.add(Group.objects.get(name='TNS Reporters'))
+		self.assertTrue(reporter.has_perm('YSE_App.mutate_tns_metadata'))
+		self.assertTrue(self.admin.has_perm('YSE_App.mutate_tns_metadata'))
+		self.assertFalse(self.user_a.has_perm('YSE_App.mutate_tns_metadata'))
+
+
+class MetadataRuleTests(VisibilityTestBase):
+	"""Comments (Log) and follow-ups have their own groups, and need what they're attached to visible."""
+
+	def comment(self, text, groups, **target):
+		log = Log.objects.create(comment=text, **dict(self.audit, **target))
+		log.groups.set(groups)
+		return log
+
+	def test_comments_need_their_group_and_a_visible_target(self):
+		public = self.comment('public note', [self.public], transient=self.t_reported)
+		self.comment('A note', [self.group_a], transient=self.t_reported)
+		self.comment('public note on a hidden transient', [self.public], transient=self.t_a)
+		on_phot = self.comment('public note on A-only photometry', [self.public], transient_photometry=self.p_reported_a)
+		orphan = self.comment('no group', [], transient=self.t_public)
+		self.assertEqual(set(TransientService.authorized_logs(Log.objects.all(), self.user_b)), {public})
+		self.assertIn(on_phot, TransientService.authorized_logs(Log.objects.all(), self.user_a))
+		self.assertNotIn(orphan, TransientService.authorized_logs(Log.objects.all(), self.user_a))
+		self.assertIn(orphan, TransientService.authorized_logs(Log.objects.all(), self.admin))
+
+	def test_follow_ups_need_their_group_and_a_visible_transient(self):
+		status = FollowupStatus.objects.create(name='Requested', **self.audit)
+		window = dict(valid_start=datetime.datetime(2026, 1, 1, tzinfo=UTC),
+		              valid_stop=datetime.datetime(2026, 2, 1, tzinfo=UTC), status=status, **self.audit)
+		ours = TransientFollowup.objects.create(transient=self.t_reported, **window)
+		ours.groups.set([self.group_a])
+		shared = TransientFollowup.objects.create(transient=self.t_reported, **window)
+		shared.groups.set([self.public])
+		on_hidden = TransientFollowup.objects.create(transient=self.t_a, **window)
+		on_hidden.groups.set([self.public])
+		allowed = TransientService.authorized_data(TransientFollowup.objects.all(), self.user_b)
+		self.assertEqual(set(allowed), {shared})
+
+
+class AccessDecoratorTests(VisibilityTestBase):
+
+	def call(self, user, transient, level):
+		@transient_access(level=level, by='transient_id')
+		def view(request, transient):
+			return HttpResponse(transient.name)
+		request = RequestFactory().get('/')
+		request.user = user
+		return view(request, transient_id=transient.pk)
+
+	def test_a_hidden_id_is_a_404_and_a_tns_object_is_403_where_full_access_is_needed(self):
+		self.assertEqual(self.call(self.user_b, self.t_reported, TNS_OBJECT).content, b'reported_a')
+		with self.assertRaises(PermissionDenied):
+			self.call(self.user_b, self.t_reported, FULL)
+		with self.assertRaises(Http404):
+			self.call(self.user_b, self.t_a, TNS_OBJECT)
+		self.assertEqual(self.call(self.user_a, self.t_reported, FULL).content, b'reported_a')
+
+
+class TransientPagesTests(VisibilityTestBase):
+	"""One detail page for every level: what B gets of A's transients is decided by the data, not the page."""
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		for name in ('Following', 'Watch', 'Interesting', 'Ignore'):  # the legacy transient page needs them
+			TransientStatus.objects.get_or_create(name=name, defaults=cls.audit)
+		for text, groups in (('a public note', [cls.public]), ('a secret A note', [cls.group_a])):
+			log = Log.objects.create(transient=cls.t_reported, comment=text, **cls.audit)
+			log.groups.set(groups)
+		TransientDiffImage.objects.create(phot_data=TransientPhotData.objects.get(photometry=cls.p_reported_a),
+		                                  postage_stamp_file='https://example.org/secret_a_stamp.png',
+		                                  valid_pixels=True, **cls.audit)
+
+	def get(self, user, name, *args):
+		self.client.force_login(user)
+		return self.client.get(reverse(name, args=args))
+
+	def test_a_hidden_transient_is_the_not_found_page_by_slug_alias_or_name(self):
+		for page in ('transient_detail', 'candidate_detail'):
+			for slug in (self.t_a.slug, 'old_name_of_a', 'only_a'):
+				response = self.get(self.user_b, page, slug)
+				self.assertContains(response, 'that you can see', status_code=404)
+				self.assertNotContains(response, '150.18', status_code=404)
+			missing = self.get(self.user_b, page, 'no_such_transient')
+			self.assertContains(missing, 'that you can see', status_code=404)
+
+	def test_a_tns_object_shows_its_facts_and_only_the_data_its_viewer_may_see(self):
+		response = self.get(self.user_b, 'transient_detail', self.t_reported.slug)
+		self.assertContains(response, '2026abc')
+		self.assertContains(response, 'a public note')
+		self.assertNotContains(response, 'a secret A note')
+		self.assertNotContains(response, 'secret_a_stamp.png')
+		mine = self.get(self.user_a, 'transient_detail', self.t_reported.slug)
+		self.assertContains(mine, 'a secret A note')
+		self.assertContains(mine, 'secret_a_stamp.png')
+
+	def test_the_transients_near_the_host_leave_out_hidden_ones(self):
+		response = self.get(self.user_b, 'transient_detail', self.t_public.slug)
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, 'only_b')
+		for hidden in ('only_a', 'also_a', 'no_group'):
+			self.assertNotContains(response, hidden)
+
+	def test_the_candidate_dashboard_lists_only_visible_candidates(self):
+		response = self.get(self.user_b, 'candidate_dashboard')
+		self.assertContains(response, 'only_b')
+		for hidden in ('only_a', 'also_a', 'no_group'):
+			self.assertNotContains(response, hidden)
+
+	def test_plots_by_id_need_a_login_and_a_visible_transient(self):
+		for page in ('spectrumplot', 'spectrumplot_summary', 'candidate_sed'):
+			self.assertEqual(self.get(self.user_b, page, self.t_a.pk).status_code, 404, page)
+			self.assertEqual(self.get(self.user_b, page, self.t_reported.pk).status_code, 200, page)
+		self.client.logout()
+		for page in ('spectrumplot', 'spectrumplot_summary'):
+			self.assertEqual(self.client.get(reverse(page, args=[self.t_reported.pk])).status_code, 302, page)
+		self.client.force_login(self.user_b)
+		single = reverse('spectrumplotsingle', args=[self.t_a.pk, self.s_hidden_public.pk])
+		self.assertEqual(self.client.get(single).status_code, 404)

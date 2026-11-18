@@ -1,6 +1,6 @@
 """Reporting candidates to TNS (#52): the AT report payload.
 
-- `transient_fields(transient)` reads what one report entry needs from our data (the discovery
+- `transient_fields(user, transient)` reads what one report entry needs from our data (the discovery
   point and the other measured points to pick from, host redshift). These are the per-transient
   values the details form prefills and a reporter may edit. Remarks are left for the reporter:
   our comments judge whether a candidate is real, which is not what a TNS remark is for.
@@ -23,7 +23,7 @@ from . import tns_values
 from .candidate_ingest import SUPERSEDED
 from .candidate_views import flux_snr, is_detection
 from .common.utilities import GetSexigesimalString
-from .models import TransientPhotData
+from .data import PhotometryService
 
 # A detection at or above this S/N makes a discovery (see _discovery).
 DISCOVERY_SNR = 5.0
@@ -120,9 +120,9 @@ def host_redshift(transient):
     return None, None
 
 
-def transient_fields(transient):
-    """The per-transient values of one report entry, from current (not superseded) photometry and
-    the host:
+def transient_fields(user, transient):
+    """The per-transient values of one report entry, from the current (not superseded) photometry
+    `user` may see (#86: reporting is publishing, so only what the reporter can see) and the host:
 
     {'transient_id', 'internal_name', 'ra', 'dec',
      'discovery_date': the discovery point's date (see _discovery), or None when no point reaches DISCOVERY_SNR,
@@ -133,7 +133,7 @@ def transient_fields(transient):
 
     A point is {'id', 'obs_date', 'band', 'mag', 'mag_err', 'snr', 'instrumentid'}.
     """
-    points = (TransientPhotData.objects.filter(photometry__transient=transient)
+    points = (PhotometryService.GetAuthorizedTransientPhotData_ByUser(user).filter(photometry__transient=transient)
               .exclude(data_quality__name=SUPERSEDED)
               .select_related('band', 'photometry__instrument__telescope').order_by('obs_date', 'id'))
     detections = [p for p in points if p.mag is not None and is_detection(p.flux, p.flux_err, p.mag)]

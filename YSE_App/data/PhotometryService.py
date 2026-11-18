@@ -15,6 +15,11 @@ def GetAuthorizedTransientPhotometry_ByUser_ByTransient(user, transient_id):
 
     return allowed_phot_by_group_by_transient
 
+def GetAuthorizedTransientDiffImages_ByUser(user):
+    # difference images and stamps (#23) belong to a photometry point, and follow its photometry
+    return TransientDiffImage.objects.filter(
+        phot_data__photometry__in=GetAuthorizedTransientPhotometry_ByUser(user).values('pk'))
+
 def GetAuthorizedHostPhotometry_ByUser(user):
     return TransientService.authorized_data(HostPhotometry.objects.all(), user)
 
