@@ -1,9 +1,10 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
 class TransientObservationTaskSerializer(serializers.HyperlinkedModelSerializer):
-	followup = serializers.HyperlinkedRelatedField(queryset=TransientFollowup.objects.all(), view_name='transientfollowup-detail')
+	followup = RuleRelatedField(queryset=TransientFollowup.objects.all(), view_name='transientfollowup-detail')
 	instrument_config = serializers.HyperlinkedRelatedField(queryset=InstrumentConfig.objects.all(), view_name='instrumentconfig-detail')
 	status = serializers.HyperlinkedRelatedField(queryset=TaskStatus.objects.all(), view_name='taskstatus-detail')
 	
@@ -35,7 +36,7 @@ class TransientObservationTaskSerializer(serializers.HyperlinkedModelSerializer)
 		return instance
 
 class HostObservationTaskSerializer(serializers.HyperlinkedModelSerializer):
-	followup = serializers.HyperlinkedRelatedField(queryset=HostFollowup.objects.all(), view_name='hostfollowup-detail')
+	followup = RuleRelatedField(queryset=HostFollowup.objects.all(), view_name='hostfollowup-detail')
 	instrument_config = serializers.HyperlinkedRelatedField(queryset=InstrumentConfig.objects.all(), view_name='instrumentconfig-detail')
 	status = serializers.HyperlinkedRelatedField(queryset=TaskStatus.objects.all(), view_name='taskstatus-detail')
 	

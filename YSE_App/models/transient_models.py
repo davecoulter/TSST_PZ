@@ -44,6 +44,12 @@ class Transient(BaseModel):
 	# means superusers only, never everyone: the reserved 'Public' group is how to share widely.
 	groups = models.ManyToManyField(Group, blank=True)
 
+	class Meta:
+		# The curator role (#86): changing a transient's status, tags or fields, requesting follow-up,
+		# and uploading data, within the transient's own groups. Given to the "Transient Curators" group
+		# by migration 0020; superusers have every permission. See TransientService.can_edit.
+		permissions = [('curate_transients', 'Can curate transients')]
+
 
 	### Properties ###
 	# Required

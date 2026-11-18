@@ -32,6 +32,8 @@ class VisibilityTestBase(TestCase):
 		cls.user_b = User.objects.create_user('in_b', password='pw')
 		cls.user_b.groups.add(cls.group_b)
 		cls.nobody = User.objects.create_user('in_no_group', password='pw')
+		cls.curator_a = User.objects.create_user('curator_in_a', password='pw')  # the role (migration 0020) and the scope
+		cls.curator_a.groups.add(cls.group_a, Group.objects.get(name='Transient Curators'))
 		cls.admin = User.objects.create_superuser('visibility_admin', password='pw')
 		cls.audit = dict(created_by=cls.admin, modified_by=cls.admin)
 
@@ -126,15 +128,28 @@ class TransientRuleTests(VisibilityTestBase):
 		self.assertIsNone(level(self.user_a, self.t_orphan))
 		self.assertEqual(level(self.admin, self.t_orphan), FULL)
 
-	def test_public_grants_reading_only(self):
+	def test_curating_needs_the_role_and_one_of_the_transients_groups(self):
 		can_edit = TransientService.can_edit
+		self.assertFalse(can_edit(self.user_a, self.t_reported))  # in A, but only a viewer
+		self.assertTrue(can_edit(self.curator_a, self.t_reported))
+		self.assertTrue(can_edit(self.curator_a, self.t_a_and_public))
+		self.assertFalse(can_edit(self.curator_a, self.t_b))  # the role doesn't reach other groups
+		self.assertTrue(can_edit(self.admin, self.t_orphan))
+
+	def test_public_grants_reading_only(self):
 		self.assertEqual(TransientService.access_level(self.user_b, self.t_public), FULL)
-		self.assertFalse(can_edit(self.user_b, self.t_public))  # everyone reads it; nobody's team owns it
-		self.assertFalse(can_edit(self.user_b, self.t_a_and_public))
-		self.assertTrue(can_edit(self.user_a, self.t_a_and_public))
-		self.assertFalse(can_edit(self.user_b, self.t_reported))  # a TNS object, read-only to B
-		self.assertTrue(can_edit(self.user_a, self.t_reported))
-		self.assertTrue(can_edit(self.admin, self.t_public))
+		self.assertFalse(TransientService.can_edit(self.curator_a, self.t_public))  # everyone reads it; no team owns it
+
+	def test_anyone_who_can_see_a_transient_may_comment_on_it(self):
+		self.assertTrue(TransientService.can_comment(self.user_b, self.t_reported))  # a TNS object to B
+		self.assertTrue(TransientService.can_comment(self.nobody, self.t_public))
+		self.assertFalse(TransientService.can_comment(self.user_b, self.t_a))
+
+	def test_only_its_author_or_a_superuser_changes_an_added_item(self):
+		log = Log.objects.create(transient=self.t_public, comment='mine', created_by=self.user_b, modified_by=self.user_b)
+		self.assertTrue(TransientService.can_change(self.user_b, log))
+		self.assertFalse(TransientService.can_change(self.curator_a, log))
+		self.assertTrue(TransientService.can_change(self.admin, log))
 
 	def test_no_duplicate_rows_for_a_transient_in_several_of_the_users_groups(self):
 		visible = TransientService.visible_transients(self.user_a).filter(name='a_and_public')
@@ -206,6 +221,7 @@ class RolesTests(VisibilityTestBase):
 		names = set(TransientService.data_groups().values_list('name', flat=True))
 		self.assertTrue({'Team A', 'Team B', PUBLIC} <= names)
 		self.assertNotIn('TNS Reporters', names)  # granted mutate_tns_metadata by migration 0019
+		self.assertNotIn('Transient Curators', names)  # granted curate_transients by migration 0020
 
 	def test_the_tns_permission_comes_from_the_group_and_superusers_have_it(self):
 		reporter = User.objects.create_user('reporter', password='pw')
@@ -264,7 +280,9 @@ class AccessDecoratorTests(VisibilityTestBase):
 			self.call(self.user_b, self.t_reported, FULL)
 		with self.assertRaises(Http404):
 			self.call(self.user_b, self.t_a, TNS_OBJECT)
-		self.assertEqual(self.call(self.user_a, self.t_reported, FULL).content, b'reported_a')
+		with self.assertRaises(PermissionDenied):
+			self.call(self.user_a, self.t_reported, FULL)  # in A, but not a curator
+		self.assertEqual(self.call(self.curator_a, self.t_reported, FULL).content, b'reported_a')
 
 
 class TransientPagesTests(VisibilityTestBase):
@@ -475,3 +493,146 @@ class EndpointsTests(VisibilityTestBase):
 		offered = lambda user: {d['id'] for d in tns_report.transient_fields(user, self.t_reported)['detections']}
 		self.assertNotIn(self.private_point.pk, offered(self.user_b))
 		self.assertIn(self.private_point.pk, offered(self.user_a))
+
+
+class ApiTests(VisibilityTestBase):
+	"""Phase 2, part 3a: the API. Reads by the group rule; comments by anyone who can see; curating by
+	the role and the transient's groups; links in writes by the same rules; #92."""
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		cls.curator_b = User.objects.create_user('curator_in_b', password='pw')
+		cls.curator_b.groups.add(cls.group_b, Group.objects.get(name='Transient Curators'))
+
+	def api(self, user=None):
+		from rest_framework.test import APIClient
+		client = APIClient()
+		if user is not None:
+			client.force_authenticate(user)
+		return client
+
+	def url(self, name, *args):
+		return reverse(name, args=args)
+
+	def test_without_credentials_only_the_root_and_schema_answer(self):
+		anonymous = self.api()
+		self.assertIn(anonymous.get(self.url('transient-list')).status_code, (401, 403))
+		self.assertIn(anonymous.get(self.url('hostcatalog-list')).status_code, (401, 403))  # was open to anonymous reads
+		self.assertEqual(anonymous.get(self.url('api-root')).status_code, 200)
+		self.assertNotIn(anonymous.get('/api/schema/').status_code, (401, 403))
+
+	def test_users_and_groups_are_for_superusers_and_never_show_hashes_or_emails(self):
+		for name, args in (('user-list', ()), ('user-detail', (self.user_a.pk,)), ('group-list', ()),
+		                   ('group-detail', (self.group_a.pk,))):
+			self.assertEqual(self.api(self.user_b).get(self.url(name, *args)).status_code, 403, name)
+		body = self.api(self.admin).get(self.url('user-detail', self.user_a.pk)).json()
+		self.assertEqual(set(body), {'url', 'username', 'first_name', 'last_name'})
+		self.assertEqual(set(self.api(self.admin).get(self.url('group-detail', self.group_a.pk)).json()), {'url', 'name'})
+
+	def test_reads_follow_the_group_rule(self):
+		names = {t['name'] for t in self.api(self.user_b).get(self.url('transient-list') + '?limit=100').json()['results']}
+		self.assertEqual(names, {'only_b', 'reported_a', 'public_one', 'a_and_public'})
+		self.assertEqual(self.api(self.user_b).get(self.url('transient-detail', self.t_a.pk)).status_code, 404)
+		filtered = self.api(self.user_a).get(self.url('transient-list') + '?group_in=Public&limit=100').json()['results']
+		self.assertEqual({t['name'] for t in filtered}, {'public_one', 'a_and_public'})
+		self.assertEqual(self.api(self.user_b).get(self.url('transient-detail', self.t_public.pk)).json()['groups'], ['Public'])
+
+	def test_anyone_who_can_see_a_transient_may_comment_with_their_own_groups_or_public(self):
+		client = self.api(self.user_b)
+		on = lambda t, groups: client.post(self.url('log-list'), {'comment': 'hi', 'groups': groups,
+		                                    'transient': self.url('transient-detail', t.pk)}, format='json')
+		self.assertEqual(on(self.t_reported, ['Team B']).status_code, 201)  # a TNS object to B
+		self.assertEqual(on(self.t_reported, ['Public']).status_code, 201)
+		self.assertEqual(on(self.t_reported, ['Team A']).status_code, 400)  # not B's group
+		self.assertEqual(on(self.t_reported, []).status_code, 400)  # at least one group
+		hidden = on(self.t_a, ['Team B'])
+		self.assertEqual(hidden.status_code, 400)
+		self.assertIn('does not exist', str(hidden.json()['transient']))  # the same as a missing transient
+
+	def test_only_the_author_changes_a_comment(self):
+		self.api(self.user_b).post(self.url('log-list'), {'comment': 'mine', 'groups': ['Public'],
+		                           'transient': self.url('transient-detail', self.t_public.pk)}, format='json')
+		log = Log.objects.get(comment='mine')
+		self.assertEqual(self.api(self.curator_a).patch(self.url('log-detail', log.pk), {'comment': 'x'}, format='json').status_code, 403)
+		self.assertEqual(self.api(self.user_b).patch(self.url('log-detail', log.pk), {'comment': 'edited'}, format='json').status_code, 200)
+
+	def test_curating_needs_the_role_and_the_transients_group(self):
+		status = self.url('transientstatus-detail', TransientStatus.objects.get(name='Candidate').pk)
+		patch = lambda user, t: self.api(user).patch(self.url('transient-detail', t.pk), {'status': status}, format='json')
+		self.assertEqual(patch(self.user_a, self.t_reported).status_code, 403)  # in A, but a viewer
+		self.assertEqual(patch(self.curator_b, self.t_reported).status_code, 403)  # a curator, but not of A's
+		self.assertEqual(patch(self.curator_a, self.t_reported).status_code, 200)
+		self.assertEqual(patch(self.curator_a, self.t_b).status_code, 404)  # hidden from A
+
+	def test_only_a_superuser_changes_who_may_see_a_transient(self):
+		groups = lambda user: self.api(user).patch(self.url('transient-detail', self.t_reported.pk),
+		                                           {'groups': ['Team A', 'Public']}, format='json')
+		self.assertEqual(groups(self.curator_a).status_code, 400)  # Public isn't a group a curator can set
+		self.assertEqual(self.api(self.curator_a).patch(self.url('transient-detail', self.t_reported.pk),
+		                                                {'groups': ['Team A']}, format='json').status_code, 403)
+		self.assertEqual(groups(self.admin).status_code, 200)
+
+	def test_uploads_need_the_role_own_groups_and_never_public(self):
+		def upload(user, t, groups):
+			return self.api(user).post(self.url('transientphotometry-list'), {
+				'transient': self.url('transient-detail', t.pk), 'groups': groups,
+				'instrument': self.url('instrument-detail', self.nircam.id),
+				'obs_group': self.url('observationgroup-detail', self.survey.pk)}, format='json')
+		self.assertEqual(upload(self.user_a, self.t_reported, ['Team A']).status_code, 403)  # no role
+		self.assertEqual(upload(self.curator_a, self.t_reported, ['Team A']).status_code, 201)
+		self.assertEqual(upload(self.curator_a, self.t_reported, ['Public']).status_code, 400)  # releasing is a superuser's
+		self.assertEqual(upload(self.curator_b, self.t_reported, ['Team B']).status_code, 400)  # not B's transient
+
+	def test_a_point_on_photometry_the_writer_may_not_use_is_refused_and_not_saved(self):
+		before = TransientPhotData.objects.count()
+		response = self.api(self.curator_b).post(self.url('transientphotdata-list'), {
+			'photometry': self.url('transientphotometry-detail', self.p_reported_a.id), 'band': self.url('photometricband-detail', self.band.id),
+			'obs_date': '2026-03-01T00:00:00Z', 'mag': 20.0, 'data_quality': []}, format='json')
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(TransientPhotData.objects.count(), before)
+
+	def test_per_user_tables_show_only_the_users_own_rows(self):
+		from .models import Profile
+		for user in (self.user_a, self.user_b):
+			Profile.objects.get_or_create(user=user, defaults=self.audit)
+		rows = self.api(self.user_b).get(self.url('profile-list')).json()['results']
+		self.assertEqual(len(rows), 1)
+
+	# --- the shared tables and tags (plan review 12) ---
+
+	def test_site_wide_tables_are_written_only_by_superusers(self):
+		body = {'name': 'NewCam', 'telescope': self.url('telescope-detail', self.nircam.telescope.pk)}
+		self.assertEqual(self.api(self.curator_a).post(self.url('instrument-list'), body, format='json').status_code, 403)
+		self.assertEqual(self.api(self.curator_a).delete(self.url('instrument-detail', self.nircam.id)).status_code, 403)
+		self.assertEqual(self.api(self.admin).post(self.url('instrument-list'), body, format='json').status_code, 201)
+		self.assertEqual(self.api(self.user_b).get(self.url('instrument-list')).status_code, 200)  # reading is open
+
+	def test_anyone_creates_a_tag_its_creator_changes_it_superusers_delete_it(self):
+		created = self.api(self.user_b).post(self.url('transienttag-list'), {'name': 'interesting to B'}, format='json')
+		self.assertEqual(created.status_code, 201, created.content)
+		tag = TransientTag.objects.get(name='interesting to B')
+		rename = lambda user: self.api(user).patch(self.url('transienttag-detail', tag.pk), {'name': 'renamed'}, format='json')
+		self.assertEqual(rename(self.curator_a).status_code, 403)
+		self.assertEqual(rename(self.user_b).status_code, 200)
+		self.assertEqual(self.api(self.user_b).delete(self.url('transienttag-detail', tag.pk)).status_code, 403)
+
+	def test_the_obsolete_yse_tables_are_for_superusers_only(self):
+		for name in ('surveyfield-list', 'surveyobservation-list', 'oncalldate-list'):
+			self.assertEqual(self.api(self.user_b).get(self.url(name)).status_code, 403, name)
+			self.assertEqual(self.api(self.admin).get(self.url(name)).status_code, 200, name)
+
+	def test_anyone_who_can_see_a_transient_adds_tags_and_a_curator_removes_them(self):
+		tag = TransientTag.objects.create(name='seen by B', **self.audit)
+		link = self.url('transienttag-detail', tag.pk)
+		tags = lambda user, t, links: self.api(user).patch(self.url('transient-detail', t.pk), {'tags': links}, format='json')
+		self.assertEqual(tags(self.user_b, self.t_reported, [link]).status_code, 200)  # B sees it as a TNS object
+		self.assertEqual(list(self.t_reported.tags.all()), [tag])
+		self.assertEqual(tags(self.user_b, self.t_reported, []).status_code, 403)  # removing is curating
+		self.assertEqual(tags(self.user_b, self.t_a, [link]).status_code, 404)  # hidden
+		self.assertEqual(tags(self.curator_a, self.t_reported, []).status_code, 200)
+		self.assertFalse(self.t_reported.tags.exists())
+		status = self.url('transientstatus-detail', TransientStatus.objects.get(name='Candidate').pk)
+		mixed = self.api(self.user_b).patch(self.url('transient-detail', self.t_reported.pk),
+		                                    {'tags': [link], 'status': status}, format='json')
+		self.assertEqual(mixed.status_code, 403)  # anything beyond adding tags is curating

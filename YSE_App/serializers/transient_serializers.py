@@ -1,4 +1,7 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField
+from YSE_App.data import TransientService
+from rest_framework.exceptions import PermissionDenied
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
@@ -10,12 +13,14 @@ class TransientSerializer(serializers.HyperlinkedModelSerializer):
     best_spec_class = serializers.HyperlinkedRelatedField(queryset=TransientClass.objects.all(), allow_null=True, required=False, view_name='transientclass-detail', lookup_field="id")
     photo_class = serializers.HyperlinkedRelatedField(queryset=TransientClass.objects.all(), allow_null=True, required=False, view_name='transientclass-detail', lookup_field="id")
     context_class = serializers.HyperlinkedRelatedField(queryset=TransientClass.objects.all(), allow_null=True, required=False, view_name='transientclass-detail', lookup_field="id")
-    best_spectrum = serializers.HyperlinkedRelatedField(queryset=TransientSpectrum.objects.all(), allow_null=True, required=False, view_name='transientspectrum-detail', lookup_field="id")
-    host = serializers.HyperlinkedRelatedField(queryset=Host.objects.all(), allow_null=True, required=False, view_name='host-detail', lookup_field="id")
+    best_spectrum = RuleRelatedField(queryset=TransientSpectrum.objects.all(), allow_null=True, required=False, view_name='transientspectrum-detail', lookup_field="id")
+    host = RuleRelatedField(queryset=Host.objects.all(), allow_null=True, required=False, view_name='host-detail', lookup_field="id")
     abs_mag_peak_band = serializers.HyperlinkedRelatedField(queryset=PhotometricBand.objects.all(), allow_null=True, required=False, view_name='photometricband-detail', lookup_field="id")
     antares_classification = serializers.HyperlinkedRelatedField(queryset=AntaresClassification.objects.all(), allow_null=True, required=False, view_name='antaresclassification-detail')
     internal_survey = serializers.HyperlinkedRelatedField(queryset=InternalSurvey.objects.all(), allow_null=True, required=False, view_name='internalsurvey-detail')
     tags = serializers.HyperlinkedRelatedField(queryset=TransientTag.objects.all(), many=True, view_name='transienttag-detail')
+    # #86: who may see it, by name; the creator's own data groups. Only a superuser changes them later.
+    groups = GroupsField(many=True, allow_empty=False)
 
     created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
     modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
@@ -39,8 +44,9 @@ class TransientSerializer(serializers.HyperlinkedModelSerializer):
         if tags_exist:
             transient_tags = validated_data.pop('tags')
 
+        groups = validated_data.pop('groups')
         transient = Transient.objects.create(**validated_data)
-        transient.save()
+        transient.groups.set(groups)
 
         if tags_exist:
             for tag in transient_tags:
@@ -92,7 +98,17 @@ class TransientSerializer(serializers.HyperlinkedModelSerializer):
         instance.has_chandra = validated_data.get('has_chandra', instance.has_chandra)
         instance.has_spitzer = validated_data.get('has_spitzer', instance.has_spitzer)
 
+        if 'groups' in validated_data:
+            # who may see a transient is a superuser's decision (#86: the cost of a mistake)
+            if not self.context['request'].user.is_superuser:
+                raise PermissionDenied({"groups": "Only a superuser can change who may see a transient."})
+            instance.groups.set(validated_data.pop('groups'))
+
         if 'tags' in validated_data.keys():
+            # #86: anyone who can see a transient may add tags; removing one is curating
+            removed = set(instance.tags.all()) - set(validated_data['tags'])
+            if removed and not TransientService.can_edit(self.context['request'].user, instance):
+                raise PermissionDenied({"tags": "Only a curator of this transient can remove a tag."})
             # Disassociate existing `Transient Tags`
             transient_tags = instance.tags.all()
             for tag in transient_tags:
@@ -111,7 +127,7 @@ class TransientSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class AlternateTransientNamesSerializer(serializers.HyperlinkedModelSerializer):
-    transient = serializers.HyperlinkedRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
+    transient = RuleRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
     obs_group = serializers.HyperlinkedRelatedField(queryset=ObservationGroup.objects.all(), view_name='observationgroup-detail')
 
     created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')

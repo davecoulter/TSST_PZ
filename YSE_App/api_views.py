@@ -10,41 +10,38 @@ from rest_framework.reverse import reverse
 from .models import *
 from .serializers import *
 from .data import PhotometryService, SpectraService, ObservingResourceService
+from .access import IsSuperuser, ReadableQuerysetMixin
 
 from django_filters.rest_framework import DjangoFilterBackend,filters
 import django_filters
 
 ### `Additional Info` ViewSets ###
-class TransientWebResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TransientWebResourceViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = TransientWebResource.objects.all()
     serializer_class = TransientWebResourceSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class HostWebResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class HostWebResourceViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = HostWebResource.objects.all()
     serializer_class = HostWebResourceSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `HostCatalog` and `TagKind` ViewSets (read-only lookups) ###
-class HostCatalogViewSet(viewsets.ReadOnlyModelViewSet):
+class HostCatalogViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = HostCatalog.objects.all()
     serializer_class = HostCatalogSerializer
 
-class TagKindViewSet(viewsets.ReadOnlyModelViewSet):
+class TagKindViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = TagKind.objects.all()
     serializer_class = TagKindSerializer
 
 ### `Enum` ViewSets ###
 # Only exposing GET
-class TransientStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class TransientStatusViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = TransientStatus.objects.all()
     serializer_class = TransientStatusSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class FollowupStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class FollowupStatusViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = FollowupStatus.objects.all()
     serializer_class = FollowupStatusSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `SurveyField` Filter Set ###
 class SurveyFieldFilter(django_filters.FilterSet):
@@ -65,18 +62,18 @@ class SurveyFieldMSBFilter(django_filters.FilterSet):
         fields = ('name','active')
 
 ### `SurveyField ViewSets` ###
-class SurveyFieldViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class SurveyFieldViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    permission_classes = (IsSuperuser,)  # #86: obsolete YSE table
     queryset = SurveyField.objects.all()
     serializer_class = SurveyFieldSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = SurveyFieldFilter
 
 
-class SurveyFieldMSBViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet): #viewsets.ReadOnlyModelViewSet):
+class SurveyFieldMSBViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet): #viewsets.ReadOnlyModelViewSet):
+    permission_classes = (IsSuperuser,)  # #86: obsolete YSE table
     queryset = SurveyFieldMSB.objects.all()
     serializer_class = SurveyFieldMSBSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = SurveyFieldMSBFilter
 
@@ -101,27 +98,24 @@ class SurveyObsFilter(django_filters.FilterSet):
         fields = ()
 
 
-class SurveyObservationViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class SurveyObservationViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    permission_classes = (IsSuperuser,)  # #86: obsolete YSE table
     queryset = SurveyObservation.objects.all()
     serializer_class = SurveyObservationSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = SurveyObsFilter
 
-class TaskStatusViewSet(viewsets.ReadOnlyModelViewSet):
+class TaskStatusViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = TaskStatus.objects.all()
     serializer_class = TaskStatusSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class AntaresClassificationViewSet(viewsets.ReadOnlyModelViewSet):
+class AntaresClassificationViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = AntaresClassification.objects.all()
     serializer_class = AntaresClassificationSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class InternalSurveyViewSet(viewsets.ReadOnlyModelViewSet):
+class InternalSurveyViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = InternalSurvey.objects.all()
     serializer_class = InternalSurveySerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `ObservationGroup` Filter Set ###
 class ObservationGroupFilter(django_filters.FilterSet):
@@ -131,58 +125,48 @@ class ObservationGroupFilter(django_filters.FilterSet):
         model = ObservationGroup
         fields = ()
     
-class ObservationGroupViewSet(viewsets.ReadOnlyModelViewSet):
+class ObservationGroupViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = ObservationGroup.objects.all()
     serializer_class = ObservationGroupSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = ObservationGroupFilter
     
-class SEDTypeViewSet(viewsets.ReadOnlyModelViewSet):
+class SEDTypeViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = SEDType.objects.all()
     serializer_class = SEDTypeSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class HostMorphologyViewSet(viewsets.ReadOnlyModelViewSet):
+class HostMorphologyViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = HostMorphology.objects.all()
     serializer_class = HostMorphologySerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class PhaseViewSet(viewsets.ReadOnlyModelViewSet):
+class PhaseViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Phase.objects.all()
     serializer_class = PhaseSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class TransientClassViewSet(viewsets.ReadOnlyModelViewSet):
+class TransientClassViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = TransientClass.objects.all()
     serializer_class = TransientClassSerializer
     lookup_field = "id"
-    permission_classes = (permissions.IsAuthenticated,)
 
-class ClassicalNightTypeViewSet(viewsets.ReadOnlyModelViewSet):
+class ClassicalNightTypeViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = ClassicalNightType.objects.all()
     serializer_class = ClassicalNightTypeSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class WebAppColorViewSet(viewsets.ReadOnlyModelViewSet):
+class WebAppColorViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = WebAppColor.objects.all()
     serializer_class = WebAppColorSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class UnitViewSet(viewsets.ReadOnlyModelViewSet):
+class UnitViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Unit.objects.all()
     serializer_class = UnitSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class DataQualityViewSet(viewsets.ReadOnlyModelViewSet):
+class DataQualityViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
         queryset = DataQuality.objects.all()
         serializer_class = DataQualitySerializer
-        permission_classes = (permissions.IsAuthenticated,)
 
-class InformationSourceViewSet(viewsets.ReadOnlyModelViewSet):
+class InformationSourceViewSet(ReadableQuerysetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = InformationSource.objects.all()
     serializer_class = InformationSourceSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Followup` ViewSets ###
 #class SimpleTransientSpecRequestViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
@@ -190,27 +174,23 @@ class InformationSourceViewSet(viewsets.ReadOnlyModelViewSet):
 #	serializer_class = SimpleTransientSpecRequestSerializer
 #	permission_classes = (permissions.IsAuthenticated,)
 
-class TransientFollowupViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TransientFollowupViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = TransientFollowup.objects.all()
     serializer_class = TransientFollowupSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class HostFollowupViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class HostFollowupViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = HostFollowup.objects.all()
     serializer_class = HostFollowupSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Host` ViewSets ###
-class HostViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class HostViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = Host.objects.all()
     serializer_class = HostSerializer
     lookup_field = "id"
-    permission_classes = (permissions.IsAuthenticated,)
 
-class HostSEDViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class HostSEDViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = HostSED.objects.all()
     serializer_class = HostSEDSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Instrument` Filter Set ###
 class InstrumentFilter(django_filters.FilterSet):
@@ -220,63 +200,56 @@ class InstrumentFilter(django_filters.FilterSet):
         fields = ()
     
 ### `Instrument` ViewSets ###
-class InstrumentViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+class InstrumentViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Instrument.objects.all()
     serializer_class = InstrumentSerializer
     lookup_field = "id"
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = InstrumentFilter
 
     
-class InstrumentConfigViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class InstrumentConfigViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = InstrumentConfig.objects.all()
     serializer_class = InstrumentConfigSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class ConfigElementViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class ConfigElementViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = ConfigElement.objects.all()
     serializer_class = ConfigElementSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Log` ViewSets ###
-class LogViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class LogViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    write_rule = 'comment'  # #86: anyone who can see a transient may comment; its author changes it
     queryset = Log.objects.all()
     serializer_class = LogSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Observation Task` ViewSets ###
-class TransientObservationTaskViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TransientObservationTaskViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = TransientObservationTask.objects.all()
     serializer_class = TransientObservationTaskSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class HostObservationTaskViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class HostObservationTaskViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = HostObservationTask.objects.all()
     serializer_class = HostObservationTaskSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Observatory` ViewSets ###
-class ObservatoryViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+class ObservatoryViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Observatory.objects.all()
     serializer_class = ObservatorySerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `On Call Date` ViewSets ###
-class OnCallDateViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class OnCallDateViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    permission_classes = (IsSuperuser,)  # #86: obsolete YSE table
     queryset = OnCallDate.objects.all()
     serializer_class = OnCallDateSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class YSEOnCallDateViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class YSEOnCallDateViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    permission_classes = (IsSuperuser,)  # #86: obsolete YSE table
     queryset = YSEOnCallDate.objects.all()
     serializer_class = YSEOnCallDateSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Phot` ViewSets ###
 class TransientPhotometryViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = TransientPhotometrySerializer
-    permission_classes = (permissions.IsAuthenticated,)
     lookup_field = "id"
 
     def get_queryset(self):
@@ -285,7 +258,6 @@ class TransientPhotometryViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet
 
 class HostPhotometryViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = HostPhotometrySerializer
-    permission_classes = (permissions.IsAuthenticated,)
     lookup_field = "id"
 
     def get_queryset(self):
@@ -294,7 +266,6 @@ class HostPhotometryViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class TransientPhotDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = TransientPhotDataSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_phot_data = PhotometryService.GetAuthorizedTransientPhotData_ByUser(self.request.user)
@@ -303,7 +274,6 @@ class TransientPhotDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class HostPhotDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = HostPhotDataSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_phot_data = PhotometryService.GetAuthorizedHostPhotData_ByUser(self.request.user)
@@ -311,52 +281,48 @@ class HostPhotDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 
 
-class TransientImageViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class TransientImageViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = TransientImage.objects.all()
     serializer_class = TransientImageSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class HostImageViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class HostImageViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = HostImage.objects.all()
     serializer_class = HostImageSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Photometric Band` ViewSets ###
-class PhotometricBandViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+class PhotometricBandViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = PhotometricBand.objects.all()
     serializer_class = PhotometricBandSerializer
     lookup_field = "id"
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Principal Investigator` ViewSets ###
-class PrincipalInvestigatorViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class PrincipalInvestigatorViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    write_rule = 'vocabulary'
     queryset = PrincipalInvestigator.objects.all()
     serializer_class = PrincipalInvestigatorSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Profile` ViewSets ###
-class ProfileViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class ProfileViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    owner_field, write_rule = 'user', 'own'  # each user's own row only
     queryset = Profile.objects.all()
     serializer_class = ProfileSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `UserQuery` ViewSets ###
-class UserQueryViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class UserQueryViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    owner_field, write_rule = 'user', 'own'
     queryset = UserQuery.objects.all()
     serializer_class = UserQuerySerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `UserTelescopeToFollow` ViewSets ###
-class UserTelescopeToFollowViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class UserTelescopeToFollowViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    owner_field, write_rule = 'profile__user', 'own'
     queryset = UserTelescopeToFollow.objects.all()
     serializer_class = UserTelescopeToFollowSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 
 ### `Spectra` ViewSets ###
 class TransientSpectrumViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = TransientSpectrumSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     lookup_field = "id"
 
     def get_queryset(self):
@@ -365,7 +331,6 @@ class TransientSpectrumViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class HostSpectrumViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = HostSpectrumSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     lookup_field = "id"
 
     def get_queryset(self):
@@ -374,7 +339,6 @@ class HostSpectrumViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class TransientSpecDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = TransientSpecDataSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_spec_data = SpectraService.GetAuthorizedTransientSpecData_ByUser(self.request.user)
@@ -382,7 +346,6 @@ class TransientSpecDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class HostSpecDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = HostSpecDataSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_spec_data = SpectraService.GetAuthorizedHostSpecData_ByUser(self.request.user)
@@ -391,7 +354,6 @@ class HostSpecDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 ### `Telescope Resource` ViewSets ###
 class ToOResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = ToOResourceSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_resource = ObservingResourceService.GetAuthorizedToOResource_ByUser(self.request.user)
@@ -399,7 +361,6 @@ class ToOResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class QueuedResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = QueuedResourceSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_resource = ObservingResourceService.GetAuthorizedQueuedResource_ByUser(self.request.user)
@@ -415,7 +376,6 @@ class ClassicalResourceFilter(django_filters.FilterSet):
 
 class ClassicalResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = ClassicalResourceSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = ClassicalResourceFilter
 
@@ -425,17 +385,15 @@ class ClassicalResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
 
 class ClassicalObservingDateViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
     serializer_class = ClassicalObservingDateSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
     def get_queryset(self):
         allowed_resource = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(self.request.user)
         return allowed_resource
 
 ### `Telescope` ViewSets ###
-class TelescopeViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+class TelescopeViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Telescope.objects.all()
     serializer_class = TelescopeSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Transient` Filter Set ###
 class TransientFilter(django_filters.FilterSet):
@@ -448,50 +406,48 @@ class TransientFilter(django_filters.FilterSet):
     dec_lte = django_filters.Filter(field_name="dec", lookup_expr='lte')
     tag_in = django_filters.BaseInFilter(field_name="tags__name")
     name = django_filters.Filter(field_name="name")
+    # #86: ?group_in=TSST,Public; within the transients the user may see anyway
+    group_in = django_filters.BaseInFilter(field_name="groups__name", distinct=True)
 
     class Meta:
         model = Transient
         fields = ('created_date','modified_date')
 
 ### `Transient` ViewSets ###
-class TransientViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+class TransientViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
     queryset = Transient.objects.all()
     serializer_class = TransientSerializer
-    permission_classes = (permissions.IsAuthenticated,)
     filter_backends = (DjangoFilterBackend,)
     filter_class = TransientFilter
     #filter_fields = ('status','created_date','modified_date','mw_ebv','status__name')
 
-class AlternateTransientNamesViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class AlternateTransientNamesViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = AlternateTransientNames.objects.all()
     serializer_class = AlternateTransientNamesSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `User` ViewSets ###
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = (IsSuperuser,)  # #92: never a user list, or user details, for anyone else
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Group` ViewSets ###
 class GroupViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = (IsSuperuser,)  # #92
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `Tag` ViewSets ###
-class TransientTagViewSet(custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+class TransientTagViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):
+    write_rule = 'vocabulary'  # #86: anyone adds a tag; its creator changes it; superusers delete
     queryset = TransientTag.objects.all()
     serializer_class = TransientTagSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
 ### `GW` ViewSets ###
-class GWCandidateViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class GWCandidateViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = GWCandidate.objects.all()
     serializer_class = GWCandidateSerializer
-    permission_classes = (permissions.IsAuthenticated,)
 
-class GWCandidateImageViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class GWCandidateImageViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
     queryset = GWCandidateImage.objects.all()
     serializer_class = GWCandidateImageSerializer
-    permission_classes = (permissions.IsAuthenticated,)

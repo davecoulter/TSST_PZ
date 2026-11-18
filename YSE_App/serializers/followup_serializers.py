@@ -1,9 +1,10 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField, set_groups
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
 #class SimpleTransientSpecRequestSerializer(serializers.HyperlinkedModelSerializer):
-#	transient = serializers.HyperlinkedRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
+#	transient = RuleRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
 #	status = serializers.HyperlinkedRelatedField(queryset=FollowupStatus.objects.all(), view_name='followupstatus-detail')
 #
 #	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
@@ -27,12 +28,14 @@ from django.contrib.auth.models import User
 #		return instance
 
 class TransientFollowupSerializer(serializers.HyperlinkedModelSerializer):
-	transient = serializers.HyperlinkedRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
+	transient = RuleRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
 	status = serializers.HyperlinkedRelatedField(queryset=FollowupStatus.objects.all(), view_name='followupstatus-detail')
 
 	too_resource = serializers.HyperlinkedRelatedField(queryset=ToOResource.objects.all(), allow_null=True, required=False, view_name='tooresource-detail')
 	classical_resource = serializers.HyperlinkedRelatedField(queryset=ClassicalResource.objects.all(), allow_null=True, required=False, view_name='classicalresource-detail') #, lookup_field="id")
 	queued_resource = serializers.HyperlinkedRelatedField(queryset=QueuedResource.objects.all(), allow_null=True, required=False, view_name='queuedresource-detail')
+	# #86: who may see it, by name: the requester's own data groups
+	groups = GroupsField(many=True, allow_empty=False)
 
 	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
 	modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
@@ -42,7 +45,10 @@ class TransientFollowupSerializer(serializers.HyperlinkedModelSerializer):
 		fields = "__all__"
 
 	def create(self, validated_data):
-		return TransientFollowup.objects.create(**validated_data)
+		groups = validated_data.pop('groups')
+		followup = TransientFollowup.objects.create(**validated_data)
+		followup.groups.set(groups)
+		return followup
 
 	def update(self, instance, validated_data):
 		instance.transient_id = validated_data.get('transient', instance.transient)
@@ -62,12 +68,14 @@ class TransientFollowupSerializer(serializers.HyperlinkedModelSerializer):
 
 		instance.modified_by_id = validated_data.get('modified_by', instance.modified_by)
 		
+		if 'groups' in validated_data:
+			set_groups(instance, validated_data.pop('groups'), self.context['request'].user)
 		instance.save()
 
 		return instance
 
 class HostFollowupSerializer(serializers.HyperlinkedModelSerializer):
-	host = serializers.HyperlinkedRelatedField(queryset=Host.objects.all(), view_name='host-detail', lookup_field="id")
+	host = RuleRelatedField(queryset=Host.objects.all(), view_name='host-detail', lookup_field="id")
 	status = serializers.HyperlinkedRelatedField(queryset=FollowupStatus.objects.all(), view_name='followupstatus-detail')
 
 	too_resource = serializers.HyperlinkedRelatedField(queryset=ToOResource.objects.all(), allow_null=True, required=False, view_name='tooresource-detail')

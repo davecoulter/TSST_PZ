@@ -1,10 +1,11 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
 class GWCandidateSerializer(serializers.HyperlinkedModelSerializer):
 
-	transient = serializers.HyperlinkedRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
+	transient = RuleRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
 
 	class Meta:
 		model = GWCandidate

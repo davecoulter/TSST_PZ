@@ -55,18 +55,21 @@ Status: ✅ done · ⏳ to write (part named) · 🧪 manual check on the produc
 
 ## Phase 2: API and writes (part 3)
 
-| Surface | Checks | Status |
-|---|---|---|
-| API default | `IsAuthenticated`; schema and root open; every other endpoint refuses anonymous users | ⏳ |
-| `TransientViewSet` and the viewsets hanging off transients | list and detail filtered; hidden = 404 | ⏳ |
-| Serializer related fields | can't link a comment or photometry to a hidden transient; the error doesn't reveal that it exists | ⏳ |
-| API writes (`PUT`/`PATCH`) | need `can_edit`; a TNS object = 403 | ⏳ |
-| Curating (status, tags, fields, follow-ups) | needs `curate_transients` **and** a non-`Public` group of the transient: a group member without the role gets a 403; a curator in another group gets a 403 (or a 404 if hidden); a superuser always passes; edit controls hidden otherwise | ⏳ |
-| Comments | anyone who can see the transient may comment, tagged with their own data groups and/or `Public`; only the author or a superuser edits or deletes it | ⏳ |
-| Follow-up requests | only resources in the user's groups are offered **and** accepted; the status change happens through the curator rule | ⏳ |
-| Observing resources (#91) | follow the group rule; need a data group | ⏳ |
-| Comment and follow-up forms | group checkboxes, `Public` included, author's data groups pre-ticked, at least one required | ⏳ |
-| API parity (integration, `tests/integration`) | `groups` written and read back on transients, comments and follow-ups | ⏳ |
+| Surface | Checks | Test | Status |
+|---|---|---|---|
+| API default | a login for everything; root and schema open; data refused without credentials (incl. `hostcatalogs`, which was open) | `ApiTests.test_without_credentials_…`; integration `test_the_schema_is_open_…` | ✅ |
+| `users` and `groups` endpoints (#92) | superuser-only, list and detail; only `url`/`username`/names and `url`/`name` | `ApiTests.test_users_and_groups_…` | ✅ |
+| `TransientViewSet` and the viewsets hanging off transients | list and detail filtered; hidden = 404; `group_in` filter | `ApiTests.test_reads_follow_the_group_rule` | ✅ (one dispatcher, `TransientService.readable`, for every model) |
+| Serializer related fields | a link the writer may not use (hidden, or not theirs to curate) is 'does not exist', and nothing is saved | `ApiTests.test_anyone_who_can_see_…`, `test_uploads_…`, `test_a_point_on_photometry_…` | ✅ |
+| API writes | curating needs the role and the transient's group (403 otherwise); comments by anyone who can see, changed only by the author; groups on a transient changed only by a superuser; `Public` refused to curators; per-user tables show only one's own rows | `ApiTests` (curating, comments, groups, uploads, per-user) | ✅ |
+| Curating (status, tags, fields, follow-ups) | needs `curate_transients` **and** a non-`Public` group of the transient: a group member without the role gets a 403; a curator in another group gets a 403 (or a 404 if hidden); a superuser always passes; edit controls hidden otherwise | — | ⏳ |
+| Comments | anyone who can see the transient may comment, tagged with their own data groups and/or `Public`; only the author or a superuser edits or deletes it | — | ⏳ |
+| Follow-up requests | only resources in the user's groups are offered **and** accepted; the status change happens through the curator rule | — | ⏳ |
+| Observing resources (#91) | follow the group rule; need a data group | — | ⏳ |
+| Comment and follow-up forms | group checkboxes, `Public` included, author's data groups pre-ticked, at least one required | — | ⏳ |
+| Shared tables (review 12) | site-wide tables (instruments, ...) written and deleted only by superusers, read by all; tags and PIs created by anyone, changed by their creator, deleted by superusers; obsolete YSE tables superuser-only; tables not tied to a transient default to superuser writes | `ApiTests.test_site_wide_tables_…`, `test_anyone_creates_a_tag_…`, `test_the_obsolete_yse_tables_…` | ✅ |
+| Tagging a transient (API) | anyone who can see it adds tags; removing one, or any other change in the same request, needs a curator | `ApiTests.test_anyone_who_can_see_a_transient_adds_tags_…` | ✅ (the app's tag buttons: 3b) |
+| API parity (integration, `tests/integration/test_group_access_api.py`) | `groups` written and read back on transients and comments; a comment without groups refused | — | 🧪 run against the live stack after `migrate` (needs a superuser `YSE_USER`) |
 
 ## Phase 3: uploads
 

@@ -1,34 +1,37 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField, set_groups
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
 class LogSerializer(serializers.HyperlinkedModelSerializer):
-	transient = serializers.HyperlinkedRelatedField(queryset=Transient.objects.all(), allow_null=True, required=False, view_name='transient-detail')
-	host = serializers.HyperlinkedRelatedField(queryset=Host.objects.all(), allow_null=True, required=False, view_name='host-detail', lookup_field = "id")
+	transient = RuleRelatedField(queryset=Transient.objects.all(), rule='comment', allow_null=True, required=False, view_name='transient-detail')
+	host = RuleRelatedField(queryset=Host.objects.all(), rule='comment', allow_null=True, required=False, view_name='host-detail', lookup_field = "id")
 	host_sed = serializers.HyperlinkedRelatedField(queryset=HostSED.objects.all(), allow_null=True, required=False, view_name='hostsed-detail')
 	
-	transient_image = serializers.HyperlinkedRelatedField(queryset=TransientImage.objects.all(), allow_null=True, required=False, view_name='transientimage-detail')
-	host_image = serializers.HyperlinkedRelatedField(queryset=HostImage.objects.all(), allow_null=True, required=False, view_name='hostimage-detail')
+	transient_image = RuleRelatedField(queryset=TransientImage.objects.all(), rule='comment', allow_null=True, required=False, view_name='transientimage-detail')
+	host_image = RuleRelatedField(queryset=HostImage.objects.all(), rule='comment', allow_null=True, required=False, view_name='hostimage-detail')
 	
-	transient_spectrum = serializers.HyperlinkedRelatedField(queryset=TransientSpectrum.objects.all(), allow_null=True, required=False, view_name='transientspectrum-detail', lookup_field="id")
-	host_spectrum = serializers.HyperlinkedRelatedField(queryset=HostSpectrum.objects.all(), allow_null=True, required=False, view_name='hostspectrum-detail', lookup_field="id")
+	transient_spectrum = RuleRelatedField(queryset=TransientSpectrum.objects.all(), rule='comment', allow_null=True, required=False, view_name='transientspectrum-detail', lookup_field="id")
+	host_spectrum = RuleRelatedField(queryset=HostSpectrum.objects.all(), rule='comment', allow_null=True, required=False, view_name='hostspectrum-detail', lookup_field="id")
 	
-	transient_photometry = serializers.HyperlinkedRelatedField(queryset=TransientPhotometry.objects.all(), allow_null=True, required=False, view_name='transientphotometry-detail', lookup_field="id")
-	host_photometry = serializers.HyperlinkedRelatedField(queryset=HostPhotometry.objects.all(), allow_null=True, required=False, view_name='hostphotometry-detail', lookup_field="id")
+	transient_photometry = RuleRelatedField(queryset=TransientPhotometry.objects.all(), rule='comment', allow_null=True, required=False, view_name='transientphotometry-detail', lookup_field="id")
+	host_photometry = RuleRelatedField(queryset=HostPhotometry.objects.all(), rule='comment', allow_null=True, required=False, view_name='hostphotometry-detail', lookup_field="id")
 	
 	transient_web_resource = serializers.HyperlinkedRelatedField(queryset=TransientWebResource.objects.all(), allow_null=True, required=False, view_name='transientwebresource-detail')
 	host_web_resource = serializers.HyperlinkedRelatedField(queryset=HostWebResource.objects.all(), allow_null=True, required=False, view_name='hostwebresource-detail')
 	
-	transient_observation_task = serializers.HyperlinkedRelatedField(queryset=TransientObservationTask.objects.all(), allow_null=True, required=False, view_name='transientobservationtask-detail')
-	host_observation_task = serializers.HyperlinkedRelatedField(queryset=HostObservationTask.objects.all(), allow_null=True, required=False, view_name='hostobservationtask-detail')
+	transient_observation_task = RuleRelatedField(queryset=TransientObservationTask.objects.all(), rule='comment', allow_null=True, required=False, view_name='transientobservationtask-detail')
+	host_observation_task = RuleRelatedField(queryset=HostObservationTask.objects.all(), rule='comment', allow_null=True, required=False, view_name='hostobservationtask-detail')
 	
-	transient_followup = serializers.HyperlinkedRelatedField(queryset=TransientFollowup.objects.all(), allow_null=True, required=False, view_name='transientfollowup-detail')
-	host_followup = serializers.HyperlinkedRelatedField(queryset=HostFollowup.objects.all(), allow_null=True, required=False, view_name='hostfollowup-detail')
+	transient_followup = RuleRelatedField(queryset=TransientFollowup.objects.all(), rule='comment', allow_null=True, required=False, view_name='transientfollowup-detail')
+	host_followup = RuleRelatedField(queryset=HostFollowup.objects.all(), rule='comment', allow_null=True, required=False, view_name='hostfollowup-detail')
 	
 	instrument = serializers.HyperlinkedRelatedField(queryset=Instrument.objects.all(), allow_null=True, required=False, view_name='instrument-detail', lookup_field="id")
 	instrument_config = serializers.HyperlinkedRelatedField(queryset=InstrumentConfig.objects.all(), allow_null=True, required=False, view_name='instrumentconfig-detail')
 	config_element = serializers.HyperlinkedRelatedField(queryset=ConfigElement.objects.all(), allow_null=True, required=False, view_name='configelement-detail')
 	
+	# #86: who may read it, by name: the commenter's own data groups and/or 'Public'
+	groups = GroupsField(many=True, allow_public=True, allow_empty=False)
 	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
 	modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
 
@@ -37,7 +40,10 @@ class LogSerializer(serializers.HyperlinkedModelSerializer):
 		fields = "__all__"
 
 	def create(self, validated_data):
-		return Log.objects.create(**validated_data)
+		groups = validated_data.pop('groups')
+		log = Log.objects.create(**validated_data)
+		log.groups.set(groups)
+		return log
 
 	def update(self, instance, validated_data):
 		instance.transient_id = validated_data.get('transient', instance.transient)
@@ -63,6 +69,8 @@ class LogSerializer(serializers.HyperlinkedModelSerializer):
 
 		instance.modified_by_id = validated_data.get('modified_by', instance.modified_by)
 		
+		if 'groups' in validated_data:
+			set_groups(instance, validated_data.pop('groups'), self.context['request'].user, allow_public=True)
 		instance.save()
 
 		return instance

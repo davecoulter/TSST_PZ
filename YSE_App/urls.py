@@ -3,6 +3,8 @@ from django.conf import settings
 from django.contrib.auth import views as auth_views
 from django.contrib import admin
 from rest_framework.urlpatterns import format_suffix_patterns
+from rest_framework import routers
+from rest_framework.permissions import AllowAny
 from rest_framework.routers import DefaultRouter
 from rest_framework.schemas import get_schema_view
 from django.urls import path, re_path, include
@@ -16,7 +18,13 @@ from YSE_App.yse_utils import yse_pointings, yse_view_utils
 from YSE_App.views import SearchResultsView
 from YSE_App.util import submit_to_tns
 
-schema_view = get_schema_view(title='Young Supernova Experiment (YSE) API')
+# #86: what the API offers is public; every request for data needs credentials (RulePermission)
+schema_view = get_schema_view(title='Young Supernova Experiment (YSE) API', permission_classes=[AllowAny])
+
+
+class OpenAPIRootView(routers.APIRootView):
+    """The API root's list of endpoints, open like the schema."""
+    permission_classes = [AllowAny]
 
 # Wire up our API using automatic URL routing.
 # Additionally, we include login URLs for the browsable API.
@@ -188,6 +196,7 @@ urlpatterns = [
 ]
 
 router = DefaultRouter()
+router.APIRootView = OpenAPIRootView
 router.register(r'transientwebresources', api_views.TransientWebResourceViewSet)
 router.register(r'hostwebresources', api_views.HostWebResourceViewSet)
 router.register(r'transientstatuses', api_views.TransientStatusViewSet)

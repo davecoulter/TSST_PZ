@@ -1,8 +1,8 @@
 # 086: Group-based visibility for transients, photometry and spectra
 
-- **Issue:** #86, with #88 folded in as phase 5 (the PR closes both)
+- **Issue:** #86, with #88 (phase 5), #91 and #92 folded in; the PR closes all four
 - **Branch:** `86-group-visibility`
-- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1 and 2 committed; part 3 designed (review 11), waiting for Dave's go
+- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1 and 2 committed; part 3a built, in review
 
 ## Why
 
@@ -32,7 +32,7 @@ Everything here is decided (Dave, 2026-11-12 and 2026-11-17).
 
 **Hosts:** have no groups of their own. A host is visible if at least one linked transient is visible to the user. Hosts with no linked transient (catalog-only) are visible to everyone.
 
-**Comments and follow-ups** (`Log`, `TransientFollowup` and its observation tasks) get a `groups` field like photometry, under the same rule: visible if in `Public` or one of the user's groups, **and** what they're attached to is visible. The comment and follow-up forms get group checkboxes, with `Public` among them, pre-ticked with the author's data groups; at least one is required. Existing comments and follow-ups are set to `Public` by the ETL step (#10). API parity: `Log` and `TransientFollowup` are exposed, so both serializers get `groups`, including their hand-written `create()`/`update()`, with an integration test.
+**Comments and follow-ups** (`Log`, `TransientFollowup` and its observation tasks) get a `groups` field like photometry, under the same rule: visible if in `Public` or one of the user's groups, **and** what they're attached to is visible. The comment and follow-up forms get group checkboxes, with `Public` among them, pre-ticked with the author's data groups; at least one is required. Existing comments and follow-ups are set to `TSST` by the ETL step (#10). API parity: `Log` and `TransientFollowup` are exposed, so both serializers get `groups`, including their hand-written `create()`/`update()`, with an integration test.
 
 **One detail page, data filtered:** the same `transient_detail` (and candidate) template for every level, with no sections hidden. The view and the endpoints the page calls for plots and images hand the template only what the user may see, and an empty section renders as it does today for a transient with nothing in it. Write controls (forms, edit links, tag buttons) appear only where `{% if user|can_edit:transient %}`.
 
@@ -70,6 +70,15 @@ Everything here is decided (Dave, 2026-11-12 and 2026-11-17).
 | **Change a transient's groups** (who can see it), **delete**, **create users and assign groups** | a superuser |
 | **Edit or delete one's own comment** | its author, or a superuser |
 
+**The two-axis principle** (Dave, 2026-11-18), for placing any action, now or later. Ask two questions: is it **additive**, or does it **change or remove** something? And **who sees the result**: only an audience the author chooses (the item has its own groups), or everyone who sees the transient (shared), or the whole site?
+
+| | Only the author's chosen audience | Everyone who sees the transient | The whole site |
+|---|---|---|---|
+| **Additive** | anyone who can see the transient (a comment) | anyone who can see it (adding a tag; tags are moving off the main dashboard, #75) | harmless vocabulary: anyone (creating a tag label); instruments and bands: only as a side effect of the TNS integrations (`mutate_tns_metadata`), never via the API |
+| **Changing or removing** | the item's author (editing one's own comment) | a curator of the transient (status, fields, removing a tag) | superusers (instruments, telescopes, bands, ...; deleting any tag) |
+
+Data is the one deliberate exception: uploading photometry or spectra is additive and reaches only the uploader's chosen groups, but it needs the curator role, because data carries scientific weight and most users are viewers (Dave).
+
 **Choosing a gate:** gate each action by the cost of a mistake. Reversible and audited actions go to a widely granted role; irreversible or outward-facing ones (publishing to `Public`, reporting to TNS, changing who can see a transient, deleting) go to a narrow role or to superusers.
 
 **Roles are groups that grant permissions**, set up in Admin → Groups, and given to a person through the Groups box on their user page; never by picking per-table permissions. Each role is a custom permission in `Meta.permissions` plus a migration that creates its group: "TNS Reporters" (`mutate_tns_metadata`) and "Transient Curators" (`curate_transients`). Nobody holds `curate_transients` at first, so after deploy only superusers can curate until people are added to the group (fail closed).
@@ -85,6 +94,7 @@ In `TransientService`, `can_edit(user, transient)` = superuser, or `curate_trans
 4. **Writable `groups` fields** accept only the user's own data groups. `Public` is allowed on comments only; data gets it through the release paths.
 5. **A DRF permission class** does the per-object check: `can_edit` for transients and their data, `can_change` for comments and other added items.
 6. **API parity:** `groups` on the Transient, Log and TransientFollowup serializers, including their hand-written `create()`/`update()`; a `groups__name` filter on transients; an integration test in `tests/integration` that writes `groups` and reads it back.
+6b. **#92, folded in (Dave):** the `users` and `groups` endpoints (list and detail) become superuser-only through an `IsSuperuser` permission class (DRF's `IsAdminUser` checks `is_staff`, which 20 of 21 users have), and `UserSerializer` / `GroupSerializer` list their fields explicitly (`url`, `username`, `first_name`, `last_name`; `url`, `name`) instead of `__all__`, which returned password hashes, emails and permissions. The #86 PR closes #92.
 7. **The curator role:** `curate_transients` on `Transient`, and migration 0020 creating "Transient Curators" with it. `can_edit` = superuser, or the role plus a non-`Public` group of the transient; plus `can_comment` and `can_change` (built before review 11, kept).
 
 **3b, writes in the app:**
@@ -92,7 +102,18 @@ In `TransientService`, `can_edit(user, transient)` = superuser, or `curate_trans
 9. **Edit controls** in the detail and candidate templates sit behind the template filters (`can_edit`, `can_comment`), so users don't see buttons they can't use.
 10. **The comment form** gets group checkboxes: the author's data groups pre-ticked, `Public` available, at least one required.
 11. **The follow-up form** needs the curator role. It offers **and accepts** only resources in the user's groups (each resource field's queryset comes from `ObservingResourceService`, so the same filter decides both), and the request's status change goes with it (a follow-up request is a real status change). Its comment gets the follow-up's groups. `ObservingResourceService` uses `in_groups_q`; resources need a data group (#91; production has none to migrate).
-12. **Comments and follow-ups made by code** get groups from where they come from (candidate ingest: the ingest's groups; the follow-up form: the follow-up's), never `Public` by default. Existing ones (105 comments, 0 follow-ups on production) are set in the ETL step. **Open for the ETL, not blocking:** `Public` (as decided) or `TSST`, since they include ingest remarks and quality flags that external users would read once they join.
+12. **Comments and follow-ups made by code** get groups from where they come from (candidate ingest: the ingest's groups; the follow-up form: the follow-up's), never `Public` by default. Existing ones (105 comments, 0 follow-ups on production) are set in the ETL step. **Decided (Dave):** existing comments go to `TSST`, not `Public`; they're mostly the team's candidate vetting.
+
+**Who writes the shared tables** (API and admin; review 12):
+
+| Tables | Read | Create / change | Delete |
+|---|---|---|---|
+| Site-wide: instruments, instrument configs, config elements, telescopes, observatories, photometric bands | any logged-in user | superusers (the TNS integrations may add missing ones, never change them) | superusers |
+| User-defined: transient tags, principal investigators | any logged-in user | create: any logged-in user; change: their creator, or a superuser | superusers |
+| Obsolete YSE: survey fields, survey field MSBs, survey observations, on-call dates | superusers | superusers | superusers |
+| Anything else not tied to a transient or host (a table added later) | any logged-in user | superusers (fails closed) | superusers |
+
+Tagging a transient: adding a tag needs only that the user can see the transient; removing one needs a curator of the transient (the triage case: "Mark triaged" removes `New`, which ingest added) or a superuser. Recording who added a tag, and finer removal rules, are for #75. On-call dates may come back with automated alerts (e.g. Roman RAPID/RISE) and would get their own rule then.
 
 ## Scope
 
@@ -111,7 +132,7 @@ In `TransientService`, `can_edit(user, transient)` = superuser, or `curate_trans
 | 7 | **TNS** | The select page lists only Full-access transients. `tns_report.transient_fields` and the payload use only photometry the reporter can see (#4). The write-back doesn't touch groups: a transient becomes a TNS object by itself, because `iau_name` is set, and data goes `Public` only through "Resolve on TNS" (#5c). Results and history pages follow the transient rule. The legacy `submit_to_tns/<name>` URL becomes superuser-only. |
 | 8 | **Explorer** | `EXPLORER_PERMISSION_VIEW` and `EXPLORER_PERMISSION_CHANGE` become `lambda r: r.user.is_superuser` (check the signature our django-sql-explorer version expects: request or user). Only superusers write, run and see raw results. Other users reach saved queries only through dashboard links, which are filtered (#5). The `explorer` DB user isn't filtered, which is fine because no raw row reaches a non-superuser. **Why ad hoc queries stay superuser-only for now:** even with only IDs consumed, a query can work as an oracle. "Visible transients `WHERE` their hidden photometry is brighter than 20" returns only visible IDs, yet reveals hidden data. User-written queries later need a DB user that can read only views already filtered by the rule (future issue). |
 | 9 | **Tests** | Unit tests per surface with three users (in group A, in group B, superuser) and fixtures: an unreported transient in A, an unreported transient in B, a reported transient in A with `Public` and A-only photometry, an ungrouped transient. **Plus a URL sweep:** a test that walks every URL pattern (`urls.py` has 132) as the group-B user and checks that the A-transient's name, slug and coordinates never appear in any response (non-matching patterns are listed in an explicit skip list with reasons). That sweep is what stops a new page from skipping the rule unnoticed. A test that a saved query returning both A's and B's transients shows group-B users only B's. Integration test (API parity): write `groups` through the API, read it back, and check that an upload without groups is refused. |
-| 10 | **ETL for existing data (not a migration)** | Done with group access in the admin (5b), rehearsed on the local production restore, then on production right after the deploy: put the TSST team (all 21 current users) in a `TSST` data group and the chosen people in "Transient Curators"; filter "has no group", tick, and set access (transients with their photometry and spectra; existing comments and follow-ups to `Public`). `agentic_planning/086-group-visibility/etl.md` keeps a short read-only SQL checklist to confirm nothing is left without a group. Until it's done, ungrouped data is visible only to superusers: the rule fails closed, never open. |
+| 10 | **ETL for existing data (not a migration)** | Done with group access in the admin (5b), rehearsed on the local production restore, then on production right after the deploy: put the TSST team (all 21 current users) in a `TSST` data group and the chosen people in "Transient Curators"; filter "has no group", tick, and set access (transients with their photometry and spectra; existing comments and follow-ups to `TSST`). `agentic_planning/086-group-visibility/etl.md` keeps a short read-only SQL checklist to confirm nothing is left without a group. Until it's done, ungrouped data is visible only to superusers: the rule fails closed, never open. |
 | 10b | **Roles and release** | The `curate_transients` permission on `Transient` and a migration creating "Transient Curators" with it (part 3a). `can_edit` = superuser, or the permission plus a non-`Public` group. Observing resources follow the group rule (#91, pulled in): `ObservingResourceService` uses `in_groups_q`, resources need a data group, and follow-up forms offer only the user's (part 3b). Releasing to `Public` is part of group access in the admin (5b). |
 | 11 | **Docs** | User docs in `docs/`: groups, `Public`, data groups vs role groups (don't give a data group permissions), what outside users see of a TNS object, required groups on upload (CLI and API examples). |
 | 12 | **Navigation** (`templates/YSE_App/base.html`) | The sidebar is AdminLTE 2 with `data-widget="tree"` already on it, so submenus are `li.treeview` + `ul.treeview-menu`; no new library. **TNS Integration** (`mutate_tns_metadata` permission: "TNS Reporters", and superusers automatically): Resolve on TNS (phase 5), Report to TNS (the existing select page), and **TNS status**, which replaces "TNS reports". The status page lists report attempts and resolve records (`TNSResolveAttempt`) together, newest first, with a filter by kind, and follows the transient rule. **Admin** (superusers only): Django admin, Groups & users (a direct link to `admin/auth/group/`, since sharing is all about groups), Group access (#5b: the admin's transient list filtered to "has no group"), and Query Explorer. The flat "Admin" and "Query Explorer" links are no longer shown to everyone. |
@@ -199,7 +220,7 @@ Out of scope:
   - Found: `ObservingResourceService.py` has a third copy of the old rule, for telescope resources on the hidden legacy pages; left as is and filed as #91 (tech-debt). And `PhotometryService.GetAuthorizedHostPhotData_ByPhotometry` was broken (it filtered `HostPhotometry` on `photometry__id` and `HostPhotData` on `pk`, swapped) with no callers; removed (Dave). Checked on the production restore after migrating: Public reused, a non-superuser sees only the one TNS object and no photometry (fails closed), queries take about 0.01 s.
 - **2026-11-17 (plan review 5, Dave, before phase 2):**
   - **One detail template, data filtered** instead of a separate TNS-object page: static facts about the object (the whole transient row, host, tags, aliases, links) are public once it exists. What's protected is time-varying data (photometry, spectra) and team metadata.
-  - **Comments and follow-ups get their own groups now** (checkboxes, `Public` an option, pre-ticked with the author's data groups). Dave: part of this epic, found while designing. Existing ones go to `Public` in the ETL step.
+  - **Comments and follow-ups get their own groups now** (checkboxes, `Public` an option, pre-ticked with the author's data groups). Dave: part of this epic, found while designing. Existing ones go to `TSST` in the ETL step (review 11; first decided as `Public`).
   - Role vs data groups was first a `GroupInfo` model; dropped in review 6.
   - **Roles are native Django permissions** (`report_to_tns`, `resolve_on_tns`) instead of #52's hand-written group check, so superusers pass. This reverses #52 amendment 19.
   - **`can_edit`** is the one function deciding writes, with thin adapters.
@@ -252,3 +273,27 @@ Out of scope:
   - **The single-transient page gets a `Public` warning label**, with no change in behaviour.
   - All 21 current users are TSST.
 - **2026-11-17 (plan review 11, Dave):** The part 3 design is agreed and written up in "Part 3 design". Claude had started 3a before the go (the curator role, migration 0020, `can_edit` as role + scope, `can_comment`, `can_change`, and their tests, uncommitted); Dave asked to finish the design phase first, then give a go/no-go. Existing comments and follow-ups go to `Public` in the ETL step (or `TSST`: open); new ones always need groups.
+- **2026-11-17 (part 3a build):** Found: `/api/users/` and `/api/groups/` returned every user's password hash, email, superuser flag and permissions to any logged-in user (`fields = "__all__"`). Filed as #92 and folded into part 3a (Dave): the risk starts only when external users get accounts, which can't happen before #86 ships. Behind STScI SSO, so no password resets. `HostCatalogViewSet` and `TagKindViewSet` had no permission class and were readable anonymously; the new default closes them.
+- **2026-11-17 (part 3a build):**
+  - **One rule, thin DRF adapters** (`YSE_App/access.py`):
+    - `RulePermission` is the API's default: a login for everything, and writes by the view's `write_rule` (`curate` by default, `comment` for `Log`, `own` for per-user tables).
+    - `ReadableQuerysetMixin` narrows every viewset through `TransientService.readable()`, one dispatcher that knows how each model reaches its transient or host.
+    - `RuleRelatedField` narrows every link in a write through `TransientService.writable()`.
+    - `GroupsField` takes groups by name, and only those the user may set (`settable_groups`); `set_groups()` keeps an item's other groups on update.
+    - `IsSuperuser` covers `users` and `groups` (#92).
+  - **Reference tables** (instruments, telescopes, bands, tags, statuses, ...) need the curator role to write, the same as everything else. They were writable by any logged-in user.
+  - **Per-user tables** (profiles, saved-query links, telescopes to follow) list only the user's own rows. They listed everyone's.
+  - **The photometry and spectra serializers' own group checks were replaced** by the shared field and helper, a fourth copy of the old rule. The point serializers used to save a point and only then check its parent (with "no group" meaning allowed); the parent is now checked before anything is saved.
+  - **`groups` is shown and written by name** (e.g. `["TSST", "Public"]`), not as links to `group-detail`, which only superusers can open now. This changes the API for photometry and spectra, which used group links.
+  - **On a transient, only a superuser changes `groups`.** On comments, follow-ups, photometry and spectra, at least one group is required now (the API part of phase 3's rule).
+  - `auth_helpers.NotAuthorizedToAccessParent` stays for the resource serializers until #91 (3b).
+- **2026-11-18 (plan review 12, Dave, while reviewing 3a):**
+  - **The two-axis principle:** additive versus changing, by who sees the result. Uploads stay curator-only (data carries weight).
+  - **Site-wide tables** (instruments, telescopes, bands, ...) are superuser-only to write: changing a JWST band is not curation. The TNS integrations may add missing ones.
+  - **Tags and PIs:** anyone may create; only the creator changes; only superusers delete. Tagging a transient: anyone who can see it adds, a curator removes. Tag attribution and finer removal rules went to #75 as a comment.
+  - **Obsolete YSE tables** are superuser-only, reads included.
+  - **Tables not tied to a transient default to superuser-only writes,** so a new table fails closed.
+- **2026-11-18 (review 12 applied to 3a):**
+  - `RulePermission` takes the rule from the viewset's `write_rule`, or from its model: `curate` for rows tied to a transient or host, `site` (superusers) for everything else. Deleting is superuser-only.
+  - Tags and PIs are `vocabulary`: anyone adds, the creator changes. The five obsolete YSE viewsets use `IsSuperuser`.
+  - A `PATCH` that only adds tags to a transient needs only `can_add_tags` (can see it); the serializer refuses removing a tag without `can_edit`.

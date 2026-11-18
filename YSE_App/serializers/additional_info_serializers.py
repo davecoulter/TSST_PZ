@@ -1,9 +1,10 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
 class TransientWebResourceSerializer(serializers.HyperlinkedModelSerializer):
-	transient = serializers.HyperlinkedRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
+	transient = RuleRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
 	information_source = serializers.HyperlinkedRelatedField(queryset=InformationSource.objects.all(), view_name='informationsource-detail')
 	
 	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
@@ -30,7 +31,7 @@ class TransientWebResourceSerializer(serializers.HyperlinkedModelSerializer):
 		return instance
 
 class HostWebResourceSerializer(serializers.HyperlinkedModelSerializer):
-	host = serializers.HyperlinkedRelatedField(queryset=Host.objects.all(), lookup_field="id", view_name='host-detail')
+	host = RuleRelatedField(queryset=Host.objects.all(), lookup_field="id", view_name='host-detail')
 	information_source = serializers.HyperlinkedRelatedField(queryset=InformationSource.objects.all(), view_name='informationsource-detail')
 	
 	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')

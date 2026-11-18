@@ -8,8 +8,12 @@ A user has one of three levels of access to a transient:
   TNS_OBJECT  not FULL, but the transient has an IAU name: TNS shows it to anyone, so its TNS facts
               are visible (not our notes, tags, follow-ups, or data outside its own groups);
   None        no access at all: it must not show up anywhere for this user.
-Changing a transient (can_edit) needs more than FULL: 'Public' grants reading only, so only superusers
-and members of one of its other groups may change it.
+Writes follow the rule set in the plan (agentic_planning/086-group-visibility/plan.md):
+  can_comment  anyone who can see the transient (either level);
+  can_edit     curating (status, tags, fields, follow-up, uploads): the curate_transients permission
+               ("Transient Curators") and one of the transient's groups other than 'Public', which
+               grants reading only; or a superuser;
+  can_change   an item someone added (a comment, ...): its author, or a superuser.
 
 Photometry, spectra, comments (Log) and follow-ups follow their own groups, and also need what
 they're attached to (a transient, host, ...) to be visible, or a 'Public' point would give a hidden
@@ -25,7 +29,11 @@ distinct() is needed: the querysets stay safe to count, annotate and order.
 from django.contrib.auth.models import Group
 from django.db.models import Q
 
-from YSE_App.models import Host, HostPhotometry, HostSpectrum, Transient, TransientFollowup, TransientPhotometry, TransientSpectrum
+from YSE_App.models import (AlternateTransientNames, GWCandidate, Host, HostFollowup, HostImage, HostObservationTask,
+                            HostPhotData, HostPhotometry, HostSpecData, HostSpectrum, HostWebResource, Log, Transient,
+                            TransientDiffImage, TransientFollowup, TransientImage, TransientObservationTask,
+                            TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum,
+                            TransientWebResource)
 from YSE_App.transient_names import find_transient
 
 PUBLIC = 'Public'
@@ -79,13 +87,42 @@ def access_level(user, transient):
     return None
 
 
+CURATE = 'YSE_App.curate_transients'
+
+
 def can_edit(user, transient):
-    """Whether `user` may change `transient` and what hangs off it: a superuser, or a member of one of
-    its groups other than 'Public', which grants reading only. The one rule for writes; the template
-    filter, view decorator and API permission only call this."""
+    """Whether `user` may curate `transient`: a superuser, or the curator role (role) and one of its
+    groups other than 'Public' (scope). The one rule for curating; the template filter, view decorator
+    and API permission only call this."""
     if user.is_superuser:
         return True
+    if not user.has_perm(CURATE):
+        return False
     return transient.groups.exclude(name=PUBLIC).filter(pk__in=user.groups.values('pk')).exists()
+
+
+def can_comment(user, transient):
+    """Whether `user` may comment on `transient`: anyone who can see it. The comment's own groups
+    decide who reads it."""
+    return access_level(user, transient) is not None
+
+
+def can_add_tags(user, transient):
+    """Whether `user` may add tags to `transient`: anyone who can see it (adding is additive, and tags
+    are leaving the main dashboard, #75). Removing a tag is curating (can_edit)."""
+    return access_level(user, transient) is not None
+
+
+def is_transient_linked(model):
+    """Whether rows of `model` belong to a transient or host, so the rule set applies to them;
+    anything else is a shared table, written only by superusers unless its viewset says otherwise."""
+    return model in _TRANSIENT_PATH or model in _HOST_PATH or model is Log
+
+
+def can_change(user, item):
+    """Whether `user` may change or delete an item someone added (a comment, ...): its author, or a
+    superuser."""
+    return user.is_superuser or (user.is_authenticated and item.created_by_id == user.pk)
 
 
 def find_visible_transient(user, slug, queryset=None):
@@ -155,3 +192,119 @@ def authorized_logs(queryset, user):
     for field, allowed in _LOG_TARGETS.items():
         q &= Q(**{field: None}) | Q(**{field + '__in': allowed(user).values('pk')})
     return queryset.filter(q)
+
+
+# --- the API (#86 part 3a): one place that knows how each model reaches its transient or host ---------
+
+# Items with their own groups: readable by the group rule (authorized_data / authorized_logs).
+_GROUPED = (TransientPhotometry, TransientSpectrum, TransientFollowup, HostPhotometry, HostSpectrum)
+
+# How a model reaches the transient it belongs to ('' for Transient itself).
+_TRANSIENT_PATH = {
+    Transient: '', TransientPhotometry: 'transient', TransientSpectrum: 'transient',
+    TransientFollowup: 'transient', AlternateTransientNames: 'transient', TransientWebResource: 'transient',
+    GWCandidate: 'transient', TransientPhotData: 'photometry__transient', TransientSpecData: 'spectrum__transient',
+    TransientImage: 'phot_data__photometry__transient', TransientDiffImage: 'phot_data__photometry__transient',
+    TransientObservationTask: 'followup__transient',
+}
+# Models that hang off a grouped item: readable when that item is.
+_PARENT = {
+    TransientPhotData: ('photometry', TransientPhotometry), TransientSpecData: ('spectrum', TransientSpectrum),
+    TransientImage: ('phot_data__photometry', TransientPhotometry),
+    TransientDiffImage: ('phot_data__photometry', TransientPhotometry),
+    TransientObservationTask: ('followup', TransientFollowup),
+    HostPhotData: ('photometry', HostPhotometry), HostSpecData: ('spectrum', HostSpectrum),
+}
+# How a model reaches its host ('' for Host itself).
+_HOST_PATH = {
+    Host: '', HostPhotometry: 'host', HostSpectrum: 'host', HostFollowup: 'host', HostWebResource: 'host',
+    HostImage: 'phot_data__photometry__host', HostPhotData: 'photometry__host', HostSpecData: 'spectrum__host',
+    HostObservationTask: 'followup__host',
+}
+
+
+def editable_transients(user, queryset=None):
+    """The transients `user` may curate (can_edit), out of `queryset` (default: all)."""
+    transients = Transient.objects.all() if queryset is None else queryset
+    if user.is_superuser:
+        return transients
+    if not user.has_perm(CURATE):
+        return transients.none()
+    ours = Transient.groups.through.objects.filter(group__in=user.groups.exclude(name=PUBLIC))
+    return transients.filter(pk__in=ours.values('transient'))
+
+
+def editable_hosts(user, queryset=None):
+    """The hosts `user` may curate: a superuser, or a curator who can see them."""
+    hosts = Host.objects.all() if queryset is None else queryset
+    if user.is_superuser:
+        return hosts
+    return visible_hosts(user, hosts) if user.has_perm(CURATE) else hosts.none()
+
+
+def _within(queryset, path, allowed):
+    """`queryset` narrowed to rows whose `path` (a relation path, '' for the row itself) is in `allowed`."""
+    return queryset.filter(**{(path + '__in') if path else 'pk__in': allowed.values('pk')})
+
+
+def readable(queryset, user):
+    """The rows of `queryset` that `user` may read, for any model the API serves: the one dispatcher the
+    API's viewsets call. Grouped items by their groups and target; what hangs off them by them; static
+    facts by their transient (either level) or host; anything else (reference tables) unchanged."""
+    if user.is_superuser:
+        return queryset
+    model = queryset.model
+    if model is Transient:
+        return visible_transients(user, queryset)
+    if model is Host:
+        return visible_hosts(user, queryset)
+    if model is Log:
+        return authorized_logs(queryset, user)
+    if model in _GROUPED:
+        return authorized_data(queryset, user)
+    if model in _PARENT:
+        path, parent = _PARENT[model]
+        return _within(queryset, path, authorized_data(parent.objects.all(), user))
+    if model in _TRANSIENT_PATH:
+        return _within(queryset, _TRANSIENT_PATH[model], visible_transients(user))
+    if model in _HOST_PATH:
+        return _within(queryset, _HOST_PATH[model], visible_hosts(user))
+    return queryset
+
+
+def writable(queryset, user, rule='curate'):
+    """The rows of `queryset` that `user` may attach a new item to or link from a write: by the
+    'comment' rule, what they can see; by the 'curate' rule, what belongs to a transient (or host) they
+    may curate and, for grouped items, what they can read. Reference tables are unchanged."""
+    if user.is_superuser:
+        return queryset
+    readable_rows = readable(queryset, user)
+    if rule == 'comment':
+        return readable_rows
+    model = queryset.model
+    if model in _TRANSIENT_PATH:
+        return _within(readable_rows, _TRANSIENT_PATH[model], editable_transients(user))
+    if model in _HOST_PATH:
+        return _within(readable_rows, _HOST_PATH[model], editable_hosts(user))
+    return readable_rows
+
+
+def follow(obj, path):
+    """The object at the end of a relation path ('photometry__transient'), or None along the way."""
+    for attr in filter(None, path.split('__')):
+        obj = getattr(obj, attr, None)
+        if obj is None:
+            return None
+    return obj
+
+
+def transient_of(obj):
+    """The transient an object belongs to, or None (hosts, reference tables)."""
+    path = _TRANSIENT_PATH.get(type(obj))
+    return None if path is None else follow(obj, path)
+
+
+def host_of(obj):
+    """The host an object belongs to, or None."""
+    path = _HOST_PATH.get(type(obj))
+    return None if path is None else follow(obj, path)

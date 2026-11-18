@@ -187,10 +187,10 @@ EXPLORER_PERMISSION_VIEW = lambda u: u
 EXPLORER_PERMISSION_CHANGE = lambda u: u
 
 REST_FRAMEWORK = {
-    # Use Django's standard `django.contrib.auth` permissions,
-    # or allow read-only access for unauthenticated users.
+    # #86: a login for everything, and writes by the rule set (YSE_App/access.py, RulePermission).
+    # The API root and schema are open (urls.py): anyone can see what the API offers, not its data.
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.DjangoModelPermissionsOrAnonReadOnly'
+        'YSE_App.access.RulePermission'
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
        'rest_framework.authentication.BasicAuthentication',

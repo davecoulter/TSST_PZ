@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from YSE_App.access import GroupsField, RuleRelatedField
 from YSE_App.models import *
 from django.contrib.auth.models import User
 
@@ -15,7 +16,7 @@ class HostSerializer(serializers.HyperlinkedModelSerializer):
 	host_morphology = serializers.HyperlinkedRelatedField(queryset=HostMorphology.objects.all(), allow_null=True, required=False, view_name='hostmorphology-detail')
 	host_sed = serializers.HyperlinkedRelatedField(queryset=HostSED.objects.all(), allow_null=True, required=False, view_name='hostsed-detail')
 	band_sextract = serializers.HyperlinkedRelatedField(queryset=PhotometricBand.objects.all(), allow_null=True, required=False, view_name='photometricband-detail', lookup_field="id")
-	best_spec = serializers.HyperlinkedRelatedField(queryset=HostSpectrum.objects.all(), allow_null=True, required=False, view_name='hostspectrum-detail', lookup_field="id")
+	best_spec = RuleRelatedField(queryset=HostSpectrum.objects.all(), allow_null=True, required=False, view_name='hostspectrum-detail', lookup_field="id")
 	
 	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
 	modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
