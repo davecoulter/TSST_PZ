@@ -2,7 +2,7 @@
 
 - **Issue:** #86, with #88 folded in as phase 5 (the PR closes both)
 - **Branch:** `86-group-visibility`
-- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1 and 2 committed; part 3 (API and writes) next
+- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1 and 2 committed; part 3 designed (review 11), waiting for Dave's go
 
 ## Why
 
@@ -75,6 +75,24 @@ Everything here is decided (Dave, 2026-11-12 and 2026-11-17).
 **Roles are groups that grant permissions**, set up in Admin → Groups, and given to a person through the Groups box on their user page; never by picking per-table permissions. Each role is a custom permission in `Meta.permissions` plus a migration that creates its group: "TNS Reporters" (`mutate_tns_metadata`) and "Transient Curators" (`curate_transients`). Nobody holds `curate_transients` at first, so after deploy only superusers can curate until people are added to the group (fail closed).
 
 In `TransientService`, `can_edit(user, transient)` = superuser, or `curate_transients` and a non-`Public` group of the transient; `can_comment(user, transient)` = can see it; `can_change(user, item)` = its author or a superuser. Each gets the same thin adapters: the view decorator and form-view mixin, the template filter, and a DRF permission class. Seeing something but not being allowed to do it gives a 403; not seeing it gives a 404. Staff status plays no part. Observing resources (#91, pulled in) follow the same group rule: a resource needs a data group, and a follow-up request may use only resources in the user's groups.
+
+## Part 3 design: the API and writes (agreed with Dave, 2026-11-17, review 11)
+
+**3a, the API:**
+1. **The default permission is `IsAuthenticated`.** The API root's list of endpoints and the schema (`api/schema/`) are `AllowAny`: anyone can see what the API offers, but no request returns data without credentials.
+2. **Viewsets** get their `get_queryset` from `TransientService`: `TransientViewSet` (`visible_transients`), `HostViewSet` (`visible_hosts`), and every viewset hanging off a transient (comments, follow-ups, observation tasks, images, aliases, web resources, host photometry and spectra), through one small mixin that names the transient field.
+3. **Related fields:** a `HyperlinkedRelatedField` subclass whose `get_queryset()` uses `request.user`. On a write, a link to a transient (or its photometry, follow-up, ...) is accepted only if the user may do that write: comment if they can see it (`can_comment`), curate if `can_edit`. Any other link gets the same "does not exist" error as a missing object, so hidden transients don't leak.
+4. **Writable `groups` fields** accept only the user's own data groups. `Public` is allowed on comments only; data gets it through the release paths.
+5. **A DRF permission class** does the per-object check: `can_edit` for transients and their data, `can_change` for comments and other added items.
+6. **API parity:** `groups` on the Transient, Log and TransientFollowup serializers, including their hand-written `create()`/`update()`; a `groups__name` filter on transients; an integration test in `tests/integration` that writes `groups` and reads it back.
+7. **The curator role:** `curate_transients` on `Transient`, and migration 0020 creating "Transient Curators" with it. `can_edit` = superuser, or the role plus a non-`Public` group of the transient; plus `can_comment` and `can_change` (built before review 11, kept).
+
+**3b, writes in the app:**
+8. **Write views** get the matching check through the decorator or the form-view mixin: curating views (`transient_edit`, `candidate_tag`, status changes, add follow-up, add observation task, `delete_followup`) need `can_edit`; adding a comment needs `can_comment`; editing or deleting a comment needs `can_change`.
+9. **Edit controls** in the detail and candidate templates sit behind the template filters (`can_edit`, `can_comment`), so users don't see buttons they can't use.
+10. **The comment form** gets group checkboxes: the author's data groups pre-ticked, `Public` available, at least one required.
+11. **The follow-up form** needs the curator role. It offers **and accepts** only resources in the user's groups (each resource field's queryset comes from `ObservingResourceService`, so the same filter decides both), and the request's status change goes with it (a follow-up request is a real status change). Its comment gets the follow-up's groups. `ObservingResourceService` uses `in_groups_q`; resources need a data group (#91; production has none to migrate).
+12. **Comments and follow-ups made by code** get groups from where they come from (candidate ingest: the ingest's groups; the follow-up form: the follow-up's), never `Public` by default. Existing ones (105 comments, 0 follow-ups on production) are set in the ETL step. **Open for the ETL, not blocking:** `Public` (as decided) or `TSST`, since they include ingest remarks and quality flags that external users would read once they join.
 
 ## Scope
 
@@ -233,3 +251,4 @@ Out of scope:
   - **Groups are chosen per parent record** (`TransientPhotometry`, `TransientSpectrum`), not per point; only photometry and spectra are released, not comments or follow-ups.
   - **The single-transient page gets a `Public` warning label**, with no change in behaviour.
   - All 21 current users are TSST.
+- **2026-11-17 (plan review 11, Dave):** The part 3 design is agreed and written up in "Part 3 design". Claude had started 3a before the go (the curator role, migration 0020, `can_edit` as role + scope, `can_comment`, `can_change`, and their tests, uncommitted); Dave asked to finish the design phase first, then give a go/no-go. Existing comments and follow-ups go to `Public` in the ETL step (or `TSST`: open); new ones always need groups.
