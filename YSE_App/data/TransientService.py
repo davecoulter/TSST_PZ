@@ -13,7 +13,11 @@ Writes follow the rule set in the plan (agentic_planning/086-group-visibility/pl
   can_edit     curating (status, tags, fields, follow-up, uploads): the curate_transients permission
                ("Transient Curators") and one of the transient's groups other than 'Public', which
                grants reading only; or a superuser;
-  can_change   an item someone added (a comment, ...): its author, or a superuser.
+  can_change   an item someone added (a comment, ...): its author, or a superuser;
+  can_delete   by reach (review 13): a curator deletes what reaches only things they curate; anything
+               site-wide (used outside their reach) is for superusers.
+Observing resources (telescope time) follow the group rule too, with no transient: a user sees the
+resources in their groups, and a curator in one of a resource's groups curates it.
 
 Photometry, spectra, comments (Log) and follow-ups follow their own groups, and also need what
 they're attached to (a transient, host, ...) to be visible, or a 'Public' point would give a hidden
@@ -26,14 +30,15 @@ Only data groups go on data: a group that grants permissions is a role (e.g. "TN
 Group checks are subqueries on the M2M table rather than joins, so no row is duplicated and no
 distinct() is needed: the querysets stay safe to count, annotate and order.
 """
-from django.contrib.auth.models import Group
-from django.db.models import Q
+from django.contrib.auth.models import Group, User
+from django.db.models import BooleanField, Exists, OuterRef, Q, Value
 
-from YSE_App.models import (AlternateTransientNames, GWCandidate, Host, HostFollowup, HostImage, HostObservationTask,
-                            HostPhotData, HostPhotometry, HostSpecData, HostSpectrum, HostWebResource, Log, Transient,
-                            TransientDiffImage, TransientFollowup, TransientImage, TransientObservationTask,
-                            TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum,
-                            TransientWebResource)
+from YSE_App.models import (AlternateTransientNames, ClassicalObservingDate, ClassicalResource, GWCandidate, Host,
+                            HostFollowup, HostImage, HostObservationTask, HostPhotData, HostPhotometry, HostSpecData,
+                            HostSpectrum, HostWebResource, Log, PrincipalInvestigator, QueuedResource, ToOResource,
+                            Transient, TransientDiffImage, TransientFollowup, TransientImage, TransientObservationTask,
+                            TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum, TransientTag,
+                            TransientWebResource, UserQuery, UserTelescopeToFollow)
 from YSE_App.transient_names import find_transient
 
 PUBLIC = 'Public'
@@ -48,6 +53,14 @@ def in_groups_q(model, user):
     tagged = field.remote_field.through.objects.filter(
         Q(**{field.m2m_reverse_field_name() + '__name': PUBLIC}) |
         Q(**{field.m2m_reverse_field_name() + '__in': user.groups.all()}))
+    return Q(pk__in=tagged.values(field.m2m_field_name()))
+
+
+def team_groups_q(model, user):
+    """Rows of `model` with one of `user`'s groups other than 'Public': the scope of curating."""
+    field = model._meta.get_field('groups')
+    tagged = field.remote_field.through.objects.filter(
+        **{field.m2m_reverse_field_name() + '__in': user.groups.exclude(name=PUBLIC)})
     return Q(pk__in=tagged.values(field.m2m_field_name()))
 
 
@@ -113,16 +126,52 @@ def can_add_tags(user, transient):
     return access_level(user, transient) is not None
 
 
-def is_transient_linked(model):
-    """Whether rows of `model` belong to a transient or host, so the rule set applies to them;
-    anything else is a shared table, written only by superusers unless its viewset says otherwise."""
-    return model in _TRANSIENT_PATH or model in _HOST_PATH or model is Log
+def is_curated(model):
+    """Whether rows of `model` belong to a transient, host or observing resource, so curating applies
+    to them; anything else is a shared table, written only by superusers unless its viewset says otherwise."""
+    return model in _TRANSIENT_PATH or model in _HOST_PATH or model in _RESOURCE_PATH or model is Log
 
 
 def can_change(user, item):
-    """Whether `user` may change or delete an item someone added (a comment, ...): its author, or a
-    superuser."""
+    """Whether `user` may change an item someone added (a comment, a tag's definition, ...): its author,
+    or a superuser. Deleting is can_delete."""
     return user.is_superuser or (user.is_authenticated and item.created_by_id == user.pk)
+
+
+def settable_groups(user, allow_public=False):
+    """The groups `user` may put on an item: only data groups (never a role group); their own, plus
+    'Public' where `allow_public` (comments). Superusers: any data group, 'Public' included (releasing)."""
+    groups = data_groups()
+    if user.is_superuser:
+        return groups
+    if not user.is_authenticated:
+        return groups.none()
+    allowed = Q(pk__in=user.groups.values('pk'))
+    if allow_public:
+        allowed |= Q(name=PUBLIC)
+    else:
+        allowed &= ~Q(name=PUBLIC)
+    return groups.filter(allowed)
+
+
+def own_data_groups(user):
+    """`user`'s own data groups, 'Public' left out: what a form ticks for them to start with."""
+    return data_groups().filter(pk__in=user.groups.values('pk')).exclude(name=PUBLIC)
+
+
+def team_groups(user, transient):
+    """The groups something `user` adds to `transient` on their behalf gets (a follow-up requested by
+    code, ...): the transient's groups other than 'Public' that are theirs (all of them for a
+    superuser). Possibly none, which leaves the item to superusers: never 'Public' by default."""
+    groups = transient.groups.exclude(name=PUBLIC).filter(pk__in=data_groups().values('pk'))
+    return groups if user.is_superuser else groups.filter(pk__in=user.groups.values('pk'))
+
+
+def users_who_can_see(log, users=None):
+    """The users, out of `users` (default: every active one), who may read comment `log`: the one
+    audience for anything that tells people about a comment (email or Slack notifications, #93)."""
+    users = User.objects.filter(is_active=True) if users is None else users
+    return [u for u in users if authorized_logs(Log.objects.filter(pk=log.pk), u).exists()]
 
 
 def find_visible_transient(user, slug, queryset=None):
@@ -215,6 +264,12 @@ _PARENT = {
     TransientObservationTask: ('followup', TransientFollowup),
     HostPhotData: ('photometry', HostPhotometry), HostSpecData: ('spectrum', HostSpectrum),
 }
+# Observing resources (telescope time): grouped, with no transient. How a model reaches its resource.
+_RESOURCES = (ToOResource, ClassicalResource, QueuedResource)
+_RESOURCE_PATH = {ToOResource: '', ClassicalResource: '', QueuedResource: '', ClassicalObservingDate: 'resource'}
+# The follow-up field that uses each kind of resource.
+_FOLLOWUP_FIELD = {ToOResource: 'too_resource', ClassicalResource: 'classical_resource',
+                   QueuedResource: 'queued_resource'}
 # How a model reaches its host ('' for Host itself).
 _HOST_PATH = {
     Host: '', HostPhotometry: 'host', HostSpectrum: 'host', HostFollowup: 'host', HostWebResource: 'host',
@@ -230,8 +285,35 @@ def editable_transients(user, queryset=None):
         return transients
     if not user.has_perm(CURATE):
         return transients.none()
-    ours = Transient.groups.through.objects.filter(group__in=user.groups.exclude(name=PUBLIC))
-    return transients.filter(pk__in=ours.values('transient'))
+    return transients.filter(team_groups_q(Transient, user))
+
+
+def annotate_editable(queryset, user, transient_field='pk'):
+    """`queryset` (transients, or rows with a transient at `transient_field`) with `editable`: whether
+    `user` may curate that transient (can_edit). One subquery for the whole table, so a dashboard can
+    show edit controls only where they work, without a query per row."""
+    if user.is_superuser or not user.has_perm(CURATE):
+        return queryset.annotate(editable=Value(user.is_superuser, output_field=BooleanField()))
+    ours = Transient.groups.through.objects.filter(
+        transient=OuterRef(transient_field), group__in=user.groups.exclude(name=PUBLIC))
+    return queryset.annotate(editable=Exists(ours))
+
+
+def readable_resources(user, queryset):
+    """The observing resources in `queryset` (ToO, classical or queued) `user` may see and use: those in
+    their groups. A resource with no group is superusers' (it used to be everyone's)."""
+    if user.is_superuser:
+        return queryset
+    return queryset.filter(in_groups_q(queryset.model, user))
+
+
+def editable_resources(user, queryset):
+    """The observing resources in `queryset` `user` may curate: a curator in one of their groups."""
+    if user.is_superuser:
+        return queryset
+    if not user.has_perm(CURATE):
+        return queryset.none()
+    return queryset.filter(team_groups_q(queryset.model, user))
 
 
 def editable_hosts(user, queryset=None):
@@ -269,6 +351,10 @@ def readable(queryset, user):
         return _within(queryset, _TRANSIENT_PATH[model], visible_transients(user))
     if model in _HOST_PATH:
         return _within(queryset, _HOST_PATH[model], visible_hosts(user))
+    if model in _RESOURCES:
+        return readable_resources(user, queryset)
+    if model is ClassicalObservingDate:
+        return _within(queryset, 'resource', readable_resources(user, ClassicalResource.objects.all()))
     return queryset
 
 
@@ -286,6 +372,10 @@ def writable(queryset, user, rule='curate'):
         return _within(readable_rows, _TRANSIENT_PATH[model], editable_transients(user))
     if model in _HOST_PATH:
         return _within(readable_rows, _HOST_PATH[model], editable_hosts(user))
+    if model in _RESOURCES:
+        return editable_resources(user, readable_rows)
+    if model is ClassicalObservingDate:
+        return _within(readable_rows, 'resource', editable_resources(user, ClassicalResource.objects.all()))
     return readable_rows
 
 
@@ -308,3 +398,86 @@ def host_of(obj):
     """The host an object belongs to, or None."""
     path = _HOST_PATH.get(type(obj))
     return None if path is None else follow(obj, path)
+
+
+def resource_of(obj):
+    """The observing resource an object is or belongs to, or None."""
+    path = _RESOURCE_PATH.get(type(obj))
+    return None if path is None else follow(obj, path)
+
+
+def can_curate(user, obj):
+    """Whether `user` may change `obj`, a row that belongs to a transient, host or observing resource
+    (is_curated): can_edit on its transient, a curator who can see its host, or a curator in one of its
+    resource's groups. The API's object check for the 'curate' rule."""
+    if user.is_superuser:
+        return True
+    transient = transient_of(obj)
+    if transient is not None:
+        return can_edit(user, transient)
+    host = host_of(obj)
+    if host is not None:
+        return editable_hosts(user).filter(pk=host.pk).exists()
+    resource = resource_of(obj)
+    if resource is not None:
+        return editable_resources(user, type(resource).objects.filter(pk=resource.pk)).exists()
+    return False
+
+
+def _all_groups_ours(item, user):
+    """Whether every group on `item` is one of `user`'s own, other than 'Public' (and it has one)."""
+    groups = item.groups.all()
+    return groups.exists() and not groups.exclude(pk__in=user.groups.exclude(name=PUBLIC).values('pk')).exists()
+
+
+def _outside(queryset, reach):
+    """Whether any row of `queryset` is not in `reach`: something outside the user's reach uses it."""
+    return queryset.exclude(pk__in=reach.values('pk')).exists()
+
+
+def can_delete(user, item):
+    """Whether `user` may delete `item`, by reach (plan, review 13): a curator deletes what reaches only
+    things they curate; once something outside their reach uses it, it is site-wide, and superusers'.
+      follow-ups, tasks, aliases, links, images   a curator of the transient
+      photometry and spectra (and their points)   a curator of the transient, if every group on the
+                                                  record is theirs ('Public' or another team's: site-wide)
+      comments                                    the author
+      tags, PIs                                   the creator, while everything using them is theirs to curate
+      observing resources                         a curator of the resource, while no follow-up outside
+                                                  their reach uses it
+      the user's own dashboard pins and subscriptions   the user
+      transients, hosts and everything site-wide  superusers only"""
+    if user.is_superuser:
+        return True
+    if not user.is_authenticated:
+        return False
+    model = type(item)
+    if model is Log:
+        return can_change(user, item)
+    if model is UserQuery:
+        return item.user_id == user.pk
+    if model is UserTelescopeToFollow:
+        return item.profile.user_id == user.pk
+    if model is TransientTag:
+        return item.created_by_id == user.pk and not _outside(
+            Transient.objects.filter(tags=item), editable_transients(user))
+    if model is PrincipalInvestigator:
+        return item.created_by_id == user.pk and not any(
+            _outside(m.objects.filter(principal_investigator=item), editable_resources(user, m.objects.all()))
+            for m in _RESOURCES)
+    if model in _RESOURCES:
+        return can_curate(user, item) and not _outside(
+            TransientFollowup.objects.filter(**{_FOLLOWUP_FIELD[model]: item}),
+            TransientFollowup.objects.filter(transient__in=editable_transients(user).values('pk')))
+    if model is ClassicalObservingDate:
+        return can_curate(user, item)
+    if model in (TransientPhotometry, TransientSpectrum):
+        return can_edit(user, item.transient) and _all_groups_ours(item, user)
+    if model is TransientPhotData:
+        return can_delete(user, item.photometry)
+    if model is TransientSpecData:
+        return can_delete(user, item.spectrum)
+    if model is Transient or model not in _TRANSIENT_PATH:
+        return False
+    transient = transient_of(item)
+    return transient is not None and can_edit(user, transient)

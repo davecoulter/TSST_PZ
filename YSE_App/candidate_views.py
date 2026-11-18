@@ -15,6 +15,7 @@ from django.db.models import Count, Max, Min
 
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
@@ -524,7 +525,7 @@ def candidate_detail(request, transient):
         'transient': transient,
         'logs': TransientService.authorized_logs(Log.objects.filter(transient=transient), request.user)
                 .select_related('created_by').order_by('id'),
-        'transient_comment_form': TransientCommentForm(),
+        'transient_comment_form': TransientCommentForm(user=request.user),
         'candidate_tags_assigned': transient.tags.filter(kind=candidate_kind).select_related('color').order_by('name') if candidate_kind else [],
         'candidate_tags_available': TransientTag.objects.filter(kind=candidate_kind).select_related('color').order_by('name') if candidate_kind else [],
         'all_colors': WebAppColor.objects.all(),
@@ -649,15 +650,16 @@ def _find_or_create_candidate_tag(name, user, kind, color=None):
 
 @login_required
 @require_POST
-def candidate_tag(request, transient_id):
+@transient_access(by='transient_id')
+def candidate_tag(request, transient):
     """POST action=add|create|remove, name=<tag> and an optional color=<WebAppColor id> (#38).
 
     add applies the tag to this transient (creating it if new); create makes it available without
     applying it; remove takes it off. The reply lists this transient's candidate tags and every
-    candidate tag, which is what the page's widget shows."""
-    transient = Transient.objects.filter(pk=transient_id).first()
-    if transient is None:
-        raise Http404('Candidate not found')
+    candidate tag, which is what the page's widget shows.
+
+    #86: a hidden candidate is a 404. Adding and creating are for anyone who can see it; removing a
+    tag is curating (a 403 otherwise)."""
     action = request.POST.get('action')
     name = (request.POST.get('name') or '').strip()
     if action not in ('add', 'create', 'remove') or not name or len(name) > 256:
@@ -668,6 +670,8 @@ def candidate_tag(request, transient_id):
         return JsonResponse({'errors': 'the Candidate tag kind is missing (run `manage.py migrate`)'},
                             status=500)
     color = WebAppColor.objects.filter(pk=request.POST.get('color')).first() if request.POST.get('color') else None
+    if action == 'remove' and not TransientService.can_edit(request.user, transient):
+        raise PermissionDenied
     if action in ('add', 'create'):
         tag = _find_or_create_candidate_tag(name, request.user, kind, color)
         if action == 'add':

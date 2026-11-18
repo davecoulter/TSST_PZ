@@ -1,6 +1,8 @@
 """View adapters for the visibility rule (#86). They decide nothing themselves; TransientService does."""
 import functools
 
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponseRedirect
 from django.urls import reverse
@@ -50,10 +52,44 @@ def transient_access(level=TransientService.TNS_OBJECT, by='slug', pass_transien
     return decorate
 
 
+class SuperuserRequiredMixin(UserPassesTestMixin):
+    """A view for superusers only: logged out, the login page; logged in, a 403."""
+
+    def test_func(self):
+        return self.request.user.is_superuser
+
+
+class UserFormMixin(LoginRequiredMixin):
+    """A form view (#86 part 3b) that needs a login and builds its form for request.user: the form
+    narrows its fields (the transient, follow-up, resources, groups) to what that user may write, so
+    anything else is 'Select a valid choice', a 400, as on the API. See forms.UserForm."""
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
+
+class CuratorFormMixin(PermissionRequiredMixin, UserFormMixin):
+    """A form view for curators (the curate_transients role; superusers have it) with no transient of
+    its own to check, e.g. adding an observing resource for one's groups."""
+    permission_required = TransientService.CURATE
+
+
+def superuser_required(view):
+    """A view for superusers only: logged out, the login page; logged in, a 403."""
+    @functools.wraps(view)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        return view(request, *args, **kwargs)
+    return wrapper
+
+
 # --- the API (#86 part 3a): DRF adapters. They decide nothing themselves; TransientService does. -------
 
 from django.contrib.auth.models import Group  # noqa: E402  (kept with the API adapters)
-from django.db.models import Q  # noqa: E402
 from rest_framework import permissions, serializers  # noqa: E402
 
 
@@ -66,10 +102,11 @@ class IsSuperuser(permissions.BasePermission):
 
 class RulePermission(permissions.BasePermission):
     """The API's default permission (#86; the plan's rule set and two-axis principle). Reading needs a
-    login; the rows were already narrowed by the viewset's queryset (ReadableQuerysetMixin). Deleting
-    is for superusers. Writing, by the view's `write_rule`, or by its model when it has none:
-      'curate'      rows that belong to a transient or host (the default for those): the curator role,
-                    and on an object, can_edit on its transient (or a curator who can see its host).
+    login; the rows were already narrowed by the viewset's queryset (ReadableQuerysetMixin). Deleting,
+    wherever a viewset offers it, is TransientService.can_delete (by reach), except on 'site' tables
+    (superusers). Writing, by the view's `write_rule`, or by its model when it has none:
+      'curate'      rows that belong to a transient, host or observing resource (the default for those):
+                    the curator role, and on an object, TransientService.can_curate.
                     A PATCH that only adds tags to a transient needs only can_add_tags.
       'comment'     anyone may add; an item is changed by its author (can_change).
       'vocabulary'  shared labels (tags, PIs): anyone may add; an item is changed by its creator.
@@ -83,7 +120,7 @@ class RulePermission(permissions.BasePermission):
         if explicit:
             return explicit
         model = view.get_serializer_class().Meta.model
-        return 'curate' if TransientService.is_transient_linked(model) else 'site'
+        return 'curate' if TransientService.is_curated(model) else 'site'
 
     @staticmethod
     def only_adds_tags(request):
@@ -95,9 +132,9 @@ class RulePermission(permissions.BasePermission):
             return False
         if request.method in permissions.SAFE_METHODS or user.is_superuser:
             return True
-        if request.method == 'DELETE':
-            return False
         rule = self.rule(view)
+        if request.method == 'DELETE':
+            return rule != 'site'  # the object decides (can_delete)
         if rule in ('comment', 'vocabulary', 'own'):
             return True
         if rule == 'curate':
@@ -109,21 +146,19 @@ class RulePermission(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS or user.is_superuser:
             return True
         rule = self.rule(view)
+        if request.method == 'DELETE':
+            return rule != 'site' and TransientService.can_delete(user, obj)
         if rule in ('comment', 'vocabulary'):
             return TransientService.can_change(user, obj)
         if rule == 'own':
             return TransientService.follow(obj, view.owner_field) == user
         if rule != 'curate':
             return False
-        transient = TransientService.transient_of(obj)
-        if transient is not None:
-            if TransientService.can_edit(user, transient):
-                return True
-            # adding tags is for anyone who can see it; removing them is checked in the serializer
-            return isinstance(obj, Transient) and self.only_adds_tags(request) and \
-                TransientService.can_add_tags(user, transient)
-        host = TransientService.host_of(obj)
-        return host is not None and TransientService.editable_hosts(user).filter(pk=host.pk).exists()
+        if TransientService.can_curate(user, obj):
+            return True
+        # adding tags is for anyone who can see it; removing them is checked in the serializer
+        return isinstance(obj, Transient) and self.only_adds_tags(request) and \
+            TransientService.can_add_tags(user, obj)
 
 
 class ReadableQuerysetMixin:
@@ -156,18 +191,7 @@ class RuleRelatedField(serializers.HyperlinkedRelatedField):
         return TransientService.writable(queryset, request.user, self.rule)
 
 
-def settable_groups(user, allow_public=False):
-    """The groups `user` may put on an item: only data groups (never a role group); their own, plus
-    'Public' where `allow_public` (comments). Superusers: any data group, 'Public' included (releasing)."""
-    groups = TransientService.data_groups()
-    if user.is_superuser:
-        return groups
-    allowed = Q(pk__in=user.groups.values('pk'))
-    if allow_public:
-        allowed |= Q(name=TransientService.PUBLIC)
-    else:
-        allowed &= ~Q(name=TransientService.PUBLIC)
-    return groups.filter(allowed)
+settable_groups = TransientService.settable_groups
 
 
 def set_groups(item, groups, user, allow_public=False):

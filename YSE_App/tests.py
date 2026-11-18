@@ -127,6 +127,8 @@ class FormsDoNotQueryAtImportTests(TestCase):
 	@classmethod
 	def setUpTestData(cls):
 		cls.user = User.objects.create_user('forms_tester', password='pw')
+		cls.team = Group.objects.create(name='Forms Team')  # #86: the follow-up form offers the user's resources
+		cls.user.groups.add(cls.team)
 		cls.audit = dict(created_by=cls.user, modified_by=cls.user)
 		observatory = Observatory.objects.create(name='Obs', utc_offset=0, tz_name='UTC', **cls.audit)
 		cls.telescope = Telescope.objects.create(name='Tel', observatory=observatory, latitude=0.0,
@@ -142,23 +144,24 @@ class FormsDoNotQueryAtImportTests(TestCase):
 	def test_followup_status_defaults_to_requested_without_a_blank_choice(self):
 		FollowupStatus.objects.create(name='Other', **self.audit)
 		requested = FollowupStatus.objects.create(name='Requested', **self.audit)
-		field = forms.TransientFollowupForm().fields['status']
+		field = forms.TransientFollowupForm(user=self.user).fields['status']
 		self.assertEqual(field.initial, requested)
 		self.assertIsNone(field.empty_label)  # as when the initial value is given to the field itself
 
 	def test_followup_form_works_when_there_is_no_requested_status(self):
-		field = forms.TransientFollowupForm().fields['status']
+		field = forms.TransientFollowupForm(user=self.user).fields['status']
 		self.assertIsNone(field.initial)
 		self.assertEqual(field.empty_label, '---------')
 
 	def test_a_classical_resource_added_while_running_shows_up_in_a_new_form(self):
-		before = forms.TransientFollowupForm()
+		before = forms.TransientFollowupForm(user=self.user)
 		self.assertEqual(before.fields['classical_resource'].queryset.count(), 0)
 		self.assertIsNone(before.fields['valid_start'].initial)
 		now = timezone.now()
 		resource = ClassicalResource.objects.create(telescope=self.telescope, begin_date_valid=now,
 													end_date_valid=now + timedelta(days=3), **self.audit)
-		after = forms.TransientFollowupForm()
+		resource.groups.add(self.team)
+		after = forms.TransientFollowupForm(user=self.user)
 		self.assertEqual(list(after.fields['classical_resource'].queryset), [resource])
 		self.assertEqual(after.fields['classical_resource'].initial, resource)
 		self.assertEqual(after.fields['valid_start'].initial, resource.begin_date_valid)
@@ -167,8 +170,8 @@ class FormsDoNotQueryAtImportTests(TestCase):
 	def test_a_classical_resource_that_ended_days_ago_is_not_offered(self):
 		now = timezone.now()
 		ClassicalResource.objects.create(telescope=self.telescope, begin_date_valid=now - timedelta(days=10),
-										 end_date_valid=now - timedelta(days=3), **self.audit)
-		self.assertEqual(forms.TransientFollowupForm().fields['classical_resource'].queryset.count(), 0)
+										 end_date_valid=now - timedelta(days=3), **self.audit).groups.add(self.team)
+		self.assertEqual(forms.TransientFollowupForm(user=self.user).fields['classical_resource'].queryset.count(), 0)
 
 	# --- the fields that exist only when matching rows exist ---
 

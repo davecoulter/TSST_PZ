@@ -31,9 +31,9 @@ class TransientFollowupSerializer(serializers.HyperlinkedModelSerializer):
 	transient = RuleRelatedField(queryset=Transient.objects.all(), view_name='transient-detail')
 	status = serializers.HyperlinkedRelatedField(queryset=FollowupStatus.objects.all(), view_name='followupstatus-detail')
 
-	too_resource = serializers.HyperlinkedRelatedField(queryset=ToOResource.objects.all(), allow_null=True, required=False, view_name='tooresource-detail')
-	classical_resource = serializers.HyperlinkedRelatedField(queryset=ClassicalResource.objects.all(), allow_null=True, required=False, view_name='classicalresource-detail') #, lookup_field="id")
-	queued_resource = serializers.HyperlinkedRelatedField(queryset=QueuedResource.objects.all(), allow_null=True, required=False, view_name='queuedresource-detail')
+	too_resource = RuleRelatedField(queryset=ToOResource.objects.all(), allow_null=True, required=False, view_name='tooresource-detail')
+	classical_resource = RuleRelatedField(queryset=ClassicalResource.objects.all(), allow_null=True, required=False, view_name='classicalresource-detail') #, lookup_field="id")
+	queued_resource = RuleRelatedField(queryset=QueuedResource.objects.all(), allow_null=True, required=False, view_name='queuedresource-detail')
 	# #86: who may see it, by name: the requester's own data groups
 	groups = GroupsField(many=True, allow_empty=False)
 
@@ -78,9 +78,9 @@ class HostFollowupSerializer(serializers.HyperlinkedModelSerializer):
 	host = RuleRelatedField(queryset=Host.objects.all(), view_name='host-detail', lookup_field="id")
 	status = serializers.HyperlinkedRelatedField(queryset=FollowupStatus.objects.all(), view_name='followupstatus-detail')
 
-	too_resource = serializers.HyperlinkedRelatedField(queryset=ToOResource.objects.all(), allow_null=True, required=False, view_name='tooresource-detail')
-	classical_resource = serializers.HyperlinkedRelatedField(queryset=ClassicalResource.objects.all(), allow_null=True, required=False, view_name='classicalresource-detail', lookup_field="id")
-	queued_resource = serializers.HyperlinkedRelatedField(queryset=QueuedResource.objects.all(), allow_null=True, required=False, view_name='queuedresource-detail')
+	too_resource = RuleRelatedField(queryset=ToOResource.objects.all(), allow_null=True, required=False, view_name='tooresource-detail')
+	classical_resource = RuleRelatedField(queryset=ClassicalResource.objects.all(), allow_null=True, required=False, view_name='classicalresource-detail', lookup_field="id")
+	queued_resource = RuleRelatedField(queryset=QueuedResource.objects.all(), allow_null=True, required=False, view_name='queuedresource-detail')
 
 	created_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')
 	modified_by = serializers.HyperlinkedRelatedField(read_only=True, view_name='user-detail')

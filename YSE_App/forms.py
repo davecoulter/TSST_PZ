@@ -6,6 +6,35 @@ from YSE_App import view_utils
 from django.utils import timezone
 from datetime import timedelta
 from YSE_App.queries.yse_python_queries import python_query_reg
+from django.contrib.auth.models import AnonymousUser, Group
+from YSE_App.data import ObservingResourceService, TransientService
+
+
+class UserForm:
+    """A form built for one user (#86 part 3b): pass user=request.user (access.UserFormMixin does, for
+    the form views). Each form narrows its fields in narrow(user) to what that user may write, using the
+    rule in TransientService, so the same filter decides what's offered and what's accepted. Without a
+    user, those fields offer nothing."""
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user if user is not None else AnonymousUser()
+        self.narrow(self.user)
+
+    def narrow(self, user):
+        pass
+
+
+def groups_field():
+    """A required `groups` field, as checkboxes; narrow_groups fills it in for the user."""
+    return forms.ModelMultipleChoiceField(queryset=Group.objects.none(), widget=forms.CheckboxSelectMultiple,
+                                          error_messages={'required': 'Choose at least one group.'})
+
+
+def narrow_groups(form, user, allow_public=False):
+    """Offer the groups `user` may set ('Public' too where allowed: comments), their own ticked."""
+    form.fields['groups'].queryset = TransientService.settable_groups(user, allow_public).order_by('name')
+    form.fields['groups'].initial = list(TransientService.own_data_groups(user).values_list('pk', flat=True))
 
 class TransientForm(ModelForm):
     class Meta:
@@ -34,9 +63,9 @@ class TransientForm(ModelForm):
             'abs_mag_peak_date',
             'postage_stamp_file']
 
-class TransientFollowupForm(ModelForm):
+class TransientFollowupForm(UserForm, ModelForm):
     # Nothing here may query the database: this module is imported when the URLs load (#22).
-    # The defaults that need a query are filled in __init__, once per form instance.
+    # The defaults that need a query are filled in narrow(), once per form instance.
     status = forms.ModelChoiceField(FollowupStatus.objects.all())
     classical_resource = forms.ModelChoiceField(
         queryset=ClassicalResource.objects.none(),
@@ -44,17 +73,26 @@ class TransientFollowupForm(ModelForm):
     valid_start = forms.DateTimeField()
     valid_stop = forms.DateTimeField()
     comment = forms.CharField(required=False)
+    groups = groups_field()
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def narrow(self, user):
+        # #86: curators, on transients they curate, with only their groups' resources (#91)
+        self.fields['transient'].queryset = TransientService.editable_transients(user)
+        self.fields['transient'].required = True
+        current = timezone.now() - timedelta(days=1)
+        self.fields['too_resource'].queryset = ObservingResourceService.GetAuthorizedToOResource_ByUser(
+            user).filter(end_date_valid__gt=current).order_by('telescope__name')
+        self.fields['queued_resource'].queryset = ObservingResourceService.GetAuthorizedQueuedResource_ByUser(
+            user).filter(end_date_valid__gt=current).order_by('telescope__name')
+        narrow_groups(self, user)
         requested = FollowupStatus.objects.filter(name='Requested').first()
         if requested is not None:
             self.fields['status'].initial = requested
             # a field built with an initial value has no blank choice; this keeps that rendering
             self.fields['status'].empty_label = None
         # classical resources that have not ended more than a day ago, soonest ending first
-        qs = ClassicalResource.objects.filter(
-            end_date_valid__gt=timezone.now() - timedelta(days=1)).order_by('end_date_valid').select_related()
+        qs = ObservingResourceService.GetAuthorizedClassicalResource_ByUser(user).filter(
+            end_date_valid__gt=current).order_by('end_date_valid').select_related()
         self.fields['classical_resource'].queryset = qs
         first = qs.first()
         if first is not None:
@@ -78,19 +116,31 @@ class TransientFollowupForm(ModelForm):
             'offset_star_dec',
             'offset_north',
             'offset_east',
-            'transient']
+            'transient',
+            'groups']
 
-class ClassicalResourceForm(ModelForm):
+class ResourceGroupsForm(UserForm):
+    """An observing resource needs at least one data group: the curator's own, never 'Public' (#86, #91).
+    Each form declares `groups = groups_field()` itself: a plain mixin's fields aren't collected."""
+
+    def narrow(self, user):
+        narrow_groups(self, user)
+
+
+class ClassicalResourceForm(ResourceGroupsForm, ModelForm):
 
     observing_date = forms.DateTimeField()
+    groups = groups_field()
 
     class Meta:
         model = ClassicalResource
         fields = [
             'telescope',
-            'principal_investigator']
+            'principal_investigator',
+            'groups']
 
-class ToOResourceForm(ModelForm):
+class ToOResourceForm(ResourceGroupsForm, ModelForm):
+    groups = groups_field()
 
     awarded_too_hours = forms.FloatField(initial=0)
     used_too_hours = forms.FloatField(initial=0)
@@ -107,7 +157,8 @@ class ToOResourceForm(ModelForm):
             'awarded_too_hours',
             'used_too_hours',
             'awarded_too_triggers',
-            'used_too_triggers']
+            'used_too_triggers',
+            'groups']
 
 class SurveyFieldForm(ModelForm):
 
@@ -185,15 +236,29 @@ class OncallForm(ModelForm):
 
 
 
-class TransientCommentForm(ModelForm):
+class TransientCommentForm(UserForm, ModelForm):
+    """Anyone who can see the transient may comment, tagged with their own data groups and/or 'Public'."""
+    groups = groups_field()
+
+    def narrow(self, user):
+        self.fields['transient'].queryset = TransientService.visible_transients(user)
+        self.fields['transient'].required = True  # the model allows none; a comment from this form is on one
+        narrow_groups(self, user, allow_public=True)
+
     class Meta:
         model = Log
         fields = [
             'comment',
-            'transient']
+            'transient',
+            'groups']
 
 
-class TransientObservationTaskForm(ModelForm):
+class TransientObservationTaskForm(UserForm, ModelForm):
+    """An observation task, on a follow-up of a transient the user curates."""
+
+    def narrow(self, user):
+        self.fields['followup'].queryset = TransientService.writable(TransientFollowup.objects.all(), user)
+
     class Meta:
         model = TransientObservationTask
         fields = [
@@ -287,13 +352,16 @@ class SpectrumUploadForm(ModelForm):
         fields = ('transient','ra',
                   'dec','spec_phase')#,'obs_group','instrument')
 
-class AutomatedSpectrumRequest(ModelForm):
+class AutomatedSpectrumRequest(UserForm, ModelForm):
 
     spec_instruments = ['FLOYDS-N','FLOYDS-S','Goodman']
     instrument = forms.ModelChoiceField(Instrument.objects.filter(Q(name__in=spec_instruments)))
     exp_time = forms.IntegerField(initial=1800) # 1800s seems like a reasonable default
     spectrum_valid_start = forms.DateTimeField()
     spectrum_valid_stop = forms.DateTimeField()
+
+    def narrow(self, user):
+        self.fields['transient'].queryset = TransientService.editable_transients(user)
 
     class Meta:
         model = TransientFollowup

@@ -9,7 +9,7 @@ from rest_framework.reverse import reverse
 
 from .models import *
 from .serializers import *
-from .data import PhotometryService, SpectraService, ObservingResourceService
+from .data import PhotometryService, SpectraService
 from .access import IsSuperuser, ReadableQuerysetMixin
 
 from django_filters.rest_framework import DjangoFilterBackend,filters
@@ -352,19 +352,13 @@ class HostSpecDataViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
         return allowed_spec_data
 
 ### `Telescope Resource` ViewSets ###
-class ToOResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class ToOResourceViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    queryset = ToOResource.objects.all()  # narrowed by TransientService.readable: the user's groups (#86, #91)
     serializer_class = ToOResourceSerializer
 
-    def get_queryset(self):
-        allowed_resource = ObservingResourceService.GetAuthorizedToOResource_ByUser(self.request.user)
-        return allowed_resource
-
-class QueuedResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class QueuedResourceViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    queryset = QueuedResource.objects.all()  # narrowed by TransientService.readable: the user's groups (#86, #91)
     serializer_class = QueuedResourceSerializer
-
-    def get_queryset(self):
-        allowed_resource = ObservingResourceService.GetAuthorizedQueuedResource_ByUser(self.request.user)
-        return allowed_resource
 
 ### `ClassicalResource` Filter Set ###
 class ClassicalResourceFilter(django_filters.FilterSet):
@@ -374,21 +368,15 @@ class ClassicalResourceFilter(django_filters.FilterSet):
         model = ClassicalResource
         fields = ()
 
-class ClassicalResourceViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class ClassicalResourceViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    queryset = ClassicalResource.objects.all()  # narrowed by TransientService.readable: the user's groups (#86, #91)
     serializer_class = ClassicalResourceSerializer
     filter_backends = (DjangoFilterBackend,)
     filter_class = ClassicalResourceFilter
 
-    def get_queryset(self):
-        allowed_resource = ObservingResourceService.GetAuthorizedClassicalResource_ByUser(self.request.user)
-        return allowed_resource
-
-class ClassicalObservingDateViewSet(custom_viewsets.ListCreateRetrieveUpdateViewSet):
+class ClassicalObservingDateViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateViewSet):
+    queryset = ClassicalObservingDate.objects.all()  # narrowed by TransientService.readable: the user's groups (#86, #91)
     serializer_class = ClassicalObservingDateSerializer
-
-    def get_queryset(self):
-        allowed_resource = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(self.request.user)
-        return allowed_resource
 
 ### `Telescope` ViewSets ###
 class TelescopeViewSet(ReadableQuerysetMixin, custom_viewsets.ListCreateRetrieveUpdateDestroyViewSet):

@@ -1,5 +1,4 @@
 from rest_framework import mixins
-from rest_framework import permissions
 from rest_framework import viewsets
 
 from YSE_App.common import custom_mixins
@@ -22,12 +21,6 @@ class ListCreateRetrieveUpdateViewSet(mixins.CreateModelMixin,
 
 class ListCreateRetrieveUpdateDestroyViewSet(ListCreateRetrieveUpdateViewSet,
 						mixins.DestroyModelMixin):
-	"""Standard viewset plus DELETE, restricted to admin (is_staff) users.
-
-	Non-admin authenticated users are forbidden (403) from deleting; all other
-	actions keep whatever ``permission_classes`` the concrete viewset declares.
-	"""
-	def get_permissions(self):
-		if self.action == 'destroy':
-			return [permissions.IsAdminUser()]
-		return super().get_permissions()
+	"""Standard viewset plus DELETE. Who may delete is the API's default permission,
+	access.RulePermission (TransientService.can_delete, #86): this used to swap in DRF's
+	IsAdminUser, which checks is_staff (most users) and skipped the rule."""

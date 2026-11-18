@@ -46,7 +46,9 @@ from .serializers import *
 from django.core import serializers
 import os
 from .data import PhotometryService, SpectraService, ObservingResourceService, TransientService
-from .access import transient_access
+from .access import superuser_required, transient_access
+from django.core.exceptions import PermissionDenied
+from django.views.decorators.http import require_POST
 import json
 import time
 import dateutil.parser
@@ -257,9 +259,7 @@ def transient_summary(request,status_or_query_name,
     #transients_with_followup = SimpleTransientFollowupRequest.objects.all().values('transient__name').distinct()
 
     from django.utils import timezone
-    transient_followup_form = TransientFollowupForm()
-    transient_followup_form.fields["too_resource"].queryset = view_utils.get_authorized_too_resources(request.user).filter(end_date_valid__gt = timezone.now()-timedelta(days=1)).order_by('telescope__name')
-    transient_followup_form.fields["queued_resource"].queryset = view_utils.get_authorized_queued_resources(request.user).filter(end_date_valid__gt = timezone.now()-timedelta(days=1)).order_by('telescope__name')
+    transient_followup_form = TransientFollowupForm(user=request.user)  # offers only the user's resources (#86, #91)
 
     
     status = TransientStatus.objects.filter(name=status_or_query_name.replace('followrequest','FollowupRequested')).order_by('-modified_date')
@@ -454,7 +454,7 @@ def yse_oncall_calendar(request):
 
 @login_required
 def observing_calendar(request):
-    all_dates = ClassicalObservingDate.objects.all().select_related()
+    all_dates = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user).select_related()  # #86, #91
     colors = ['#dd4b39', 
                 '#f39c12', 
                 '#00c0ef', 
@@ -466,7 +466,7 @@ def observing_calendar(request):
                 '#001f3f']
 
     telescope_colors = {}
-    for i, c in enumerate(ClassicalResource.objects.all().select_related()):
+    for i, c in enumerate(ObservingResourceService.GetAuthorizedClassicalResource_ByUser(request.user).select_related()):
         telescope_colors[c.telescope.name] = colors[i % len(colors)]
 
     context = {
@@ -491,7 +491,7 @@ def too_calendar(request):
     # don't show everything, for speed
     first_calendar_date = (datetime.datetime.utcnow()-datetime.timedelta(60)).replace(tzinfo=pytz.UTC)
     last_calendar_date = (datetime.datetime.utcnow()+datetime.timedelta(60)).replace(tzinfo=pytz.UTC)
-    all_too_resources = ToOResource.objects.filter(~Q(end_date_valid__lt=first_calendar_date) &
+    all_too_resources = ObservingResourceService.GetAuthorizedToOResource_ByUser(request.user).filter(~Q(end_date_valid__lt=first_calendar_date) &
                                                ~Q(begin_date_valid__gt=last_calendar_date)).select_related()
 
     telescope_colors = {}
@@ -520,7 +520,7 @@ def too_requests(request, telescope, pi_name):
 
     nowdate = datetime.datetime.utcnow()
     # get follow requests for telescope/date
-    too_resource = ToOResource.objects.\
+    too_resource = ObservingResourceService.GetAuthorizedToOResource_ByUser(request.user).\
         filter(telescope__name = telescope.replace('_',' ')).\
         filter(begin_date_valid__lte=nowdate).filter(end_date_valid__gte=nowdate).select_related()
     if pi_name != 'None':
@@ -570,8 +570,8 @@ def too_requests(request, telescope, pi_name):
 @login_required
 def yse_home(request):
     oncall_form = OncallForm()
-    classical_resource_form = ClassicalResourceForm()
-    too_resource_form = ToOResourceForm()
+    classical_resource_form = ClassicalResourceForm(user=request.user)
+    too_resource_form = ToOResourceForm(user=request.user)
 
     fastrising_transients = visible_rows(request.user, fastrising_transient_queryset(ndays=7).filter(tags__name='YSE'))
     fastrisingtransientfilter = TransientFilter(request.GET, queryset=fastrising_transients,prefix='ysefastrise')
@@ -812,7 +812,7 @@ def decam_observing_calendar(request):
 def observing_night(request, telescope, obs_date, pi_name):
 
     # get follow requests for telescope/date
-    classical_obs_date = ClassicalObservingDate.objects.filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' ')).select_related()
+    classical_obs_date = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user).filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' ')).select_related()
     if pi_name != 'None':
         classical_obs_date = classical_obs_date.filter(resource__principal_investigator__name = pi_name)
     
@@ -913,7 +913,7 @@ def yse_observing_night(request, obs_date):
 def download_target_list(request, telescope, obs_date):
 
     # get follow requests for telescope/date
-    classical_obs_date = ClassicalObservingDate.objects.filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' '))
+    classical_obs_date = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user).filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' '))
     follow_requests = visible_followup_rows(request.user, TransientFollowup.objects.filter(classical_resource = classical_obs_date[0].resource).filter(valid_start__lte = classical_obs_date[0].obs_date).filter(valid_stop__gte = classical_obs_date[0].obs_date))
 
     location = EarthLocation.from_geodetic(
@@ -944,7 +944,7 @@ def download_target_list(request, telescope, obs_date):
 def download_targets_and_finders(request, telescope, obs_date):
 
     # get follow requests for telescope/date
-    classical_obs_date = ClassicalObservingDate.objects.filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' '))
+    classical_obs_date = ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user).filter(obs_date__startswith = obs_date).filter(resource__telescope__name = telescope.replace('_',' '))
     follow_requests = visible_followup_rows(request.user, TransientFollowup.objects.filter(classical_resource = classical_obs_date[0].resource).filter(valid_start__lte = classical_obs_date[0].obs_date).filter(valid_stop__gte = classical_obs_date[0].obs_date))
 
     location = EarthLocation.from_geodetic(
@@ -992,9 +992,10 @@ def transient_detail(request, transient):
         )
     # -------------------------------------------------------------------------
 
-    classical_resource_form = ClassicalResourceForm()
-    too_resource_form = ToOResourceForm()
-    automated_spectrum_form = AutomatedSpectrumRequest()
+    # #86: every write form is built for the user, and offers only what they may write
+    classical_resource_form = ClassicalResourceForm(user=request.user)
+    too_resource_form = ToOResourceForm(user=request.user)
+    automated_spectrum_form = AutomatedSpectrumRequest(user=request.user)
     
     # @transient_access found it through the visibility rule (#86), and redirected an old slug (#29)
     logs = TransientService.authorized_logs(Log.objects.filter(transient=transient.id), request.user)
@@ -1007,13 +1008,9 @@ def transient_detail(request, transient):
 
     alt_names = AlternateTransientNames.objects.filter(transient__pk=transient_id)
 
-    transient_followup_form = TransientFollowupForm()
-    #transient_followup_form.fields["classical_resource"].queryset = \
-    #       view_utils.get_authorized_classical_resources(request.user).filter(end_date_valid__gt = timezone.now()-timedelta(days=1)).order_by('telescope__name')
-    transient_followup_form.fields["too_resource"].queryset = view_utils.get_authorized_too_resources(request.user).filter(end_date_valid__gt = timezone.now()-timedelta(days=1)).order_by('telescope__name')
-    transient_followup_form.fields["queued_resource"].queryset = view_utils.get_authorized_queued_resources(request.user).filter(end_date_valid__gt = timezone.now()-timedelta(days=1)).order_by('telescope__name')
+    transient_followup_form = TransientFollowupForm(user=request.user)
 
-    transient_observation_task_form = TransientObservationTaskForm()
+    transient_observation_task_form = TransientObservationTaskForm(user=request.user)
 
     spectrum_upload_form = SpectrumUploadForm()
     
@@ -1023,7 +1020,7 @@ def transient_detail(request, transient):
     transient_status_watch = TransientStatus.objects.get(name="Watch")
     transient_status_interesting = TransientStatus.objects.get(name="Interesting")
     transient_status_ignore = TransientStatus.objects.get(name="Ignore")
-    transient_comment_form = TransientCommentForm()
+    transient_comment_form = TransientCommentForm(user=request.user)
     # Transient tag
     all_colors = WebAppColor.objects.all().select_related()
     all_transient_tags = TransientTag.objects.all().select_related()
@@ -1174,7 +1171,7 @@ def transient_detail(request, transient):
         'YSE_App/transient_detail.html',
         context)
 
-@login_required
+@superuser_required  # a stub: its form never saves (#86)
 def transient_edit(request, transient_id=None):
     # if this is a POST request we need to process the form data
     if request.method == 'POST':
@@ -1586,7 +1583,7 @@ def upload_spectrum(request):
     })
 
 @csrf_exempt
-@login_or_basic_auth_required
+@superuser_required  # changes every transient a query returns (#86)
 def change_status_for_query(request, query_id, status_id):
 
     transients = []
@@ -1613,8 +1610,14 @@ def change_status_for_query(request, query_id, status_id):
     return redirect('personaldashboard')
 
 @login_required
+@require_POST
 def delete_followup(request,followup_id):
-    followup = get_object_or_404(TransientFollowup,pk=followup_id)
+    # #86: hidden = 404; seen but not the user's to delete (TransientService.can_delete) = 403
+    followup = TransientService.readable(TransientFollowup.objects.filter(pk=followup_id), request.user).first()
+    if followup is None:
+        raise Http404('Follow-up not found')
+    if not TransientService.can_delete(request.user, followup):
+        raise PermissionDenied
     slug = followup.transient.slug
     followup.delete()
     return HttpResponseRedirect(reverse_lazy('transient_detail',kwargs={'slug':slug}))
@@ -1721,6 +1724,7 @@ job_submitted=%s"""%(log_file_name,datetime.datetime.utcnow().isoformat())
     l = Log.objects.create(
         created_by=request.user,modified_by=request.user,
         transient=transient,comment=commentstr)
+    l.groups.set(Group.objects.filter(name=TransientService.PUBLIC))  # public data, an open request (#86)
 
     context = {'msg':'success'}
     #response = HttpResponse(context, content_type='text/plain') #JsonResponse(context)

@@ -2,7 +2,7 @@
 
 - **Issue:** #86, with #88 (phase 5), #91 and #92 folded in; the PR closes all four
 - **Branch:** `86-group-visibility`
-- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1 and 2 committed; part 3a built, in review
+- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1, 2 and 3a committed; part 3b design agreed (review 13) and in build
 
 ## Why
 
@@ -67,8 +67,9 @@ Everything here is decided (Dave, 2026-11-12 and 2026-11-17).
 | **Comment** | seeing the transient (either level). The comment's groups are the commenter's own data groups and/or `Public`; comments may be `Public`. |
 | **Curate**: change the transient's status (a follow-up request is a status change) or tags or fields; request follow-up; upload photometry or spectra; create a transient | the `curate_transients` permission ("Transient Curators") **and** membership in one of the transient's non-`Public` groups. Follow-up resources and data groups are limited to the user's own. Data can't be tagged `Public` this way. |
 | **Release to `Public`** (a transient and its data) | a superuser, through group access in the admin (5b): the transient's admin page, or the "Set group access" action with `Public`. Also `Public` from the release paths: Resolve on TNS (`mutate_tns_metadata`, "TNS Reporters") and the #89 public-survey pipelines, which run as code, not as a user. |
-| **Change a transient's groups** (who can see it), **delete**, **create users and assign groups** | a superuser |
-| **Edit or delete one's own comment** | its author, or a superuser |
+| **Change a transient's groups** (who can see it), **create users and assign groups** | a superuser |
+| **Delete** | by reach (review 13, below): a curator deletes what reaches only things they curate; anything site-wide is for superusers |
+| **Edit or delete one's own comment** | its author, or a superuser (a curator can't delete another user's comment) |
 
 **The two-axis principle** (Dave, 2026-11-18), for placing any action, now or later. Ask two questions: is it **additive**, or does it **change or remove** something? And **who sees the result**: only an audience the author chooses (the item has its own groups), or everyone who sees the transient (shared), or the whole site?
 
@@ -79,7 +80,21 @@ Everything here is decided (Dave, 2026-11-12 and 2026-11-17).
 
 Data is the one deliberate exception: uploading photometry or spectra is additive and reaches only the uploader's chosen groups, but it needs the curator role, because data carries scientific weight and most users are viewers (Dave).
 
-**Choosing a gate:** gate each action by the cost of a mistake. Reversible and audited actions go to a widely granted role; irreversible or outward-facing ones (publishing to `Public`, reporting to TNS, changing who can see a transient, deleting) go to a narrow role or to superusers.
+**Choosing a gate:** gate each action by the cost of a mistake. Reversible and audited actions go to a widely granted role; irreversible or outward-facing ones (publishing to `Public`, reporting to TNS, changing who can see a transient, deleting anything site-wide) go to a narrow role or to superusers.
+
+**Deleting, by reach** (Dave, 2026-11-18, review 13): a curator may delete something when the deletion reaches only things they curate; once something outside their reach uses it, it's site-wide, and deleting it is for superusers. Irreversible but local is a curator's job; irreversible and site-wide or outward-facing stays with superusers. `TransientService.can_delete(user, item)` decides it, for the API's DELETE and the app's delete views alike (the API is no stricter than the page: the page itself uses the API for status and tags, and a login can make the same requests).
+
+| Item | Who may delete |
+|---|---|
+| Follow-ups, observation tasks, aliases, web links, images | a curator of the transient (`can_edit`) |
+| Photometry and spectra (and their points) | a curator of the transient, if **every** group on the record is one of theirs; a record also in another team's group or in `Public` is site-wide |
+| A tag on a transient (removing it) | a curator of the transient |
+| A tag itself, a PI | its creator, while every transient (for a PI: resource) using it is one they curate, none included; otherwise superusers. Tags made by ingest belong to a pipeline account, so they're superusers' |
+| Observing resources | a curator in the resource's groups, while no follow-up outside their reach uses it |
+| Comments | the author, or a superuser |
+| Transients, hosts, instruments, bands, telescopes, groups, users | superusers |
+
+Deleting photometry, spectra and tags isn't audited yet (auditlog covers only `Transient`): #94.
 
 **Roles are groups that grant permissions**, set up in Admin → Groups, and given to a person through the Groups box on their user page; never by picking per-table permissions. Each role is a custom permission in `Meta.permissions` plus a migration that creates its group: "TNS Reporters" (`mutate_tns_metadata`) and "Transient Curators" (`curate_transients`). Nobody holds `curate_transients` at first, so after deploy only superusers can curate until people are added to the group (fail closed).
 
@@ -102,6 +117,15 @@ In `TransientService`, `can_edit(user, transient)` = superuser, or `curate_trans
 9. **Edit controls** in the detail and candidate templates sit behind the template filters (`can_edit`, `can_comment`), so users don't see buttons they can't use.
 10. **The comment form** gets group checkboxes: the author's data groups pre-ticked, `Public` available, at least one required.
 11. **The follow-up form** needs the curator role. It offers **and accepts** only resources in the user's groups (each resource field's queryset comes from `ObservingResourceService`, so the same filter decides both), and the request's status change goes with it (a follow-up request is a real status change). Its comment gets the follow-up's groups. `ObservingResourceService` uses `in_groups_q`; resources need a data group (#91; production has none to migrate).
+11b. **Review 13 (Dave, 2026-11-18):**
+   - Every app write view needs a login (`LoginRequiredMixin` on the form views, none of which had one), and gets its check by passing `request.user` to the form, whose `transient` / `followup` / resource fields are narrowed to what the user may write (`TransientService.writable`, the same as `RuleRelatedField`): anything else is "Select a valid choice", a 400, as on the API.
+   - `ztf_forced_phot` needs only seeing the transient (public data), and its comment is `Public`; the button is **hidden until #89**, because its results came back through a cron phase 3 removes (#89 brings it back: button initiated, cron resolved).
+   - `transient_edit` (a stub whose form never saves), `change_status_for_query` and the survey-field, survey-obs and on-call forms are superuser-only. The personal dashboard's remove actions (`remove_dashboard_query`, `remove_followup_notice`) need a login and act only on the user's own rows (they remove a pin or a subscription, never the query or telescope).
+   - `delete_followup` is POST-only and uses `can_delete`.
+   - Dashboard status dropdowns show only on rows the user can curate: one `Exists` annotation (`editable`) on the dashboard query, none at all for users without the curator role.
+   - Every observing resource has at least one data group (no `Public`): the classical-resource and ToO forms get a groups field (curators; their own data groups), replacing the hard-coded `YSE`; the follow-up form offers only the user's resources.
+   - Comment notifications (#93): `TransientService.users_who_can_see(log)` decides who may be emailed, and the existing email code uses it (`@mention` only if they can see the comment; `@channel`/`@here` = everyone who can see it). The SMTP settings are believed missing, so nothing is delivered today; #93 repairs delivery (email or Slack) and the hard-coded URL.
+   - Candidate ingest's comment groups move to phase 3; the legacy `submit_to_tns` comment to phase 4.
 12. **Comments and follow-ups made by code** get groups from where they come from (candidate ingest: the ingest's groups; the follow-up form: the follow-up's), never `Public` by default. Existing ones (105 comments, 0 follow-ups on production) are set in the ETL step. **Decided (Dave):** existing comments go to `TSST`, not `Public`; they're mostly the team's candidate vetting.
 
 **Who writes the shared tables** (API and admin; review 12):
@@ -297,3 +321,16 @@ Out of scope:
   - `RulePermission` takes the rule from the viewset's `write_rule`, or from its model: `curate` for rows tied to a transient or host, `site` (superusers) for everything else. Deleting is superuser-only.
   - Tags and PIs are `vocabulary`: anyone adds, the creator changes. The five obsolete YSE viewsets use `IsSuperuser`.
   - A `PATCH` that only adds tags to a transient needs only `can_add_tags` (can see it); the serializer refuses removing a tag without `can_edit`.
+- **2026-11-18 (plan review 13, Dave, before 3b):**
+  - **Deleting by reach** (above), replacing "deletes are superuser-only": curators delete what reaches only things they curate. The API follows the same rule as the app.
+  - **Found while surveying 3b:** none of the 14 form views needed a login, and the two personal-dashboard remove views deleted anyone's pin or subscription by id; `ObservingResourceService` treated an ungrouped resource as everyone's; the follow-up form offered every classical resource; new resources got the hard-coded `YSE` group or none; comment emails went to everyone on `@channel` and to anyone mentioned. All fixed in 3b (11b).
+  - **Filed:** #93 (comment notifications: audience and delivery, Slack preferred), #94 (audit deleting data, and a replace path for bad uploads; audit per record, never flood the database). #89 got the "button initiated, cron resolved" design.
+  - Dave gave the go for 3b.
+- **2026-11-18 (part 3b build):**
+  - **The rule:** `TransientService` gained `can_curate` (the API's object check: transient, host or observing resource), `can_delete` (the review 13 table), `annotate_editable` (one `Exists` subquery per dashboard), `users_who_can_see`, `team_groups`, `own_data_groups`, and resources in `readable`/`writable`. `settable_groups` moved here from `access.py`; anonymous users may set none.
+  - **Found and fixed: the API's DELETE was open to every staff user.** `ListCreateRetrieveUpdateDestroyViewSet` replaced the permission classes with DRF's `IsAdminUser` for `destroy`, which checks `is_staff` (20 of 21 users) and skipped `RulePermission`, so any staff login could delete a transient, instrument, band, telescope or tag. The override is gone; `RulePermission` → `can_delete` decides. 3a's tests missed it because their users weren't staff (`DeleteRuleTests` now uses one).
+  - **API deletes:** only the viewsets that already offered DELETE (transients, tags, instruments, observatories, bands, telescopes) do; no new delete endpoint was added for data before #94 can audit it.
+  - **Forms:** `forms.UserForm` builds each write form for its user and narrows its fields (transient, follow-up, resources, groups) with the rule; `access.UserFormMixin` (login + passing the user), `CuratorFormMixin` (`PermissionRequiredMixin` for resource forms) and `SuperuserRequiredMixin` (obsolete YSE forms) are the view side; `superuser_required` for function views.
+  - **Resources (#91):** `ObservingResourceService` delegates to `TransientService.readable_resources`; the resource viewsets use `ReadableQuerysetMixin`; the serializers take `groups` by name (at least one, the writer's own) and copy their fields from one list, which also fixes the old ToO update that wrote `awarded_too_hours` into the trigger fields. `auth_helpers.py` is deleted. The observing and ToO calendars, night pages, target-list downloads, rise/set/moon endpoints and the automated spectrum request now see only the user's resources.
+  - **Dashboards:** the 12 copies of the status dropdown are one `table_utils.status_column()`, shown only on rows annotated `editable`.
+  - **Also:** the comment and follow-up forms require a transient (the model allows none).

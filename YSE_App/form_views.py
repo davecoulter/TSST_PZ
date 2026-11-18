@@ -29,6 +29,9 @@ from django.views.decorators.csrf import csrf_exempt
 from .basicauth import *
 
 from YSE_App.util import lcogt
+from YSE_App.access import CuratorFormMixin, SuperuserRequiredMixin, UserFormMixin
+from YSE_App.data import ObservingResourceService, TransientService
+from django.contrib.auth.mixins import LoginRequiredMixin
 # for getting YSE filter selection
 from django.conf import settings as djangoSettings
 
@@ -38,7 +41,8 @@ _reddest_yse_filter = djangoSettings.REDYSEFILTER
 def is_ajax(request):
 	return request.META.get('HTTP_X_REQUESTED_WITH') == 'XMLHttpRequest'
 
-class AddTransientFollowupFormView(FormView):
+class AddTransientFollowupFormView(UserFormMixin, FormView):
+	"""#86: a curator, on a transient they curate, with their groups' resources (the form decides)."""
 	form_class = TransientFollowupForm
 	template_name = 'YSE_App/form_snippets/transient_followup_form.html'
 	success_url = '/form-success/'
@@ -62,7 +66,9 @@ class AddTransientFollowupFormView(FormView):
 				instance.valid_stop = instance.classical_resource.end_date_valid
 			
 			instance.save() #update_fields=['created_by','modified_by']
+			form.save_m2m()  # its groups
 
+			# a follow-up request is a real status change, made by the curator requesting it
 			if instance.transient.status.name in ['New','Watch','Ignore','Interesting']:
 				instance.transient.status = TransientStatus.objects.filter(name='FollowupRequested')[0]
 				instance.transient.save()
@@ -73,6 +79,7 @@ class AddTransientFollowupFormView(FormView):
 				log.created_by = self.request.user
 				log.modified_by = self.request.user
 				log.save()
+				log.groups.set(instance.groups.all())  # the follow-up's audience
 			
 			print(form.cleaned_data)
 
@@ -113,7 +120,7 @@ class AddTransientFollowupFormView(FormView):
 		else:
 			return response
 
-class AddClassicalResourceFormView(FormView):
+class AddClassicalResourceFormView(CuratorFormMixin, FormView):
 	form_class = ClassicalResourceForm
 	template_name = 'YSE_App/form_snippets/classical_resource_form.html'
 	success_url = '/form-success/'
@@ -136,8 +143,7 @@ class AddClassicalResourceFormView(FormView):
 			instance.end_date_valid = form.cleaned_data['observing_date'] + datetime.timedelta(1)
 			
 			instance.save() #update_fields=['created_by','modified_by']
-			instance.groups.set(Group.objects.filter(name='YSE'))
-			instance.save()
+			form.save_m2m()  # its groups: the curator's own, at least one (#86, #91)
 
 
 			obsdatedict = {'created_by':self.request.user,'modified_by':self.request.user,
@@ -154,7 +160,7 @@ class AddClassicalResourceFormView(FormView):
 		else:
 			return response
 
-class AddToOResourceFormView(FormView):
+class AddToOResourceFormView(CuratorFormMixin, FormView):
 	form_class = ToOResourceForm
 	template_name = 'YSE_App/form_snippets/classical_resource_form.html'
 	success_url = '/form-success/'
@@ -175,6 +181,7 @@ class AddToOResourceFormView(FormView):
 			instance.modified_by = self.request.user
 			
 			instance.save() #update_fields=['created_by','modified_by']
+			form.save_m2m()  # its groups: the curator's own, at least one (#86, #91)
 
 			print(form.cleaned_data)
 
@@ -186,7 +193,8 @@ class AddToOResourceFormView(FormView):
 			return response
 		
 		
-class AddTransientObservationTaskFormView(FormView):
+class AddTransientObservationTaskFormView(UserFormMixin, FormView):
+	"""#86: on a follow-up of a transient the user curates (the form decides)."""
 	form_class = TransientObservationTaskForm
 	template_name = 'YSE_App/form_snippets/transient_observation_task_form.html'
 	success_url = '/form-success/'
@@ -243,7 +251,7 @@ class AddTransientObservationTaskFormView(FormView):
 		else:
 			return response
 
-class AddSurveyFieldFormView(FormView):
+class AddSurveyFieldFormView(SuperuserRequiredMixin, FormView):  # obsolete YSE (#86)
 	form_class = SurveyFieldForm
 	template_name = 'YSE_App/form_snippets/survey_field_form.html'
 	success_url = '/form-success/'
@@ -328,7 +336,7 @@ class AddSurveyFieldFormView(FormView):
 		else:
 			return response
 
-class AddSurveyObsFormView(FormView):
+class AddSurveyObsFormView(SuperuserRequiredMixin, FormView):  # obsolete YSE (#86)
 	form_class = SurveyObsForm
 	template_name = 'YSE_App/form_snippets/survey_obs_form.html'
 	success_url = '/form-success/'
@@ -470,7 +478,7 @@ class AddSurveyObsFormView(FormView):
 			return response
 
 		
-class AddOncallUserFormView(FormView):
+class AddOncallUserFormView(SuperuserRequiredMixin, FormView):  # obsolete YSE (#86)
 	form_class = OncallForm
 	template_name = 'YSE_App/form_snippets/oncall_form.html'
 	success_url = '/form-success/'
@@ -535,7 +543,19 @@ class AddOncallUserFormView(FormView):
 			return response
 
 		
-class AddTransientCommentFormView(FormView):
+def comment_recipients(log):
+	"""The email addresses a new comment notifies (#86): users it @mentions, or with @channel or
+	@here everyone, and in either case only those who may read it (TransientService.users_who_can_see).
+	Delivery itself is #93."""
+	if '@channel' in log.comment or '@here' in log.comment:
+		candidates = User.objects.filter(is_active=True)
+	else:
+		candidates = User.objects.filter(is_active=True, username__in=re.findall(r"\@(\w+)", log.comment))
+	return sorted({u.email for u in TransientService.users_who_can_see(log, candidates) if u.email})
+
+
+class AddTransientCommentFormView(UserFormMixin, FormView):
+	"""#86: anyone who can see the transient, with their own data groups and/or 'Public' (the form decides)."""
 	form_class = TransientCommentForm
 	template_name = 'simple.html'#YSE_App/form_snippets/transient_followup_form.html'
 	success_url = '/form-success/'
@@ -556,23 +576,10 @@ class AddTransientCommentFormView(FormView):
 			instance.modified_by = self.request.user
 			
 			instance.save() #update_fields=['created_by','modified_by']
+			form.save_m2m()  # its groups
 			print(form.cleaned_data)
 
-			# send emails to everyone else on the comments thread
-			logs = Log.objects.filter(transient=instance.transient.id)
-				
-			emaillist = []
-			if '@channel' in instance.comment:
-				for user in User.objects.all():
-					emaillist += [user.email]
-			else:
-				#for log in logs:
-				#	emaillist += [log.created_by.email]
-				for user in re.compile(r"\@(\w+)").findall(instance.comment):
-					usermatch = User.objects.filter(username=user)
-					if len(usermatch):
-						emaillist += [usermatch[0].email]
-			emaillist = np.unique(emaillist)
+			emaillist = comment_recipients(instance)
 
 			transient_name = instance.transient.name
 			base_url = "https://ziggy.ucolick.org/yse/" 
@@ -616,7 +623,7 @@ class AddTransientCommentFormView(FormView):
 		else:
 			return response
 		
-class AddDashboardQueryFormView(FormView):
+class AddDashboardQueryFormView(LoginRequiredMixin, FormView):
 	form_class = AddDashboardQueryForm
 	template_name = 'YSE_App/form_snippets/dashboard_query_form.html'
 	success_url = '/form-success/'
@@ -648,8 +655,13 @@ class AddDashboardQueryFormView(FormView):
 		else:
 			return response
 
-class RemoveDashboardQueryFormView(DeleteView):
+class RemoveDashboardQueryFormView(LoginRequiredMixin, DeleteView):
+	"""Unpins a saved query from the user's own dashboard (the query itself stays)."""
 	model = UserQuery
+
+	def get_queryset(self):
+		return UserQuery.objects.filter(user=self.request.user)  # #86: one's own pins only
+
 	form_class = RemoveDashboardQueryForm
 	template_name = 'YSE_App/personaldashboard.html'
 	success_url = reverse_lazy('personaldashboard')
@@ -662,7 +674,7 @@ class RemoveDashboardQueryFormView(DeleteView):
 		else:
 			return response
 
-class AddFollowupNoticeFormView(FormView):
+class AddFollowupNoticeFormView(LoginRequiredMixin, FormView):
 	form_class = AddFollowupNoticeForm
 	template_name = 'YSE_App/form_snippets/dashboard_followup_notice_form.html'
 	success_url = '/form-success/'
@@ -701,8 +713,13 @@ Contact D. Jones or D. Coulter."""%self.request.user,
 		else:
 			return response
 
-class RemoveFollowupNoticeFormView(DeleteView):
+class RemoveFollowupNoticeFormView(LoginRequiredMixin, DeleteView):
+	"""Ends the user's own subscription to a telescope's follow-up notices (the telescope stays)."""
 	model = UserTelescopeToFollow
+
+	def get_queryset(self):
+		return UserTelescopeToFollow.objects.filter(profile__user=self.request.user)  # #86: one's own only
+
 	form_class = RemoveFollowupNoticeForm
 	template_name = 'YSE_App/personaldashboard.html'
 	success_url = reverse_lazy('personaldashboard')
@@ -715,7 +732,8 @@ class RemoveFollowupNoticeFormView(DeleteView):
 		else:
 			return response
 
-class AddAutomatedSpectrumRequestFormView(FormView):
+class AddAutomatedSpectrumRequestFormView(UserFormMixin, FormView):
+	"""#86: a curator, on a transient they curate (the form decides)."""
 	form_class = AutomatedSpectrumRequest
 	template_name = 'YSE_App/form_snippets/spectrum_request_form.html'
 	success_url = '/form-success/'
@@ -734,7 +752,7 @@ class AddAutomatedSpectrumRequestFormView(FormView):
 			
 			# some hard-coded logic
 			if 'goodman' in form.cleaned_data['instrument'].name.lower():
-				resource = ClassicalResource.objects.filter(telescope__name=form.cleaned_data['instrument'].telescope).\
+				resource = ObservingResourceService.GetAuthorizedClassicalResource_ByUser(self.request.user).filter(telescope__name=form.cleaned_data['instrument'].telescope).\
 					filter(principal_investigator__name='Dimitriadis')
 				if not len(self.request.user.groups.all().filter(name='SOAR')):
 					data_dict = {'errors':'you need to be in the SOAR permissions group to submit this request!',
@@ -745,7 +763,7 @@ class AddAutomatedSpectrumRequestFormView(FormView):
 					}
 					return JsonResponse(data)
 			else:
-				resource = ToOResource.objects.filter(telescope__name=form.cleaned_data['instrument'].telescope) #.\
+				resource = ObservingResourceService.GetAuthorizedToOResource_ByUser(self.request.user).filter(telescope__name=form.cleaned_data['instrument'].telescope) #.\
 					#filter(principal_investigator__name='Kilpatrick')
 				if not len(self.request.user.groups.all().filter(name='LCOGT')):
 					data_dict = {'errors':'you need to be in the LCOGT permissions group to submit this request!',
@@ -783,6 +801,7 @@ class AddAutomatedSpectrumRequestFormView(FormView):
 									   transient=form.cleaned_data['transient'],created_by=self.request.user,modified_by=self.request.user)
 
 			tf.save()
+			tf.groups.set(TransientService.team_groups(self.request.user, tf.transient))
 
 			# now charlie's code
 			lcogt.main(

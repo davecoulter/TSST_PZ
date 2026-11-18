@@ -42,13 +42,34 @@ def order_by_display_name(prefix=''):
 
 def visible_rows(user, queryset):
     """A transient table's rows for `user` (#86): only the transients they may see, each annotated with
-    the photometry summary (recent_mag, recent_magdate, disc_mag) from the photometry they may see."""
-    return PhotometryService.AnnotatePhotometrySummary(TransientService.visible_transients(user, queryset), user)
+    the photometry summary (recent_mag, recent_magdate, disc_mag) from the photometry they may see, and
+    with `editable` (whether they may curate it), which status_column reads."""
+    rows = TransientService.annotate_editable(TransientService.visible_transients(user, queryset), user)
+    return PhotometryService.AnnotatePhotometrySummary(rows, user)
 
 def visible_followup_rows(user, queryset):
     """A follow-up table's rows for `user`: the follow-ups they may see, annotated as visible_rows."""
-    return PhotometryService.AnnotatePhotometrySummary(TransientService.authorized_data(queryset, user), user,
-                                                       transient_field='transient')
+    rows = TransientService.annotate_editable(TransientService.authorized_data(queryset, user), user,
+                                              transient_field='transient')
+    return PhotometryService.AnnotatePhotometrySummary(rows, user, transient_field='transient')
+
+COMPACT_BUTTON = 'margin-bottom:-5px;margin-top:-10px;padding:1px 5px'
+
+def status_column(verbose_name='Status', target='record', span_suffix='_status_name',
+                  statuses='all_transient_statuses', css='transientStatusChange', button_style=COMPACT_BUTTON,
+                  button_class='btn btn-default dropdown-toggle btn-md'):
+    """A status cell (#86): a dropdown to change it where the viewer may curate the row's transient (the
+    row's `editable`, from visible_rows), the status as plain text elsewhere, and on any row a table
+    didn't annotate. `target` is the row's object whose status it shows (the row, or its transient)."""
+    status = '<span id="{{ %s.id }}%s" class="dropbtn">{{ %s.status }}</span>' % (target, span_suffix, target)
+    template = (
+        '{%% if record.editable %%}<div class="btn-group">\n'
+        '<button style="%s" type="button" class="%s" data-toggle="dropdown">%s</button>\n'
+        '<ul class="dropdown-menu">{%% for status in %s %%}<li><a data-status_id="{{ status.id }}" '
+        'data-status_name="{{ status.name }}" transient_id="{{ %s.id }}" class="%s" href="#">{{ status.name }}'
+        '</a></li>{%% endfor %%}</ul>\n</div>{%% else %%}%s{%% endif %%}'
+    ) % (button_style, button_class, status, statuses, target, css, status)
+    return tables.TemplateColumn(template, verbose_name=verbose_name, orderable=True, order_by='status')
 
 class MagColumn(tables.Column):
     """A magnitude, to two decimals."""
@@ -94,17 +115,7 @@ class TransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column()
 
 
     def __init__(self, *args, **kwargs):
@@ -180,17 +191,7 @@ class FieldTransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column()
 
 
     def __init__(self, *args, **kwargs):
@@ -266,17 +267,7 @@ class AdjustFieldTransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column()
 
 
     def __init__(self, *args, **kwargs):
@@ -351,17 +342,7 @@ class YSETransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name_yse" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column(span_suffix='_status_name_yse')
 
 
     def __init__(self, *args, **kwargs):
@@ -473,17 +454,7 @@ class YSEFullTransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name_yse" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column(span_suffix='_status_name_yse')
 
 
     def __init__(self, *args, **kwargs):
@@ -592,17 +563,7 @@ class YSERisingTransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name_yse" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column(span_suffix='_status_name_yse')
 
 
     def __init__(self, *args, **kwargs):
@@ -709,17 +670,7 @@ class NewTransientTable(tables.Table):
                                    verbose_name='MW E(B-V)',orderable=True,order_by='mw_ebv')
 
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Status',orderable=True,order_by='status')
+    status_string = status_column()
 
 
     def __init__(self, *args, **kwargs):
@@ -775,17 +726,7 @@ class FollowupTable(tables.Table):
     action = tables.TemplateColumn("<a target=\"_blank\" href=\"{% url 'admin:YSE_App_transientfollowup_change' record.id %}\">Edit</a>",
                                    verbose_name='Action',orderable=False)
 
-    status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:5px;" type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_followup_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Followup Status',orderable=True,order_by='status')
+    status_string = status_column(verbose_name='Followup Status', statuses='all_followup_statuses', button_style='margin-bottom:5px;', button_class='btn btn-default dropdown-toggle')
 
 
 
@@ -838,30 +779,10 @@ class ObsNightFollowupTable(tables.Table):
     created_by = tables.Column(verbose_name='Added By',orderable=True,accessor='created_by')
     comment = tables.Column(verbose_name='Comments',orderable=True,accessor='id')
 
-    transient_status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.transient.id }}_status_name" class="dropbtn">{{ record.transient.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.transient.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Transient Status',orderable=True,order_by='status')
+    transient_status_string = status_column(verbose_name='Transient Status', target='record.transient')
 
 
-    followup_status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_followup_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="followupStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Followup Status',orderable=True,order_by='status')
+    followup_status_string = status_column(verbose_name='Followup Status', statuses='all_followup_statuses', css='followupStatusChange')
 
 
 
@@ -962,30 +883,10 @@ class ToOFollowupTable(tables.Table):
     created_by = tables.Column(verbose_name='Added By',orderable=True,accessor='created_by')
     comment = tables.Column(verbose_name='Comments',orderable=True,accessor='id')
 
-    transient_status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.transient.id }}_status_name" class="dropbtn">{{ record.transient.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_transient_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.transient.id }}" class="transientStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Transient Status',orderable=True,order_by='status')
+    transient_status_string = status_column(verbose_name='Transient Status', target='record.transient')
 
 
-    followup_status_string = tables.TemplateColumn("""<div class="btn-group">
-<button style="margin-bottom:-5px;margin-top:-10px;padding:1px 5px" type="button" class="btn btn-default dropdown-toggle btn-md" data-toggle="dropdown">
-                                            <span id="{{ record.id }}_status_name" class="dropbtn">{{ record.status }}</span>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% for status in all_followup_statuses %}
-                                                    <li><a data-status_id="{{ status.id }}" data-status_name="{{ status.name }}" transient_id="{{ record.id }}" class="followupStatusChange" href="#">{{ status.name }}</a></li>
-                                            {% endfor %}
-                                        </ul>
-</div>""",
-                                          verbose_name='Followup Status',orderable=True,order_by='status')
+    followup_status_string = status_column(verbose_name='Followup Status', statuses='all_followup_statuses', css='followupStatusChange')
 
     
     def __init__(self,*args, too_resource=None, **kwargs):

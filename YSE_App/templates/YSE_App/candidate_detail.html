@@ -3,6 +3,7 @@
 {% load transient_detail_extras %}
 {% load candidate_extras %}
 {% load tns_extras %}
+{% load access_extras %}
 
 {% block styles %}
 <style>
@@ -98,7 +99,7 @@
               <span class="label label-primary">max S/N {% if candidate_max_snr is not None %}{{ candidate_max_snr|floatformat:1 }}{% else %}&ndash;{% endif %}</span>
               {% if candidate_quality %}<span class="label label-info" title="{{ candidate_quality_help }}">score {{ candidate_quality.0|floatformat:1 }} ({{ candidate_quality.1 }})</span>{% endif %}
             </p>
-            {% if candidate_is_new %}
+            {% if candidate_is_new and user|can_edit:transient %}{# #86: triage removes the New tag: curating #}
             <p style="margin-bottom:6px">
               <button id="cand_triaged" type="button" class="btn btn-success btn-sm" data-next="{% if candidate_next_new %}{% url 'candidate_detail' candidate_next_new %}{% else %}{% url 'candidate_dashboard' %}{% endif %}"><i class="fa fa-check"></i> Mark triaged{% if candidate_next_new %} &amp; next{% endif %}</button>
               {% if candidate_next_new %}<a id="cand_skip" class="btn btn-default btn-sm" href="{% url 'candidate_detail' candidate_next_new %}">Skip, next new &rarr;</a>{% endif %}
@@ -120,6 +121,7 @@
                   promoted; this page keeps the candidate history
                 </span>
               </div>
+              {% if user|can_edit:transient %}{# #86: changing the status is curating #}
               <div class="box-body">
                 <div class="btn-group-horizontal">
                   {% comment %}New first: changing the status to New is the promotion{% endcomment %}
@@ -139,6 +141,7 @@
                   </div>
                 </div>
               </div>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -284,10 +287,12 @@
                           {% for t in candidate_tags_assigned %}<div class="external-event cand-chip cand-assoc {% if t.color %}bg-{{ t.color }}{% else %}bg-gray{% endif %}" data-name="{{ t.name }}" data-tag_id="{{ t.id }}">{{ t.name }}</div>{% endfor %}
                         </div>
                       </div>
+                      {% if user|can_edit:transient %}{# #86: anyone who sees it adds a tag; removing one is curating #}
                       <div id="cand_remove_box" class="box box-default box-solid">
                         <div class="box-header with-border"><strong>Remove Associated Tag</strong></div>
                         <div class="box-body"><small class="text-muted">drag a tag here to remove it</small></div>
                       </div>
+                      {% endif %}
                     </div>
                   </div>
                 </div>
@@ -340,6 +345,7 @@
                       <textarea name="comment" class="form-control" rows="2" placeholder="Add a comment (@name to notify someone)"></textarea>
                       <span class="input-group-btn"><button type="submit" class="btn btn-primary btn-flat">Add</button></span>
                     </div>
+                    {% include "YSE_App/form_snippets/groups_checkboxes.html" with field=transient_comment_form.groups %}
                   </form>
                 </div>
               </div>
@@ -351,7 +357,7 @@
             <div class="col-xs-12">
               <div class="box box-primary">
                 <div class="box-header"><h3 class="box-title">Synoptic information</h3>
-                  <a target="_blank" rel="noopener" href="{% url 'admin:YSE_App_transient_change' transient.id %}">(Edit)</a></div>
+                  {% if user.is_superuser %}<a target="_blank" rel="noopener" href="{% url 'admin:YSE_App_transient_change' transient.id %}">(Edit)</a>{% endif %}</div>
                 <div class="box-body">
                   <div class="row">
                     <div class="col-sm-4"><strong>R.A./Dec (2000)</strong>

@@ -35,6 +35,7 @@
             <div class="box box-default">
                 <!--<strong style="float:left;margin-right:10px;">Status:</strong>-->
                 <h4 id="{{transient.id}}_status_name">Status: {{ transient.status }}</h4>
+                {% if transient.editable %}{# #86: changing the status is curating (visible_rows annotates it) #}
                 <div class="btn-group-horizontal">
                   <button style="margin-bottom:5px;" type="button" transient_id="{{transient.id}}" data-status_id="{{ transient_status_follow.id }}" data-status_name="{{ transient_status_follow.name }}" class="transientStatusChange btn btn-primary">{{ transient_status_follow.name }}</button>
                   <button style="margin-bottom:5px;" type="button" transient_id="{{transient.id}}" data-status_id="{{ transient_status_followrequest.id }}" data-status_name="{{ transient_status_followrequest.name }}" class="transientStatusChange btn btn-info">{{ transient_status_followrequest.name }}</button>
@@ -52,6 +53,7 @@
                     </ul>
                   </div>
                 </div>
+                {% endif %}
               </div>
             </div>
             <div class="col-xs-6">

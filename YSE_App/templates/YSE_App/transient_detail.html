@@ -4,6 +4,7 @@
 {% load candidate_extras %}
 {% load tns_extras %}
 {% load widget_tweaks %}
+{% load access_extras %}
 
 {% block styles %}
     <link rel="stylesheet" href="{% static 'YSE_App/bower_components/select2/dist/css/select2.min.css' %}">
@@ -59,7 +60,7 @@
                                 <div class="box box-primary">
                                     <div class="box-header">
                                         <h3 class="box-title">Transient Detail</h3>
-                                        <a target="_blank" href="{% url 'admin:YSE_App_transient_change' transient.id %}">(Edit)</a>
+                                        {% if user.is_superuser %}<a target="_blank" href="{% url 'admin:YSE_App_transient_change' transient.id %}">(Edit)</a>{% endif %}
                                     </div>
                                     <div class="box-body">
                                         <div class="col-xs-4">
@@ -90,6 +91,7 @@
                                                     <strong style="float:left;margin-right:10px;">Status:</strong>
                                                     <p style="float:left" id="transient_status_name" >{{ transient.status }}</p>
                                                 </div>
+                                                {% if user|can_edit:transient %}{# #86: changing the status is curating #}
                                                 <div class="box-body">
                                                     <div class="btn-group-horizontal">
                                                         <button style="margin-bottom:5px;" type="button" data-status_id="{{ transient_status_follow.id }}" data-status_name="{{ transient_status_follow.name }}" class="transientStatusChange btn btn-primary">{{ transient_status_follow.name }}</button>
@@ -108,6 +110,7 @@
                                                         </div>
                                                     </div>
                                                 </div>
+                                                {% endif %}
                                             </div>
                                         </div>
                                         <div class="col-xs-4">
@@ -314,9 +317,11 @@
                                             <button style="margin-bottom:5px;" type="button" class="photdownload" onclick="window.open('{% url 'download_photometry' transient.slug %}')">
                                                 Download Photometry</span>
                                             </button>
+                                            {% comment %}#86: hidden until #89: its results came back through a cron #86 removes.
                                             <button style="margin-bottom:5px;" type="button" class="ztfrequest">
                                                 Request ZTF Forced Phot</span>
                                             </button>
+                                            {% endcomment %}
                                             </div>
                                             <div class="box-body" id="lcplot"></div>
                                         </div>
@@ -704,6 +709,7 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            {% if user|can_edit:transient %}{# #86: anyone who sees it adds a tag; removing one is curating #}
                                             <div class="col-xs-6">
                                                 <div id="del-associated-event" class="box box-default box-solid">
                                                     <div class="box-header with-border">
@@ -713,11 +719,13 @@
                                                     </div>
                                                 </div>
                                             </div>
+                                            {% endif %}
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="tab-pane" id="followup_tab">
+                        {% if user|can_edit:transient %}{# #86: requesting follow-up is curating #}
                         <div class="row">
                             <div class="col-xs-6">
                                 <input type="hidden" id="transient_pk" value="{{ transient.id }}"/>
@@ -728,6 +736,8 @@
                                 {% include "YSE_App/form_snippets/transient_observation_task_form.html" with form=transient_observation_task_form %}
                             </div>
                         </div>
+                        {% endif %}
+                        {% if perms.YSE_App.curate_transients %}{# #86: curators add their groups' observing resources #}
                         <div class="row">
                             <div class="col-xs-6">
                               {% include "YSE_App/form_snippets/classical_resource_form.html" with form=classical_resource_form %}
@@ -736,12 +746,15 @@
                                 {% include "YSE_App/form_snippets/too_resource_form.html" with form=too_resource_form %}
                             </div>
                         </div>
+                        {% endif %}
+                        {% if user|can_edit:transient %}
                         <div class="row">
                             <div class="col-xs-6">
                                 <input type="hidden" id="transient_pk" value="{{ transient.id }}"/>
                                 {% include "YSE_App/form_snippets/automated_spectrum_form.html" with form=automated_spectrum_form %}
                             </div>
                         </div>
+                        {% endif %}
                         <div class="row">
                             <div id="followup_container">
                                 {% for f in followups %}
@@ -812,8 +825,8 @@
                                                                 </td>
                                                                 <td>{{ f.status }}</td>
                                                                 <td>{{ f.comment }}</td>
-                                                                <td><a target='_blank' href="{% url 'admin:YSE_App_transientfollowup_change' f.id %}">Edit</a></td>
-                                                                <td><a href="{% url 'delete_followup' f.id %}">Delete</a></td>
+                                                                <td>{% if user.is_superuser %}<a target='_blank' href="{% url 'admin:YSE_App_transientfollowup_change' f.id %}">Edit</a>{% endif %}</td>
+                                                                <td>{% if user|can_delete:f %}<form method="post" action="{% url 'delete_followup' f.id %}" style="margin:0" onsubmit="return confirm('Delete this follow-up?');">{% csrf_token %}<button type="submit" class="btn btn-link" style="padding:0">Delete</button></form>{% endif %}</td>
                                                             </tr>
                                                         </tbody>
                                                     </table>
@@ -1144,6 +1157,7 @@
                             {% render_field transient_comment_form.comment class+="form-control" %}
                             <!--<input type="comment" class="form-control" id="comment">-->
                         </div>
+                        {% include "YSE_App/form_snippets/groups_checkboxes.html" with field=transient_comment_form.groups %}
                         <div class="form-group">
                             <button type="submit" class="btn btn-block btn-primary btn-lg">Submit</button>
                         </div>
@@ -2255,8 +2269,8 @@
                             "<td>" + associated_resouces + "</td>" +
                             "<td>" + status_name + "</td>" +
                             "<td>" + comment + "</td>" +
-                            "<td><a target='_blank' href='{% url 'admin:YSE_App_transientfollowup_changelist' %}" + followup_pk + "/change/'>Edit</a></td>" +
-                            "<td><a href='{% url 'delete_followup' -1 %}".replace('-1', followup_pk) + "'>Delete</a></td>" +
+                            {% if user.is_superuser %}"<td><a target='_blank' href='{% url 'admin:YSE_App_transientfollowup_changelist' %}" + followup_pk + "/change/'>Edit</a></td>" +{% else %}"<td></td>" +{% endif %}
+                            "<td><form method='post' action='{% url 'delete_followup' -1 %}".replace('-1', followup_pk) + "' style='margin:0' onsubmit=\"return confirm('Delete this follow-up?');\"><input type='hidden' name='csrfmiddlewaretoken' value='{{ csrf_token }}'><button type='submit' class='btn btn-link' style='padding:0'>Delete</button></form></td>" +
                             "</tr></tbody></table><hr>" +
                             "<h4 class='box-title'>Observation Tasks</h4>" +
                             "<table id='tbl_obs_followup_" + followup_pk + "' class='table table-bordered table-striped'>" +

@@ -1,43 +1,21 @@
-from YSE_App.models import *
-from django.db.models import Q
+"""The observing resources (telescope time) a user may see and use (#86, #91): those in their groups.
+The rule itself is TransientService.readable_resources; a resource with no group is superusers' only
+(it used to be everyone's)."""
+from YSE_App.models import ClassicalObservingDate, ClassicalResource, QueuedResource, ToOResource
+from YSE_App.data import TransientService
 
-
-def GetUserGroupQuery(user):
-    user_groups = []
-    for g in user.groups.all():
-        user_groups.append(g.name)
-
-    no_group = Q(groups__isnull=True)
-    contains_group = Q(groups__name__in=user_groups)
-
-    return no_group, contains_group
 
 def GetAuthorizedToOResource_ByUser(user):
-    group_query_tuple = GetUserGroupQuery(user)
-    allowed_too_resources = ToOResource.objects.filter(group_query_tuple[0] | group_query_tuple[1]).distinct()
+    return TransientService.readable_resources(user, ToOResource.objects.all())
 
-    return allowed_too_resources
 
 def GetAuthorizedQueuedResource_ByUser(user):
-    group_query_tuple = GetUserGroupQuery(user)
-    allowed_queuedresources = QueuedResource.objects.filter(group_query_tuple[0] | group_query_tuple[1]).distinct()
+    return TransientService.readable_resources(user, QueuedResource.objects.all())
 
-    return allowed_queuedresources
 
 def GetAuthorizedClassicalResource_ByUser(user):
-    group_query_tuple = GetUserGroupQuery(user)
-    allowed_classicalresources = ClassicalResource.objects.filter(group_query_tuple[0] | group_query_tuple[1]).distinct()
+    return TransientService.readable_resources(user, ClassicalResource.objects.all())
 
-    return allowed_classicalresources
 
 def GetAuthorizedClassicalObservingDate_ByUser(user):
-    allowed_classical_resource = GetAuthorizedClassicalResource_ByUser(user)
-    classical_resource_ids = allowed_classical_resource.values('id')
-    allowed_classical_obs_dates_query = Q(resource__id__in=classical_resource_ids)
-    allowed_classical_obs_dates = ClassicalObservingDate.objects.filter(allowed_classical_obs_dates_query)
-
-    return allowed_classical_obs_dates
-
-
-
-
+    return ClassicalObservingDate.objects.filter(resource__in=GetAuthorizedClassicalResource_ByUser(user).values('pk'))

@@ -456,7 +456,7 @@ def airmassplot(request, transient_id, obs_id, telescope_id):
         
     transient = Transient.objects.get(pk=transient_id)
     if int(obs_id):
-        obsnight = ClassicalObservingDate.objects.get(pk=obs_id)
+        obsnight = get_object_or_404(ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user), pk=obs_id)  # #86, #91
         obs_date = obsnight.obs_date
     else:
         obs_date = datetime.date.today()
@@ -1726,7 +1726,7 @@ def rise_time(request,transient_id,obs_id):
     risedict = {'rise_time':''}
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
-    obsnight = ClassicalObservingDate.objects.get(pk=obs_id)
+    obsnight = get_object_or_404(ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user), pk=obs_id)  # #86, #91
     obs_date = obsnight.obs_date
     longitude = obsnight.resource.telescope.longitude
     latitude = obsnight.resource.telescope.latitude
@@ -1747,7 +1747,7 @@ def set_time(request,transient_id,obs_id):
     setdict = {'set_time':''}
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
-    obsnight = ClassicalObservingDate.objects.get(pk=obs_id)
+    obsnight = get_object_or_404(ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user), pk=obs_id)  # #86, #91
     obs_date = obsnight.obs_date
     longitude = obsnight.resource.telescope.longitude
     latitude = obsnight.resource.telescope.latitude
@@ -1768,7 +1768,7 @@ def moon_angle(request,transient_id,obs_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
 
-    obsnight = ClassicalObservingDate.objects.get(pk=obs_id)
+    obsnight = get_object_or_404(ObservingResourceService.GetAuthorizedClassicalObservingDate_ByUser(request.user), pk=obs_id)  # #86, #91
     
     obstime = Time(str(obsnight.obs_date).split()[0],scale='utc')
 
@@ -1783,7 +1783,7 @@ def tonight_rise_time(request,transient_id,too_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
 
-    obsnight = ToOResource.objects.filter(id=too_id)[0]
+    obsnight = get_object_or_404(ObservingResourceService.GetAuthorizedToOResource_ByUser(request.user), id=too_id)  # #86, #91
     
     time = Time(datetime.datetime.now())
     sc = SkyCoord('%s %s'%(coords[0],coords[1]),unit=(u.hourangle,u.deg))
@@ -1809,7 +1809,7 @@ def tonight_set_time(request,transient_id,too_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
 
-    obsnight = ToOResource.objects.filter(id=too_id)[0]
+    obsnight = get_object_or_404(ObservingResourceService.GetAuthorizedToOResource_ByUser(request.user), id=too_id)  # #86, #91
     
     time = Time(datetime.datetime.now())
     sc = SkyCoord('%s %s'%(coords[0],coords[1]),unit=(u.hourangle,u.deg))
@@ -1963,7 +1963,10 @@ def get_legacy_image(request,transient_id):
 
 @login_required
 def delta_too_hours(request,too_id):
-    too = ToOResource.objects.get(id=too_id)
+    # #86, #91: only a resource in the user's groups; anything else is a 404
+    too = ObservingResourceService.GetAuthorizedToOResource_ByUser(request.user).filter(id=too_id).first()
+    if too is None:
+        raise Http404('ToO resource not found')
     diff = (too.awarded_too_hours - too.used_too_hours)
 
     diffdict = {'delta_too_hours': diff}

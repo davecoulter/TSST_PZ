@@ -1,0 +1,9 @@
+{# #86: who may see what this form adds. The groups the user may set, their own ticked; at least one. #}
+<div class="form-group">
+    <label>Visible to</label>
+    {% for choice in field %}
+        <label class="checkbox-inline" style="margin-right:10px;">{{ choice.tag }} {{ choice.choice_label }}</label>
+    {% empty %}
+        <p class="text-muted">You're in no group you can share with; ask a superuser to add you to one.</p>
+    {% endfor %}
+</div>

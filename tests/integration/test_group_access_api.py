@@ -49,3 +49,21 @@ def test_a_comment_without_groups_is_refused(base_url, credentials, candidate):
 def test_the_schema_is_open_and_data_needs_credentials(base_url):
     assert requests.get(base_url + "/api/schema/", timeout=30).status_code == 200
     assert requests.get(base_url + "/api/transients/", timeout=30).status_code in (401, 403)
+
+
+def test_resource_groups_are_written_and_read_back(base_url, credentials):
+    """#91: an observing resource takes `groups` by name, at least one, and reads them back."""
+    telescopes = _api(base_url, credentials, "GET", "/api/telescopes/?limit=1&format=json").json()["results"]
+    if not telescopes:
+        pytest.skip("no telescope on this deployment")
+    groups = _api(base_url, credentials, "GET", "/api/groups/?limit=100&format=json").json()["results"]
+    data_group = next((g["name"] for g in groups if g["name"] not in ("Public", "TNS Reporters", "Transient Curators")), None)
+    if data_group is None:
+        pytest.skip("no data group on this deployment")
+    body = {"telescope": telescopes[0]["url"], "begin_date_valid": "2026-01-01T00:00:00Z",
+            "end_date_valid": "2026-01-02T00:00:00Z", "description": "ITEST resource", "groups": [data_group]}
+    resp = _api(base_url, credentials, "POST", "/api/tooresources/", json=body)
+    assert resp.status_code == 201, resp.text[:500]
+    row = _api(base_url, credentials, "GET", resp.json()["url"].replace(base_url, "") + "?format=json").json()
+    assert row["groups"] == [data_group]
+    assert _api(base_url, credentials, "POST", "/api/tooresources/", json=dict(body, groups=[])).status_code == 400

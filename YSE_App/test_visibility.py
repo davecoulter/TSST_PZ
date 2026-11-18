@@ -11,11 +11,11 @@ from django.urls import reverse
 
 from . import table_utils
 from .access import transient_access
-from .data import PhotometryService, SpectraService, TransientService
+from .data import ObservingResourceService, PhotometryService, SpectraService, TransientService
 from .data.TransientService import FULL, PUBLIC, TNS_OBJECT
 from .models import (AlternateTransientNames, FollowupStatus, TagKind, TransientTag, Host, HostPhotometry, Instrument, Log, Observatory,
                      ObservationGroup, PhotometricBand, Telescope, Transient, TransientDiffImage, TransientFollowup,
-                     TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum, TransientStatus)
+                     TransientPhotData, TransientPhotometry, TransientSpecData, TransientSpectrum, TransientStatus, ToOResource)
 
 UTC = datetime.timezone.utc
 
@@ -608,14 +608,19 @@ class ApiTests(VisibilityTestBase):
 		self.assertEqual(self.api(self.admin).post(self.url('instrument-list'), body, format='json').status_code, 201)
 		self.assertEqual(self.api(self.user_b).get(self.url('instrument-list')).status_code, 200)  # reading is open
 
-	def test_anyone_creates_a_tag_its_creator_changes_it_superusers_delete_it(self):
+	def test_anyone_creates_a_tag_its_creator_changes_it_and_deletes_it_while_unused(self):
 		created = self.api(self.user_b).post(self.url('transienttag-list'), {'name': 'interesting to B'}, format='json')
 		self.assertEqual(created.status_code, 201, created.content)
 		tag = TransientTag.objects.get(name='interesting to B')
 		rename = lambda user: self.api(user).patch(self.url('transienttag-detail', tag.pk), {'name': 'renamed'}, format='json')
 		self.assertEqual(rename(self.curator_a).status_code, 403)
 		self.assertEqual(rename(self.user_b).status_code, 200)
-		self.assertEqual(self.api(self.user_b).delete(self.url('transienttag-detail', tag.pk)).status_code, 403)
+		delete = lambda user: self.api(user).delete(self.url('transienttag-detail', tag.pk)).status_code
+		self.assertEqual(delete(self.curator_a), 403)  # not theirs
+		self.t_b.tags.add(tag)  # now on a transient B sees but doesn't curate (B has no curator role): site-wide
+		self.assertEqual(delete(self.user_b), 403)
+		self.t_b.tags.remove(tag)
+		self.assertEqual(delete(self.user_b), 204)  # unused again: the creator may delete it
 
 	def test_the_obsolete_yse_tables_are_for_superusers_only(self):
 		for name in ('surveyfield-list', 'surveyobservation-list', 'oncalldate-list'):
@@ -636,3 +641,302 @@ class ApiTests(VisibilityTestBase):
 		mixed = self.api(self.user_b).patch(self.url('transient-detail', self.t_reported.pk),
 		                                    {'tags': [link], 'status': status}, format='json')
 		self.assertEqual(mixed.status_code, 403)  # anything beyond adding tags is curating
+
+
+class DeleteRuleTests(VisibilityTestBase):
+	"""Review 13: deleting by reach (TransientService.can_delete), and the API's DELETE following it."""
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		cls.status = FollowupStatus.objects.create(name='Requested', **cls.audit)
+		now = datetime.datetime(2026, 1, 1, tzinfo=UTC)
+		cls.window = dict(status=cls.status, valid_start=now, valid_stop=now + datetime.timedelta(days=2), **cls.audit)
+		cls.staff = User.objects.create_user('staff_not_superuser', password='pw', is_staff=True)
+		cls.staff.groups.add(cls.group_a)
+
+	def test_a_curator_deletes_follow_ups_on_transients_they_curate(self):
+		followup = TransientFollowup.objects.create(transient=self.t_a, **self.window)
+		self.assertTrue(TransientService.can_delete(self.curator_a, followup))
+		self.assertFalse(TransientService.can_delete(self.user_a, followup))  # in the group, without the role
+		self.assertTrue(TransientService.can_delete(self.admin, followup))
+
+	def test_data_is_a_curators_to_delete_only_when_every_group_on_it_is_theirs(self):
+		self.assertTrue(TransientService.can_delete(self.curator_a, self.p_reported_a))
+		self.assertTrue(TransientService.can_delete(self.curator_a, self.p_reported_a.transientphotdata_set.first()))
+		self.assertFalse(TransientService.can_delete(self.curator_a, self.p_reported_public))  # Public: site-wide
+		self.p_reported_a.groups.add(self.group_b)
+		self.assertFalse(TransientService.can_delete(self.curator_a, self.p_reported_a))  # another team's too
+		self.assertFalse(TransientService.can_delete(self.user_a, self.p_reported_a))
+
+	def test_comments_are_their_authors_to_delete(self):
+		log = Log.objects.create(transient=self.t_reported, comment='mine', created_by=self.user_b, modified_by=self.user_b)
+		self.assertTrue(TransientService.can_delete(self.user_b, log))
+		self.assertFalse(TransientService.can_delete(self.curator_a, log))  # a curator can't delete another's comment
+		self.assertTrue(TransientService.can_delete(self.admin, log))
+
+	def test_a_tag_is_its_creators_to_delete_while_everything_carrying_it_is_theirs_to_curate(self):
+		tag = TransientTag.objects.create(name='curators tag', created_by=self.curator_a, modified_by=self.curator_a)
+		self.assertTrue(TransientService.can_delete(self.curator_a, tag))  # unused
+		self.t_a.tags.add(tag)
+		self.assertTrue(TransientService.can_delete(self.curator_a, tag))  # only on what they curate
+		self.t_b.tags.add(tag)  # on a transient they can't even see
+		self.assertFalse(TransientService.can_delete(self.curator_a, tag))
+		ingest_tag = TransientTag.objects.create(name='New-ish', **self.audit)  # made by another account
+		self.assertFalse(TransientService.can_delete(self.curator_a, ingest_tag))
+
+	def test_a_resource_is_a_curators_to_delete_while_no_follow_up_outside_their_reach_uses_it(self):
+		resource = ToOResource.objects.create(telescope=self.nircam.telescope, begin_date_valid=self.window['valid_start'],
+		                                      end_date_valid=self.window['valid_stop'], **self.audit)
+		resource.groups.add(self.group_a)
+		self.assertTrue(TransientService.can_delete(self.curator_a, resource))
+		self.assertFalse(TransientService.can_delete(self.user_a, resource))
+		TransientFollowup.objects.create(transient=self.t_a, too_resource=resource, **self.window)
+		self.assertTrue(TransientService.can_delete(self.curator_a, resource))
+		TransientFollowup.objects.create(transient=self.t_b, too_resource=resource, **self.window)
+		self.assertFalse(TransientService.can_delete(self.curator_a, resource))
+
+	def test_transients_hosts_and_site_wide_tables_are_superusers_to_delete(self):
+		for item in (self.t_a, self.host_a, self.nircam, self.band):
+			self.assertFalse(TransientService.can_delete(self.curator_a, item), item)
+			self.assertTrue(TransientService.can_delete(self.admin, item), item)
+
+	def test_the_api_deletes_by_the_same_rule_and_staff_status_plays_no_part(self):
+		from rest_framework.test import APIClient
+		def delete(user, name, pk):
+			client = APIClient()
+			client.force_authenticate(user)
+			return client.delete(reverse(name, args=[pk])).status_code
+		# it used to be any is_staff user (most users) on the viewsets that offer DELETE
+		self.assertEqual(delete(self.staff, 'transient-detail', self.t_a.pk), 403)
+		self.assertEqual(delete(self.staff, 'instrument-detail', self.nircam.pk), 403)
+		self.assertEqual(delete(self.curator_a, 'transient-detail', self.t_a.pk), 403)
+		self.assertEqual(delete(self.user_b, 'transient-detail', self.t_a.pk), 404)  # hidden
+		self.assertTrue(Transient.objects.filter(pk=self.t_a.pk).exists())
+		self.assertEqual(delete(self.admin, 'transient-detail', self.t_orphan.pk), 204)
+
+
+class ResourceRuleTests(VisibilityTestBase):
+	"""#91, folded in: observing resources follow the group rule, and need a data group."""
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		start = datetime.datetime(2026, 1, 1, tzinfo=UTC)
+		dates = dict(telescope=cls.nircam.telescope, begin_date_valid=start,
+		             end_date_valid=start + datetime.timedelta(days=400), **cls.audit)
+		cls.too_a = ToOResource.objects.create(description='A time', **dates)
+		cls.too_a.groups.add(cls.group_a)
+		cls.too_b = ToOResource.objects.create(description='B time', **dates)
+		cls.too_b.groups.add(cls.group_b)
+		cls.too_none = ToOResource.objects.create(description='nobody', **dates)  # used to be everyone's
+
+	def api(self, user):
+		from rest_framework.test import APIClient
+		client = APIClient()
+		client.force_authenticate(user)
+		return client
+
+	def test_a_user_sees_only_their_groups_resources(self):
+		seen = lambda user: set(ObservingResourceService.GetAuthorizedToOResource_ByUser(user))
+		self.assertEqual(seen(self.user_a), {self.too_a})
+		self.assertEqual(seen(self.user_b), {self.too_b})
+		self.assertEqual(seen(self.admin), {self.too_a, self.too_b, self.too_none})
+		rows = self.api(self.user_a).get(reverse('tooresource-list') + '?limit=100').json()['results']
+		self.assertEqual([r['description'] for r in rows], ['A time'])
+		self.assertEqual(self.api(self.user_a).get(reverse('tooresource-detail', args=[self.too_b.pk])).status_code, 404)
+
+	def test_curators_add_resources_for_their_own_groups_only(self):
+		body = lambda groups: {'telescope': reverse('telescope-detail', args=[self.nircam.telescope.pk]),
+		                       'begin_date_valid': '2026-01-01T00:00:00Z', 'end_date_valid': '2026-02-01T00:00:00Z',
+		                       'groups': groups}
+		post = lambda user, groups: self.api(user).post(reverse('tooresource-list'), body(groups), format='json')
+		created = post(self.curator_a, ['Team A'])
+		self.assertEqual(created.status_code, 201, created.content)
+		self.assertEqual(created.json()['groups'], ['Team A'])
+		self.assertEqual(post(self.curator_a, ['Public']).status_code, 400)
+		self.assertEqual(post(self.curator_a, ['Team B']).status_code, 400)
+		self.assertEqual(post(self.curator_a, []).status_code, 400)
+		self.assertEqual(post(self.user_a, ['Team A']).status_code, 403)  # not a curator
+
+	def test_a_curator_changes_only_their_groups_resources(self):
+		patch = lambda user, resource: self.api(user).patch(reverse('tooresource-detail', args=[resource.pk]),
+		                                                    {'description': 'changed'}, format='json').status_code
+		self.assertEqual(patch(self.curator_a, self.too_a), 200)
+		self.assertEqual(patch(self.curator_a, self.too_b), 404)  # not theirs to see
+		self.assertEqual(patch(self.user_a, self.too_a), 403)  # sees it, not a curator
+
+	def test_a_follow_up_uses_only_the_requesters_resources(self):
+		status = FollowupStatus.objects.create(name='Requested', **self.audit)
+		body = lambda resource: {'transient': reverse('transient-detail', args=[self.t_a.pk]),
+		                         'status': reverse('followupstatus-detail', args=[status.pk]),
+		                         'too_resource': reverse('tooresource-detail', args=[resource.pk]),
+		                         'valid_start': '2026-01-01T00:00:00Z', 'valid_stop': '2026-01-02T00:00:00Z',
+		                         'groups': ['Team A']}
+		post = lambda resource: self.api(self.curator_a).post(reverse('transientfollowup-list'), body(resource), format='json')
+		self.assertEqual(post(self.too_a).status_code, 201)
+		self.assertEqual(post(self.too_b).status_code, 400)
+
+
+class AppWritesTests(VisibilityTestBase):
+	"""Part 3b: the app's own write views, forms and edit controls."""
+	AJAX = {'HTTP_X_REQUESTED_WITH': 'XMLHttpRequest'}
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		cls.status = FollowupStatus.objects.create(name='Requested', **cls.audit)
+		for name in ('Following', 'Watch', 'Interesting', 'Ignore'):  # the transient page needs them
+			TransientStatus.objects.get_or_create(name=name, defaults=cls.audit)
+		for user in (cls.user_a, cls.user_b, cls.curator_a, cls.nobody):
+			user.email = user.username + '@example.org'
+			user.save()
+
+	def post(self, user, name, data, *args):
+		if user is not None:
+			self.client.force_login(user)
+		return self.client.post(reverse(name, args=args), data, **self.AJAX)
+
+	def comment(self, user, transient, groups, text='a comment'):
+		return self.post(user, 'add_transient_comment', {'comment': text, 'transient': transient.pk,
+		                                                  'groups': [g.pk for g in groups]})
+
+	# --- logins ---
+
+	def test_every_form_view_needs_a_login(self):
+		for name in ('add_transient_comment', 'add_transient_followup', 'add_transient_observation_task',
+		             'add_classical_resource', 'add_too_resource', 'automated_spectrum_request',
+		             'add_dashboard_query', 'add_followup_notice'):
+			response = self.client.post(reverse(name), {}, **self.AJAX)
+			self.assertEqual(response.status_code, 302, name)
+			self.assertIn('login', response['Location'], name)
+
+	# --- comments ---
+
+	def test_anyone_who_can_see_a_transient_comments_with_their_own_groups_or_public(self):
+		self.assertEqual(self.comment(self.user_b, self.t_reported, [self.group_b]).status_code, 200)
+		self.assertEqual(self.comment(self.user_b, self.t_reported, [self.public]).status_code, 200)
+		log = Log.objects.filter(transient=self.t_reported).order_by('-id').first()
+		self.assertEqual(list(log.groups.all()), [self.public])
+		self.assertEqual(self.comment(self.user_b, self.t_a, [self.group_b]).status_code, 400)  # hidden
+		self.assertEqual(self.comment(self.user_b, self.t_reported, [self.group_a]).status_code, 400)  # not theirs
+		self.assertEqual(self.comment(self.user_b, self.t_reported, []).status_code, 400)  # at least one
+		self.assertEqual(self.post(self.user_b, 'add_transient_comment', {'comment': 'x', 'groups': [self.group_b.pk]}).status_code, 400)
+
+	def test_the_comment_form_ticks_the_authors_own_groups_and_offers_public(self):
+		from .forms import TransientCommentForm
+		field = TransientCommentForm(user=self.user_b).fields['groups']
+		self.assertEqual(set(field.queryset), {self.group_b, self.public})
+		self.assertEqual(field.initial, [self.group_b.pk])
+		self.assertEqual(set(TransientCommentForm().fields['groups'].queryset), set())  # no user: nothing
+
+	def test_a_comment_notifies_only_users_who_can_read_it(self):
+		from .form_views import comment_recipients
+		def log(transient, groups, text):
+			entry = Log.objects.create(transient=transient, comment=text, **self.audit)
+			entry.groups.set(groups)
+			return entry
+		self.assertEqual(comment_recipients(log(self.t_a, [self.group_a], '@in_b @in_a look')), ['in_a@example.org'])
+		everyone = comment_recipients(log(self.t_a, [self.group_a], '@here look'))
+		self.assertEqual(everyone, ['curator_in_a@example.org', 'in_a@example.org'])
+		on_public = comment_recipients(log(self.t_public, [self.public], '@channel'))
+		self.assertEqual(on_public, sorted(u.email for u in (self.user_a, self.user_b, self.curator_a, self.nobody)))
+
+	# --- follow-ups ---
+
+	def followup(self, user, transient, groups, **extra):
+		return self.post(user, 'add_transient_followup', dict({
+			'transient': transient.pk, 'status': self.status.pk, 'valid_start': '2026-01-01 00:00',
+			'valid_stop': '2026-01-02 00:00', 'comment': 'please observe', 'groups': [g.pk for g in groups]}, **extra))
+
+	def test_a_curator_requests_follow_up_on_what_they_curate_with_their_resources(self):
+		response = self.followup(self.curator_a, self.t_a, [self.group_a])
+		self.assertEqual(response.status_code, 200, response.content)
+		followup = TransientFollowup.objects.get(pk=response.json()['data']['id'])
+		self.assertEqual(list(followup.groups.all()), [self.group_a])
+		comment = Log.objects.get(transient_followup=followup)
+		self.assertEqual(list(comment.groups.all()), [self.group_a])  # the follow-up's audience
+		self.assertEqual(self.followup(self.user_a, self.t_a, [self.group_a]).status_code, 400)  # no role
+		self.assertEqual(self.followup(self.curator_a, self.t_b, [self.group_a]).status_code, 400)  # hidden
+		self.assertEqual(self.followup(self.curator_a, self.t_a, [self.public]).status_code, 400)
+		resource_b = ToOResource.objects.create(telescope=self.nircam.telescope, begin_date_valid=datetime.datetime(2026, 1, 1, tzinfo=UTC),
+		                                        end_date_valid=datetime.datetime(2099, 1, 1, tzinfo=UTC), **self.audit)
+		resource_b.groups.add(self.group_b)
+		self.assertEqual(self.followup(self.curator_a, self.t_a, [self.group_a], too_resource=resource_b.pk).status_code, 400)
+
+	def test_deleting_a_follow_up_is_a_post_by_a_curator_of_its_transient(self):
+		window = dict(status=self.status, valid_start=datetime.datetime(2026, 1, 1, tzinfo=UTC),
+		              valid_stop=datetime.datetime(2026, 1, 2, tzinfo=UTC), **self.audit)
+		followup = TransientFollowup.objects.create(transient=self.t_reported, **window)
+		followup.groups.add(self.group_a)
+		self.client.force_login(self.curator_a)
+		self.assertEqual(self.client.get(reverse('delete_followup', args=[followup.pk])).status_code, 405)
+		self.assertEqual(self.post(self.user_a, 'delete_followup', {}, followup.pk).status_code, 403)  # sees it, no role
+		self.assertEqual(self.post(self.user_b, 'delete_followup', {}, followup.pk).status_code, 404)  # its groups hide it
+		self.assertEqual(self.post(self.curator_a, 'delete_followup', {}, followup.pk).status_code, 302)
+		self.assertFalse(TransientFollowup.objects.filter(pk=followup.pk).exists())
+
+	# --- resources, tags, the personal dashboard, superuser pages ---
+
+	def test_curators_add_resources_for_their_own_groups(self):
+		data = lambda groups: {'telescope': self.nircam.telescope.pk, 'begin_date_valid': '2026-01-01 00:00',
+		                       'end_date_valid': '2026-02-01 00:00', 'awarded_too_hours': 1, 'used_too_hours': 0,
+		                       'awarded_too_triggers': 1, 'used_too_triggers': 0, 'groups': [g.pk for g in groups]}
+		self.assertEqual(self.post(self.user_a, 'add_too_resource', data([self.group_a])).status_code, 403)
+		self.assertEqual(self.post(self.curator_a, 'add_too_resource', data([self.public])).status_code, 400)
+		self.assertEqual(self.post(self.curator_a, 'add_too_resource', data([])).status_code, 400)
+		self.assertEqual(self.post(self.curator_a, 'add_too_resource', data([self.group_a])).status_code, 200)
+		self.assertEqual(list(ToOResource.objects.get().groups.all()), [self.group_a])
+
+	def test_candidate_tags_are_added_by_anyone_who_sees_and_removed_by_a_curator(self):
+		TagKind.objects.get_or_create(name='Candidate', defaults=self.audit)
+		tag = lambda user, transient, action: self.post(user, 'candidate_tag', {'action': action, 'name': 'bogus'},
+		                                                 transient.pk).status_code
+		self.assertEqual(tag(self.user_b, self.t_reported, 'add'), 200)
+		self.assertEqual(tag(self.user_b, self.t_reported, 'remove'), 403)
+		self.assertEqual(tag(self.user_b, self.t_a, 'add'), 404)
+		self.assertEqual(tag(self.curator_a, self.t_reported, 'remove'), 200)
+		self.assertFalse(self.t_reported.tags.filter(name='bogus').exists())
+
+	def test_dashboard_removes_act_only_on_ones_own_rows(self):
+		from .models import UserQuery
+		theirs = UserQuery.objects.create(user=self.user_a, python_query='latest', **self.audit)
+		self.assertEqual(self.client.post(reverse('remove_dashboard_query', args=[theirs.pk])).status_code, 302)  # login
+		self.assertEqual(self.post(self.user_b, 'remove_dashboard_query', {}, theirs.pk).status_code, 404)
+		self.assertTrue(UserQuery.objects.filter(pk=theirs.pk).exists())
+		self.post(self.user_a, 'remove_dashboard_query', {}, theirs.pk)
+		self.assertFalse(UserQuery.objects.filter(pk=theirs.pk).exists())
+
+	def test_superuser_only_pages(self):
+		self.client.force_login(self.curator_a)
+		self.assertEqual(self.client.get(reverse('transient_edit')).status_code, 403)
+		self.assertEqual(self.client.post(reverse('add_survey_field'), {}, **self.AJAX).status_code, 403)
+		self.assertEqual(self.client.post(reverse('add_oncall_observer'), {}, **self.AJAX).status_code, 403)
+
+	# --- edit controls ---
+
+	def test_edit_controls_show_only_to_users_who_may_use_them(self):
+		page = lambda user: self.client.get(reverse('transient_detail', args=[self.t_reported.slug])).content.decode() \
+			if self.client.force_login(user) is None else ''
+		outsider, curator = page(self.user_b), page(self.curator_a)
+		for control in ('transientStatusChange btn', 'id="del-associated-event"', 'id="add_transient_followup_btn"',
+		                'admin/YSE_App/transient/'):
+			self.assertNotIn(control, outsider, control)
+		for control in ('transientStatusChange btn', 'id="del-associated-event"', 'id="add_transient_followup_btn"'):
+			self.assertIn(control, curator, control)
+		self.assertNotIn('admin/YSE_App/transient/', curator)  # the admin link is superusers'
+		self.assertIn('name="groups"', outsider)  # anyone who sees it may comment, with groups
+		self.assertNotIn('ztfrequest"', curator)  # hidden until #89
+
+	def test_dashboard_rows_say_whether_the_viewer_may_curate_them(self):
+		rows = lambda user: dict(table_utils.visible_rows(user, Transient.objects.all()).values_list('name', 'editable'))
+		self.assertTrue(rows(self.curator_a)['only_a'])
+		self.assertFalse(rows(self.curator_a)['public_one'])  # Public grants reading only
+		self.assertFalse(any(rows(self.user_a).values()))  # no role
+		self.assertTrue(all(rows(self.admin).values()))
+		from django.template import Context, Template
+		cell = lambda editable: Template(table_utils.status_column().template_code).render(Context({
+			'record': {'id': 1, 'status': 'New', 'editable': editable}, 'all_transient_statuses': []}))
+		self.assertIn('dropdown-toggle', cell(True))
+		self.assertNotIn('dropdown-toggle', cell(False))
+		self.assertIn('>New</span>', cell(False))
