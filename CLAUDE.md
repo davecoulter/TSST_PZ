@@ -20,6 +20,11 @@ This is a TSST customization of [YSE_PZ](https://github.com/davecoulter/YSE_PZ),
    - Afterwards, remind the human to switch back to their defaults.
 4. **Build, then review together:** explain the non-obvious choices. When you use a newer language, tool or DevOps feature, name it briefly.
 5. **Log:** decisions and bugs go in the plan's `## Log`, as dated entries. Workflow lessons go in `agentic_planning/agentic_workflow.md`.
+6. **Framework-native first:** implement a design pattern the simplest way Django or DRF already
+   supports (groups and permissions for roles, `TextChoices` for enums, a one-to-one companion to
+   extend a built-in model, `get_queryset` and permission classes for API filtering), unless that
+   way is an antipattern. When proposing a design, name the native option and, if you don't use
+   it, say why.
 
 ## Git (GitHub flow)
 - Open an issue, branch `<issue#>-<slug>` from `master`, then open a PR to `master`. Never commit directly to `master`.
