@@ -86,8 +86,8 @@ Status: ✅ done · ⏳ to write (part named) · 🧪 manual check on the produc
 | Legacy YSE pages | superuser-only | ⏳ |
 | Explorer | superuser-only | ⏳ |
 | TNS pages | `mutate_tns_metadata`; superusers pass; the select page lists only transients the user can edit | ⏳ |
-| Orphaned grid | superusers only; lists every transient with no group; bulk assign | ⏳ |
-| "Release to Public" admin action | superuser-only; adds `Public` to the transient and all its photometry, spectra and follow-ups | ⏳ |
+| Group access in the admin | the transient page's photometry and spectra inlines save their groups; the `Public` warning is shown; the edit link is superuser-only | ⏳ |
+| "Set group access" action | superuser-only; adds or removes a group on the ticked transients and, as chosen, their photometry, spectra, comments and follow-ups; red confirmation when `Public` is involved; recorded in the admin history; "has no group" filter lists exactly the ungrouped transients | ⏳ |
 | Choosing `Public` for data | refused to curators on upload and on the API; allowed only through release paths and to superusers | ⏳ |
 | Navigation | the TNS Integration and Admin submenus show only to the right users | ⏳ |
 | **URL sweep, logged in** | every URL as a group-B user: A's name, slug and coordinates in no response; skips listed with reasons | ⏳ |
