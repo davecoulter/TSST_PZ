@@ -399,3 +399,79 @@ class ListsTests(VisibilityTestBase):
 		self.assertEqual({t.name for t in TransientService.filter_query_results(self.user_b, rows)}, {'only_b'})
 		self.assertEqual({t.name for t in TransientService.filter_query_results(self.admin, rows)},
 		                 {'only_a', 'only_b', 'no_group'})
+
+
+class EndpointsTests(VisibilityTestBase):
+	"""Phase 2, part 2 (second half): exports, the lookups scripts call, the plot and image endpoints,
+	transient_summary, the archived page, and the TNS form."""
+
+	@classmethod
+	def setUpTestData(cls):
+		super().setUpTestData()
+		for name in ('Following', 'FollowupRequested', 'Watch', 'Interesting', 'Ignore'):  # transient_summary needs them
+			TransientStatus.objects.get_or_create(name=name, defaults=cls.audit)
+		cls.watch = TransientStatus.objects.get(name='Watch')
+		cls.archived = TransientStatus.objects.get_or_create(name='Archived', defaults=cls.audit)[0]
+		# a detection only A may see, on the transient B sees as a TNS object
+		cls.private_point = TransientPhotData.objects.create(
+			photometry=cls.p_reported_a, band=cls.band, flux=1.0, flux_err=0.01, mag=23.9, mag_err=0.01,
+			obs_date=datetime.datetime(2026, 2, 1, tzinfo=UTC), **cls.audit)
+
+	def get(self, user, name, *args, query=''):
+		self.client.force_login(user)
+		return self.client.get(reverse(name, args=args) + query)
+
+	def test_exports_hide_hidden_transients_and_private_photometry(self):
+		for page in ('download_data', 'download_photometry', 'download_spectra'):
+			self.assertEqual(self.get(self.user_b, page, self.t_a.slug).status_code, 404, page)
+		data = self.get(self.user_b, 'download_data', self.t_reported.slug).json()['reported_a']
+		self.assertEqual({p['pk'] for p in data['photometry']}, {self.p_reported_public.pk})
+		mine = self.get(self.user_a, 'download_data', self.t_reported.slug).json()['reported_a']
+		self.assertEqual({p['pk'] for p in mine['photometry']}, {self.p_reported_public.pk, self.p_reported_a.pk})
+
+	def test_lookups_leave_out_hidden_transients_and_their_hosts(self):
+		self.assertEqual(self.get(self.user_b, 'get_transient', self.t_a.slug).json(), {'transient': ''})
+		self.assertNotEqual(self.get(self.user_a, 'get_transient', self.t_a.slug).json()['transient'], '')
+		recent = datetime.datetime.now(UTC) - datetime.timedelta(days=1)  # the box lists recent ones in these statuses
+		Transient.objects.filter(pk__in=[self.t_a.pk, self.t_b.pk]).update(status=self.watch, disc_date=recent)
+		box = self.get(self.user_b, 'get_new_transients_box', '150.18', '2.44', '1.0', '1.0').json()
+		names = {t['transient_name'] for t in box['transients']}
+		self.assertIn('only_b', names)
+		self.assertFalse({'only_a', 'also_a', 'no_group'} & names)
+		hosts = self.get(self.user_b, 'get_host', '150.1', '2.2', '60.0').json()['host candidates']
+		self.assertEqual({h['host_name'] for h in hosts}, {'host of A and the public one', 'catalog galaxy'})
+
+	def test_plot_and_image_endpoints_need_a_login_and_a_visible_transient(self):
+		pages = [('lightcurveplot_detail', self.t_a.pk), ('lightcurveplot_flux', self.t_a.pk),
+		         ('lightcurveplot_summary', self.t_a.pk), ('salt2plot', self.t_a.pk, 0), ('finderchart', self.t_a.pk),
+		         ('finderim', self.t_a.pk), ('get_ps1_image', self.t_a.pk), ('get_legacy_image', self.t_a.pk),
+		         ('get_hst_image', self.t_a.pk), ('get_chandra_image', self.t_a.pk)]
+		for name, *args in pages:
+			self.assertEqual(self.get(self.user_b, name, *args).status_code, 404, name)
+		self.client.logout()
+		for name, *args in pages:
+			self.assertEqual(self.client.get(reverse(name, args=args)).status_code, 302, name)
+		self.assertEqual(self.get(self.user_b, 'lightcurveplot_detail', self.t_reported.pk).status_code, 200)
+
+	def test_transient_summary_lists_and_sorts_only_what_the_user_may_see(self):
+		Transient.objects.filter(pk__in=[self.t_a.pk, self.t_b.pk, self.t_reported.pk]).update(status=self.watch)
+		for sort in ('', '?sort=-last_mag', '?sort=last_obs_date'):
+			page = self.get(self.user_b, 'transient_summary', 'Watch', query=sort)
+			self.assertContains(page, 'only_b')
+			self.assertNotContains(page, 'only_a')
+
+	def test_the_archived_page_and_count_leave_out_hidden_transients(self):
+		from .templatetags.candidate_extras import archived_count
+		Transient.objects.filter(pk__in=[self.t_a.pk, self.t_b.pk]).update(status=self.archived)
+		page = self.get(self.user_b, 'archived_dashboard')
+		self.assertContains(page, 'only_b')
+		self.assertNotContains(page, 'only_a')
+		request = RequestFactory().get('/')
+		request.user = self.user_b
+		self.assertEqual(archived_count({'request': request}), 1)
+
+	def test_the_tns_form_offers_only_photometry_the_reporter_can_see(self):
+		from . import tns_report
+		offered = lambda user: {d['id'] for d in tns_report.transient_fields(user, self.t_reported)['detections']}
+		self.assertNotIn(self.private_point.pk, offered(self.user_b))
+		self.assertIn(self.private_point.pk, offered(self.user_a))

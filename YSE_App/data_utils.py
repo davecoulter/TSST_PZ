@@ -2,7 +2,6 @@ import django
 from django.http import HttpResponse,JsonResponse
 from django.shortcuts import render, get_object_or_404
 from .models import *
-from .transient_names import find_transient
 from django.db import models
 from astropy.coordinates import get_moon, SkyCoord
 from astropy.time import Time
@@ -16,7 +15,7 @@ from django.conf import settings as djangoSettings
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.views.generic import TemplateView
-from .data import PhotometryService, SpectraService, ObservingResourceService
+from .data import PhotometryService, SpectraService, ObservingResourceService, TransientService
 from .serializers import *
 from rest_framework.request import Request
 from django.contrib.auth.decorators import login_required, permission_required
@@ -1201,8 +1200,8 @@ def add_transient_spec(request):
 
 @login_or_basic_auth_required
 def get_transient(request, slug):
-    # also finds a renamed transient by its old slug or either name (#29)
-    found = find_transient(slug)
+    # also finds a renamed transient by its old slug or either name (#29), if the user may see it (#86)
+    found = TransientService.find_visible_transient(request.user, slug)
     t = Transient.objects.filter(pk=found.pk) if found is not None else Transient.objects.none()
 
     return_dict = {"transient":""}
@@ -1215,7 +1214,7 @@ def get_transient(request, slug):
 
 @login_or_basic_auth_required
 def get_rising_transients(request,ndays):
-    qs = recent_rising_transient_queryset(ndays=ndays)
+    qs = TransientService.visible_transients(request.user, recent_rising_transient_queryset(ndays=ndays))
 
     return_dict = {"transient":""}
     for transient in qs:
@@ -1238,7 +1237,7 @@ def find_separation(host_queryset, query_coord, sep_threshold):
 def get_host(request, ra, dec, sep):
 
     query_coord = SkyCoord(ra,dec,unit=(u.deg, u.deg))
-    host_candidates = find_separation(Host.objects.all(), query_coord, float(sep))
+    host_candidates = find_separation(TransientService.visible_hosts(request.user), query_coord, float(sep))
 
     serialized_hosts = []
     for host,sep in host_candidates:
@@ -1258,7 +1257,7 @@ def get_host(request, ra, dec, sep):
 @login_or_basic_auth_required       
 def get_rising_transients_box(request, ra, dec, ra_width, dec_width):
 
-    qs = recent_rising_transient_queryset(ndays=5)
+    qs = TransientService.visible_transients(request.user, recent_rising_transient_queryset(ndays=5))
     ramin,ramax,decmin,decmax = getRADecBox(float(ra),float(dec),float(ra_width),float(dec_width))
     qs = qs.filter(ra__gt=ramin).filter(ra__lt=ramax).filter(dec__gt=decmin).filter(dec__lt=decmax).filter(~Q(status__name='Ignore')).filter(
         Q(status__name='New') | Q(status__name='Watch') | Q(status__name='FollowupRequested') |
@@ -1281,7 +1280,7 @@ def get_rising_transients_box(request, ra, dec, ra_width, dec_width):
 @login_or_basic_auth_required       
 def get_new_transients_box(request, ra, dec, ra_width, dec_width):
 
-    qs = Transient.objects.all() #filter(disc_date__gte=datetime.datetime.utcnow()-datetime.timedelta(5)) #.filter(~Q(TNS_spec_class__isnull=True))
+    qs = TransientService.visible_transients(request.user)
     ramin,ramax,decmin,decmax = getRADecBox(float(ra),float(dec),float(ra_width),float(dec_width))
     qs = qs.filter(ra__gt=ramin).filter(ra__lt=ramax).filter(dec__gt=decmin).filter(dec__lt=decmax).filter(
         Q(status__name='Watch') | Q(status__name='FollowupRequested') | Q(status__name='Following') | Q(status__name='Interesting') |
@@ -1300,27 +1299,6 @@ def get_new_transients_box(request, ra, dec, ra_width, dec_width):
 
     return JsonResponse(return_dict)
 
-@login_or_basic_auth_required       
-def get_all_transients_box(request, ra, dec, ra_width, dec_width):
-
-    qs = Transient.objects.all() #filter(disc_date__gte=datetime.datetime.utcnow()-datetime.timedelta(5)) #.filter(~Q(TNS_spec_class__isnull=True))
-    ramin,ramax,decmin,decmax = getRADecBox(float(ra),float(dec),float(ra_width),float(dec_width))
-    qs = qs.filter(ra__gt=ramin).filter(ra__lt=ramax).filter(dec__gt=decmin).filter(dec__lt=decmax)
-
-    serialized_transients = []
-    for t in qs:
-        serialized_transients.append(
-            {"transient_ra":t.ra,"transient_dec":t.dec,
-             "transient_name":t.name,"transient_id":t.id}
-        )
-
-    return_dict = {"requested ra":float(ra),
-                   "requested dec":float(dec),
-                   "transients":serialized_transients }
-
-    return JsonResponse(return_dict)
-
-
 @csrf_exempt
 @login_or_basic_auth_required
 def query_api(request,query_name):
@@ -1333,16 +1311,21 @@ def query_api(request,query_name):
         if not query.sql.lower().startswith('select'): return Http404('Invalid Query')
         cursor = connections['explorer'].cursor()
         cursor.execute(query.sql.replace('%','%%'), ())
-        #transients = Transient.objects.filter(name__in=(x[0] for x in cursor)).order_by('-disc_date')
         field_names = [c[0] for c in cursor.description]
         field_vals = [x for x in cursor]
         cursor.close()
+        transients = TransientService.filter_query_results(request.user, field_vals)
     else:
-        #query = UserQuery.objects.filter(python_query = unquote(query_name))
-        #if not len(query): return Http404('Invalid Query')
-        #query = query[0]
-        try: transients = getattr(yse_python_queries,unquote(query_name))() #.python_query)()
+        try: transients = TransientService.visible_transients(request.user, getattr(yse_python_queries,unquote(query_name))())
         except: return Http404('Invalid Query')
+        field_names = field_vals = None
+
+    # Only superusers see a query's raw rows (#86): any column of any table can be in them. Everyone
+    # else gets the transients it names that they may see.
+    if not (request.user.is_superuser and field_vals is not None):
+        return JsonResponse({"transients": [
+            {"transient_ra":t.ra,"transient_dec":t.dec,"transient_name":t.name,"transient_id":t.id}
+            for t in transients]})
 
     serialized_transients = []
     for vals in field_vals:
@@ -1383,7 +1366,8 @@ HAVING sep < 3.3
     cursor = connections['explorer'].cursor()
     cursor.execute(query, ())
 
-    qs = Transient.objects.filter(created_date__gte=datetime.datetime.utcnow()-datetime.timedelta(90)).filter(name__in=(x[0] for x in cursor))
+    qs = TransientService.filter_query_results(request.user, cursor.fetchall()).filter(
+        created_date__gte=datetime.datetime.utcnow()-datetime.timedelta(90))
 
     serialized_transients = []
     for t in qs.filter(Q(tags__name='YSE')):

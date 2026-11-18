@@ -35,7 +35,7 @@ from .forms import *
 from .common import utilities
 from . import view_utils
 from .candidate_ingest import find_by_name
-from .transient_names import find_transient, name_q, transient_not_found
+from .transient_names import name_q
 from . import dashboard_sets
 from . import candidate_views
 import datetime
@@ -294,37 +294,13 @@ def transient_summary(request,status_or_query_name,
             query = query[0]
             transients = getattr(yse_python_queries,query.python_query)()
 
+    # only what the user may see, with Last Mag / Last Obs. Date from their photometry (#86)
+    transients = visible_rows(request.user, transients if transients != [] else Transient.objects.none())
     if 'sort' in request.GET.keys():
-        if request.GET['sort'] == 'last_obs_date' or request.GET['sort'] == '-last_obs_date':
-            if request.GET['sort'] == '-last_obs_date':
-                is_descending = True
-            else:
-                is_descending = False
-            
-            all_phot = TransientPhotometry.objects.values('transient').filter(transient__in = transients)
-            phot_ids = all_phot.values('id')
-        
-            phot_data_query = Q(transientphotometry__id__in=phot_ids)
-            transients = transients.annotate(
-                recent_magdate=Max('transientphotometry__transientphotdata__obs_date',filter=phot_data_query), #,filter=phot_data_query
-            ).order_by(('-' if is_descending else '') + 'recent_magdate')
-            
-        elif request.GET['sort'] == 'last_mag' or request.GET['sort'] == '-last_mag':
-            raw_query = """
-SELECT pd.mag
-   FROM YSE_App_transient t, YSE_App_transientphotdata pd, YSE_App_transientphotometry p
-   WHERE pd.photometry_id = p.id AND
-   YSE_App_transient.id = t.id AND
-   pd.id = (
-         SELECT pd2.id FROM YSE_App_transientphotdata pd2, YSE_App_transientphotometry p2
-         WHERE pd2.photometry_id = p2.id AND p2.transient_id = t.id
-         ORDER BY pd2.obs_date DESC
-         LIMIT 1
-     )
-"""
-            if request.GET['sort'] == '-last_mag': is_descending = True
-            else: is_descending = False
-            transients = transients.annotate(last_mag=RawSQL(raw_query,())).order_by(('-' if is_descending else '') + 'last_mag')
+        if request.GET['sort'] in ('last_obs_date', '-last_obs_date'):
+            transients = transients.order_by(request.GET['sort'].replace('last_obs_date', 'recent_magdate'))
+        elif request.GET['sort'] in ('last_mag', '-last_mag'):
+            transients = transients.order_by(request.GET['sort'].replace('last_mag', 'recent_mag'))
         else:
             transients = transients.order_by(request.GET['sort'])
             
@@ -1231,7 +1207,7 @@ def download_data(request, slug):
     else:
         user = request.user
         
-    found = find_transient(slug)
+    found = TransientService.find_visible_transient(request.user, slug)
     if found is None:
         raise Http404('No transient named %s' % slug)
     transient = Transient.objects.filter(pk=found.pk)
@@ -1284,7 +1260,7 @@ def download_photometry(request, slug):
         
     content = ""
         
-    found = find_transient(slug)
+    found = TransientService.find_visible_transient(request.user, slug)
     if found is None:
         raise Http404('No transient named %s' % slug)
     transient = Transient.objects.filter(pk=found.pk)
@@ -1397,7 +1373,7 @@ def download_bulk_photometry(request, query_title):
         cursor.close()
 
     elif getattr(yse_python_queries,query_title):
-        transients = getattr(yse_python_queries,query_title)()
+        transients = TransientService.visible_transients(request.user, getattr(yse_python_queries,query_title)())
 
     s = BytesIO()
     archive = zipfile.ZipFile(s, 'w', zipfile.ZIP_DEFLATED)
@@ -1489,7 +1465,7 @@ def download_spectra(request, slug):
         user = request.user
 
 
-    transient = find_transient(slug)
+    transient = TransientService.find_visible_transient(request.user, slug)
     if transient is None:
         raise Http404('No transient named %s' % slug)
     
@@ -1712,7 +1688,7 @@ def ztf_forced_phot(request,slug):
 
     from YSE_App.data_ingest import ZTF_Forced_Phot
 
-    transient = find_transient(slug)
+    transient = TransientService.find_visible_transient(request.user, slug)
     if transient is None:
         raise Http404('No transient named %s' % slug)
 

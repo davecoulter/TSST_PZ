@@ -40,18 +40,18 @@ Status: ✅ done · ⏳ to write (part named) · 🧪 manual check on the produc
 | Transients near the host | hidden names left out | `TransientPagesTests.test_the_transients_near_the_host_…` | ✅ |
 | Candidate dashboard | hidden candidates left out | `TransientPagesTests.test_the_candidate_dashboard_…` | ✅ |
 | Spectrum plots, candidate SED | login needed; hidden id = 404 | `TransientPagesTests.test_plots_by_id_need_…` | ✅ |
-| TNS report form | only photometry the reporter can see | `test_tns_report.TransientFieldsTests` (now with groups) | ✅ (no test of a hidden point yet: ⏳ part 2b) |
+| TNS report form | only photometry the reporter can see | `test_tns_report.TransientFieldsTests` (now with groups), `EndpointsTests.test_the_tns_form_offers_only_…` | ✅ |
 | Dashboard table columns | Last Mag / Last Obs. Date / Disc. Mag from visible photometry only | `ListsTests.test_photometry_columns_…` | ✅ |
 | Sorting by those columns | no private values leak through the order | `ListsTests.test_sorting_by_last_mag_…` | ✅ |
 | Main dashboard, search by name and by coordinates | hidden transients left out | `ListsTests.test_search_and_the_dashboard_…`, `test_search_by_coordinates_…` | ✅ |
-| Archived dashboard | hidden transients left out | — | ⏳ part 2b |
-| Sidebar badges | counts per user | `ListsTests.test_the_sidebar_counts_…` | ✅ (archived count: ⏳ part 2b) |
+| Archived dashboard | hidden transients left out | `EndpointsTests.test_the_archived_page_and_count_…` | ✅ |
+| Sidebar badges | counts per user | `ListsTests.test_the_sidebar_counts_…`, `EndpointsTests.test_the_archived_page_and_count_…` | ✅ |
 | Search by tag | hidden transients left out | `ListsTests.test_search_by_tag_…` | ✅ |
-| Saved queries (`filter_query_results`) | names narrowed to what the user may see | `ListsTests.test_saved_query_results_…` | ✅ (through the pages: ⏳ part 2b) |
-| `transient_summary`, `query_api` | filtered lists | — | ⏳ part 2b |
-| Exports (`download_data`, `download_photometry`, `download_spectra`, `download_bulk_photometry`) | hidden = 404; only visible photometry and spectra | — | ⏳ part 2b |
-| `data_utils` lookups (`get_transient`, rising and box searches, `box_search`, `get_host`) | hidden transients and their hosts left out | — | ⏳ part 2b |
-| The other 33 `view_utils` endpoints (light curves, SALT2, finder charts, images, rise/set, moon, airmass) | login needed; hidden id = 404; plots use only visible photometry | — | ⏳ part 2b |
+| Saved queries (`filter_query_results`) | names narrowed to what the user may see | `ListsTests.test_saved_query_results_…` | ✅ (through the pages, including `query_api`'s raw rows for superusers only: 🧪 on the production restore, because the test database has no `explorer` connection) |
+| `transient_summary` | filtered list; sorting by Last Mag / Last Obs. Date uses visible values | `EndpointsTests.test_transient_summary_…` | ✅ |
+| Exports (`download_data`, `download_photometry`, `download_spectra`) | hidden = 404; only visible photometry | `EndpointsTests.test_exports_…` | ✅ (`download_bulk_photometry` runs saved SQL: 🧪) |
+| `data_utils` lookups (`get_transient`, `get_new_transients_box`, `get_host`) | hidden transients and their hosts left out | `EndpointsTests.test_lookups_…` | ✅ (`get_rising_transients*` and `box_search`: covered by the URL sweep, part 4) |
+| The `view_utils` endpoints (light curves, SALT2, finder charts, images, rise/set, moon, airmass) | login needed; hidden id = 404 | `EndpointsTests.test_plot_and_image_endpoints_…` | ✅ (rise/set/moon/airmass take an observing night too: URL sweep, part 4) |
 
 ## Phase 2: API and writes (part 3)
 

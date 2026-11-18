@@ -2,7 +2,7 @@
 
 - **Issue:** #86, with #88 folded in as phase 5 (the PR closes both)
 - **Branch:** `86-group-visibility`
-- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 part 1 committed; phase 2 part 2 (first half) built, in review
+- **Status:** Approved by Dave 2026-11-17 for phases 1–4 (phase 5 later). Phase 1 and phase 2 parts 1 and 2 committed; part 3 (API and writes) next
 
 ## Why
 
@@ -195,3 +195,9 @@ Out of scope:
   - **Badges:** the sidebar's new-candidate and archived counts are per user (`simple_tag(takes_context=True)`).
   - **Saved queries:** all four places that run saved SQL (the personal dashboard, `transient_summary`, the bulk photometry download, `change_status_for_query`) go through `TransientService.filter_query_results`. It keeps only the names from the first column and narrows them to what the user may see; the plan said ids, but the existing convention is names.
   - **Left for part 4:** the YSE-only tables' `render_*` methods (follow-up resources and comments) and `yse_views.py`'s raw-SQL `recent_mag`, because their pages become superuser-only. `table_utils.dashboard_tables` (an early view putting every transient in one table) wasn't routed in `urls.py`: deleted with its template (Dave). Saved queries keep returning names, for consistency (Dave). Every test is tracked in `tests.md`, next to this plan.
+- **2026-11-17 (phase 2, part 2b: exports, lookups, endpoints by id):**
+  - **`@transient_access` guard mode** (`pass_transient=False`): it checks login and visibility, then calls the view unchanged. It also reads a positional id, because `salt2plot` calls `lightcurveplot_detail` directly. It's on every routed `view_utils` endpoint that takes a transient (light curves, SALT2, finder charts, PS1/HST/Chandra/Legacy images, airmass, rise/set, moon), and on the finder-chart methods through `method_decorator`. The other routed `view_utils` views got `@login_required`.
+  - **Lookups and exports:** `get_transient`, the rising and new boxes, `box_search` and `get_host` read through `visible_transients` / `visible_hosts` / `filter_query_results`. The exports and `ztf_forced_phot` find their transient with `find_visible_transient`. `transient_summary` uses `visible_rows`, and its Last Mag / Last Obs. Date sorting uses the annotations instead of raw SQL.
+  - **`query_api`:** only superusers get a saved query's raw rows. Everyone else gets the transients it names that they may see, in the box searches' name/RA/Dec/id shape. This also fixes its python-query branch, which crashed (`field_vals` was never set). Dave agreed. Its only callers are YSE-era scripts (the QUB and DECam ingests, which phase 3 removes from cron, and the `get_YSE_PAs` scripts, including three dead copies in `util/`); a script that needs raw rows runs as a superuser.
+  - **Deleted as unused:** `get_all_transients_box` (no URL), and the `get_ps1_image` / `lightcurveplt` template filters with their own `get_all_phot_for_transient` (no template used them; they read transients and all photometry without the rule).
+  - Tests are tracked in `tests.md`.

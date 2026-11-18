@@ -28,6 +28,7 @@ from bokeh.models import Range1d,Span,LinearAxis,Label,Title,HoverTool
 from bokeh.core.properties import FontSizeSpec
 from .data import PhotometryService, SpectraService, ObservingResourceService
 from .access import transient_access
+from django.utils.decorators import method_decorator
 from .serializers import *
 from rest_framework.request import Request
 from django.contrib.auth.decorators import login_required, permission_required
@@ -235,6 +236,8 @@ class finder(TemplateView):
     
     def __init__(self):
         pass
+    @method_decorator(login_required)
+    @method_decorator(transient_access(by='transient_id', pass_transient=False))
     def finderchart(self, request, transient_id, clobber=False):
         import os
         from .util import mkFinderChart
@@ -307,6 +310,8 @@ class finder(TemplateView):
         return render(request,'YSE_App/finder.html',
                       context)
 
+    @method_decorator(login_required)
+    @method_decorator(transient_access(by='transient_id', pass_transient=False))
     def finderim(self, request, transient_id, clobber=False):
         import os
         from .util import mkFinderChart
@@ -439,6 +444,8 @@ class finder(TemplateView):
 # i.e. a tuple of (datetime, airmass) that ChartJS can plot on the 
 # client 
     
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def airmassplot(request, transient_id, obs_id, telescope_id):
     #font = {'family' : 'normal',
     #       'weight' : 'normal',
@@ -494,6 +501,7 @@ def airmassplot(request, transient_id, obs_id, telescope_id):
     canvas.print_jpg(response)
     return response
 
+@login_required
 def view_yse_fields(request):
 
     cmap = cm.gray
@@ -579,16 +587,22 @@ def view_yse_fields(request):
     return response
 
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def salt2plot(request, transient_id, salt2fit):
 
     response = lightcurveplot_detail(request,transient_id,salt2=int(salt2fit))
     return response
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def salt2fluxplot(request, transient_id, salt2fit):
 
     response = lightcurveplot_flux(request,transient_id,salt2=int(salt2fit))
     return response
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def lightcurveplot_summary(request, transient_id, salt2=False):
     import time
     tstart = time.time()
@@ -850,6 +864,8 @@ def lightcurveplot_summary(request, transient_id, salt2=False):
     return HttpResponse(g.replace('width: 90%','width: 100%'))
 
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def lightcurveplot_detail(request, transient_id, salt2=False):
     import time
     # ?compact=1 (the candidate page): wider than tall, bigger points; the default is unchanged
@@ -1130,6 +1146,8 @@ def lightcurveplot_detail(request, transient_id, salt2=False):
     return HttpResponse(g.replace('width: 90%','width: 100%'))
 
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def lightcurveplot_flux(request, transient_id, salt2=False):
     import time
     tstart = time.time()
@@ -1701,6 +1719,8 @@ def rise_func(coords,obs_date,longitude,latitude,elevation,risedict):
     print('rise time took %s'%(time.time()-tstart))
     Q.put(risetime)
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def rise_time(request,transient_id,obs_id):
         
     risedict = {'rise_time':''}
@@ -1720,6 +1740,8 @@ def rise_time(request,transient_id,obs_id):
 
     return JsonResponse(risedict)
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def set_time(request,transient_id,obs_id):
 
     setdict = {'set_time':''}
@@ -1740,6 +1762,8 @@ def set_time(request,transient_id,obs_id):
     return JsonResponse(setdict)
 
         
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def moon_angle(request,transient_id,obs_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
@@ -1753,6 +1777,8 @@ def moon_angle(request,transient_id,obs_id):
     moondict = {'moon_angle':'%.1f deg'%cs.separation(mooncoord).deg}
     return JsonResponse(moondict)
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def tonight_rise_time(request,transient_id,too_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
@@ -1777,6 +1803,8 @@ def tonight_rise_time(request,transient_id,too_id):
     risedict = {'rise_time':returnstarttime}
     return JsonResponse(risedict)
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def tonight_set_time(request,transient_id,too_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
@@ -1801,6 +1829,8 @@ def tonight_set_time(request,transient_id,too_id):
     setdict = {'set_time':returnstarttime}
     return JsonResponse(setdict)
     
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def tonight_moon_angle(request,transient_id,too_id):
     transient = Transient.objects.filter(id=transient_id)[0]
     coords = transient.CoordString()
@@ -1811,6 +1841,8 @@ def tonight_moon_angle(request,transient_id,too_id):
     moondict = {'moon_angle':'%.1f deg'%cs.separation(mooncoord).deg}
     return JsonResponse(moondict)
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def get_ps1_image(request,transient_id):
     
     try:
@@ -1833,6 +1865,8 @@ def get_ps1_image(request,transient_id):
     jpegurldict = {"jpegurl":jpegurl,"msg":"success"}
     return(JsonResponse(jpegurldict))
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def get_hst_image(request,transient_id):
     try:
         t = Transient.objects.get(pk=transient_id)
@@ -1867,6 +1901,8 @@ def get_hst_image(request,transient_id):
 
     return(JsonResponse(jpegurldict))
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def get_chandra_image(request,transient_id):
     
     try:
@@ -1903,6 +1939,8 @@ def get_chandra_image(request,transient_id):
     return(JsonResponse(jpegurldict))
 
 
+@login_required
+@transient_access(by='transient_id', pass_transient=False)
 def get_legacy_image(request,transient_id):
     
     try:
@@ -1923,6 +1961,7 @@ def get_legacy_image(request,transient_id):
 
     return(JsonResponse(jpegurldict))
 
+@login_required
 def delta_too_hours(request,too_id):
     too = ToOResource.objects.get(id=too_id)
     diff = (too.awarded_too_hours - too.used_too_hours)
